@@ -1,4 +1,6 @@
 .env
 __pycache__/
 *.pyc
-DifyTelegramBot/.env
+
+# Rust
+target/

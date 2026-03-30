@@ -1,0 +1,39 @@
+[package]
+name = "dify-telegram-bot"
+version = "0.1.0"
+edition = "2024"
+description = "Dify Bazi Telegram Bot - A Telegram bot for Chinese almanac and Bazi analysis"
+
+[dependencies]
+# Telegram Bot Framework
+teloxide = { version = "0.15", features = ["macros"] }
+
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP Client
+reqwest = { version = "0.13", features = ["json"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Environment Variables
+dotenvy = "0.15"
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Scheduled Jobs
+tokio-cron-scheduler = "0.15"
+
+# Concurrent HashMap
+dashmap = "6"
+
+# UUID for callback data
+uuid = { version = "1", features = ["v4"] }
