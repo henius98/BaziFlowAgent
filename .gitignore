@@ -4,3 +4,8 @@ __pycache__/
 
 # Rust
 target/
+
+# sqlite db
+*.db
+*.db-shm
+*.db-wal

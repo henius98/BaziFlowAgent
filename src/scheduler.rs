@@ -1,19 +1,22 @@
-use chrono::{Datelike, Duration, Local, NaiveDate, Utc};
-use chrono_tz::Asia::Singapore;
+use chrono::{Duration, Local, Utc};
 use std::sync::Arc;
+use teloxide::prelude::*;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{error, info};
 
-use crate::dify;
+use crate::state::AppState;
+use crate::llm_bazi;
 
 /// Configuration for the scheduler
 pub struct SchedulerConfig {
-    pub webhook_url: String,
     pub http_client: reqwest::Client,
+    pub bot: Bot,
+    pub app_state: Arc<AppState>,
+    pub admin_chat_id: i64,
 }
 
 /// Start the background scheduler with:
-/// 1. A daily job at 10:00 PM SGT to send tomorrow's date to Dify
+/// 1. A daily job at 10:00 PM SGT to send tomorrow's date to LLM
 /// 2. A cleanup job every 5 minutes to expire old user contexts
 pub async fn start_scheduler(
     config: Arc<SchedulerConfig>,
@@ -23,21 +26,39 @@ pub async fn start_scheduler(
 ) -> Result<JobScheduler, Box<dyn std::error::Error + Send + Sync>> {
     let sched = JobScheduler::new().await?;
 
-    // Add job to run daily at 10:00 pm SGT (14:00 UTC)
-    // Cron: sec min hour day month weekday
     let config_clone = config.clone();
     let daily_job = Job::new_async("0 0 14 * * *", move |_uuid, _l| {
         let cfg = config_clone.clone();
         Box::pin(async move {
-            info!("Running scheduled Dify job...");
+            info!("Running scheduled Bazi job...");
             let tomorrow = (Local::now().date_naive() + Duration::days(1))
                 .format("%Y-%m-%d")
                 .to_string();
 
             // We pass empty history_msg since it's a scheduled job
-            match dify::send_to_dify(&cfg.http_client, &cfg.webhook_url, &tomorrow, "").await {
+            match llm_bazi::generate_bazi_reading(
+                &cfg.http_client,
+                &tomorrow,
+                "",
+                &cfg.app_state.user_bazi,
+                &cfg.app_state.openai_api_key,
+                &cfg.app_state.openai_api_base,
+                &cfg.app_state.llm_model_name,
+            )
+            .await
+            {
                 Ok(response) => {
-                    info!("Scheduled Job Response: {:?}", response);
+                    info!("Scheduled Job LLM generated");
+                    if let Err(e) = cfg
+                        .bot
+                        .send_message(ChatId(cfg.admin_chat_id), response)
+                        .await
+                    {
+                        error!(
+                            "Failed to send scheduled message to admin {}: {}",
+                            cfg.admin_chat_id, e
+                        );
+                    }
                 }
                 Err(e) => {
                     error!("Scheduled Job Error: {}", e);
