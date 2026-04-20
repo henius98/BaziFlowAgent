@@ -8,13 +8,14 @@ use async_openai::{
     },
 };
 use reqwest::Client as HttpClient;
-use tracing::info;
+use tracing::{debug, info};
 
 pub async fn generate_bazi_reading(
     http_client: &HttpClient,
     date_value: &str,
     history_msg: &str,
     user_bazi: &str,
+    destiny_reading: &str,
     api_key: &str,
     api_base: &str,
     model_name: &str,
@@ -49,10 +50,17 @@ pub async fn generate_bazi_reading(
         format!("{}\n\n{}", almanac_data, history_msg)
     };
 
-    let user_content = format!(
-        "请结合下信息以便进行精确排盘与推演：\n{}\n预测目标日期:{}\n{}",
-        user_bazi, date_value, context_data
-    );
+    let user_content = if destiny_reading.is_empty() {
+        format!(
+            "请结合下信息以便进行精确排盘与推演：\n{}\n预测目标日期:{}\n{}",
+            user_bazi, date_value, context_data
+        )
+    } else {
+        format!(
+            "请结合以下信息进行精确的日运势推演：\n\n【用户八字排盘】\n{}\n\n【用户命格详批】\n{}\n\n【目标预测日期】\n{}\n\n【其他背景信息】\n{}",
+            user_bazi, destiny_reading, date_value, context_data
+        )
+    };
 
     let user_message = ChatCompletionRequestUserMessageArgs::default()
         .content(user_content)
@@ -68,6 +76,8 @@ pub async fn generate_bazi_reading(
         .top_p(0.75)
         .build()?;
 
+    debug!("Full System Prompt:\n{}", system_prompt_template);
+    debug!("Full User Prompt:\n{}", user_content);
     info!("Sending request to LLM (Model: {})...", model_name);
     let response = llm_client
         .chat()
@@ -125,6 +135,8 @@ pub async fn generate_destiny_reading(
         .top_p(0.75)
         .build()?;
 
+    debug!("Full System Prompt:\n{}", system_prompt);
+    debug!("Full User Prompt: 请为我进行八字命理解读。");
     info!(
         "Sending destiny reading request to LLM (Model: {})...",
         model_name

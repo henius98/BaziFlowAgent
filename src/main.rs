@@ -13,9 +13,6 @@ use handlers::Command;
 use std::sync::Arc;
 use teloxide::{prelude::*, types::BotCommand};
 use tracing::{error, info};
-use axum::{routing::post, Router};
-use tower_http::services::ServeDir;
-use std::net::SocketAddr;
 
 use config::AppConfig;
 use state::AppState;
@@ -24,7 +21,7 @@ use state::AppState;
 async fn main() {
     // Initialize logging
     logger::init();
-
+    
     let config = AppConfig::from_env();
 
     let bot = Bot::new(&config.telegram_bot_token);
@@ -47,8 +44,6 @@ async fn main() {
         config.openai_api_base,
         config.llm_model_name,
         config.user_bazi,
-        config.webapp_base_url,
-        bot.clone(),
         config.max_context_messages,
     ));
 
@@ -83,31 +78,7 @@ async fn main() {
     .await
     .expect("Failed to start scheduler");
 
-    info!("Bot starting...");
-    
-    // Start web server for Telegram Web App
-    let port = config.server_port;
-    let web_state = state.clone();
-    tokio::spawn(async move {
-        let app = Router::new()
-            .nest_service("/webapp", ServeDir::new("webapp"))
-            .route("/api/submit-time", post(handlers::handle_webapp_time))
-            .with_state(web_state);
-            
-        let addr = SocketAddr::from(([0, 0, 0, 0], port));
-        info!("Web server listening on http://{}", addr);
-        
-        match tokio::net::TcpListener::bind(addr).await {
-            Ok(listener) => {
-                if let Err(e) = axum::serve(listener, app).await {
-                    error!("Web server error: {}", e);
-                }
-            }
-            Err(e) => {
-                error!("Failed to bind web server to {}: {}", addr, e);
-            }
-        }
-    });
+    info!("BaziFlowAgent starting...");
 
     // Build the dispatcher with handlers
     let handler = dptree::entry()

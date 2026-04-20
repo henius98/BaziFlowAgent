@@ -1,10 +1,10 @@
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     username TEXT,
-    first_name TEXT,
-    last_name TEXT,
-    bazi TEXT,
     gender INTEGER,
+    birth_datetime DATETIME,
+    bazi TEXT,
+    destiny_reading TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

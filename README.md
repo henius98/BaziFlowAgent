@@ -1,9 +1,9 @@
-# Bazi-telegram-bot ☯️🤖
+# BaziFlowAgent ☯️🤖
 
 [![Rust](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
 [![Teloxide](https://img.shields.io/badge/telegram-teloxide-blue.svg)](https://github.com/teloxide/teloxide)
 
-A high-performance Telegram Bot built in **Rust** 🦀 that integrates with **AI Agent** to provide professional Daily Almanac (黄历) & Bazi (八字) fortune-telling analysis.
+A high-performance Telegram Bot built in **Rust** 🦀 that integrates with **BaziFlowAgent** to provide professional Daily Almanac (黄历) & Bazi (八字) fortune-telling analysis.
 
 ## 🌟 Key Features
 
@@ -24,7 +24,7 @@ A high-performance Telegram Bot built in **Rust** 🦀 that integrates with **AI
 ## 📁 Repository Structure
 
 ```text
-BaziAgentWorkflow/
+BaziFlowAgent/
 ├── Cargo.toml                  # Rust dependencies & package config
 ├── DEPLOYMENT.md               # Instructions for DietPi/Raspberry Pi setup
 ├── telegramBot.service         # Systemd unit file for background running

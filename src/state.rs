@@ -18,10 +18,8 @@ pub struct AppState {
     pub user_last_active: Arc<DashMap<i64, chrono::DateTime<Utc>>>,
     /// Temporary storage for user's selected gender during /new flow
     pub pending_gender: Arc<DashMap<i64, u8>>,
-    /// Temporary storage for user's selected date (YYYY-MM-DD) before time is selected via webapp
+    /// Temporary storage for user's selected date (YYYY-MM-DD) before time is selected via Telegram numpad
     pub pending_birthdate: Arc<DashMap<i64, String>>,
-    pub webapp_base_url: String,
-    pub bot: teloxide::Bot,
     pub max_context_messages: usize,
 }
 
@@ -33,8 +31,6 @@ impl AppState {
         openai_api_base: String,
         llm_model_name: String,
         user_bazi: String,
-        webapp_base_url: String,
-        bot: teloxide::Bot,
         max_context_messages: usize,
     ) -> Self {
         Self {
@@ -48,14 +44,7 @@ impl AppState {
             user_last_active: Arc::new(DashMap::new()),
             pending_gender: Arc::new(DashMap::new()),
             pending_birthdate: Arc::new(DashMap::new()),
-            webapp_base_url,
-            bot,
             max_context_messages,
         }
-    }
-
-    /// Helper to construct a URL for a specific Mini App page
-    pub fn get_webapp_url(&self, page: &str) -> String {
-        format!("{}/{}", self.webapp_base_url, page)
     }
 }

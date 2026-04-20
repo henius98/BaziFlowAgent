@@ -12,8 +12,6 @@ pub struct AppConfig {
     pub admin_chat_id: i64,
     pub database_url: String,
     pub expiration_minutes: i64,
-    pub webapp_base_url: String,
-    pub server_port: u16,
     pub bazi_job_cron: String,
     pub context_cleanup_cron: String,
     pub log_cleanup_cron: String,
@@ -41,28 +39,12 @@ impl AppConfig {
             .unwrap_or(0);
 
         let database_url =
-            env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://bazi_telegram_bot_agent.db".to_string());
+            env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://baziflow_agent.db".to_string());
 
         let expiration_minutes = env::var("EXPIRATION_MINUTES")
             .unwrap_or_else(|_| "30".to_string())
             .parse::<i64>()
             .unwrap_or(30);
-
-        let server_port = env::var("SERVER_PORT")
-            .unwrap_or_else(|_| "8080".to_string())
-            .parse::<u16>()
-            .unwrap_or(8080);
-
-        let mut webapp_base_url = env::var("WEBAPP_BASE_URL")
-            .unwrap_or_else(|_| env::var("WEBAPP_URL").unwrap_or_else(|_| "https://your-domain.com/webapp".to_string()));
-            
-        // Clean up: remove trailing slash and filename if user accidentally provided full path
-        if webapp_base_url.ends_with("/timepicker.html") {
-            webapp_base_url = webapp_base_url.replace("/timepicker.html", "");
-        }
-        if webapp_base_url.ends_with('/') {
-            webapp_base_url.pop();
-        }
 
         let bazi_job_cron = env::var("BAZI_JOB_CRON").unwrap_or_else(|_| "0 0 14 * * *".to_string());
         let context_cleanup_cron = env::var("CONTEXT_CLEANUP_CRON").unwrap_or_else(|_| "0 */5 * * * *".to_string());
@@ -86,8 +68,6 @@ impl AppConfig {
             admin_chat_id,
             database_url,
             expiration_minutes,
-            webapp_base_url,
-            server_port,
             bazi_job_cron,
             context_cleanup_cron,
             log_cleanup_cron,

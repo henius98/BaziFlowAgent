@@ -11,9 +11,6 @@ use crate::calendar::{
 use crate::db;
 use crate::llm_bazi;
 use crate::paipan;
-use axum::{extract::State, Json};
-use serde::{Deserialize, Serialize};
-
 // ─────────────────────────────────────────────
 // Bot commands
 // ─────────────────────────────────────────────
@@ -43,8 +40,6 @@ pub async fn handle_command(
             &state.db_pool,
             user_id,
             user.username.as_deref(),
-            Some(&user.first_name),
-            user.last_name.as_deref(),
         )
         .await;
 
@@ -108,7 +103,7 @@ pub async fn handle_callback(
                 let user_id = q.from.id.0 as i64;
                 state.pending_gender.insert(user_id, gender_val);
 
-                let markup = calendar::build_year_picker(1984);
+                let markup = calendar::build_year_picker(1996);
                 if let Some(msg) = &q.message {
                     let _ = bot
                         .edit_message_text(
@@ -168,18 +163,14 @@ pub async fn handle_callback(
                 let date_str = date.format("%Y-%m-%d").to_string();
                 let user_id = q.from.id.0 as i64;
                 state.pending_birthdate.insert(user_id, date_str.clone());
-
-                let timepicker_url = state.get_webapp_url("timepicker.html");
-                let markup = calendar::build_time_webapp_inline(&timepicker_url);
                 
                 if let Some(msg) = &q.message {
                     let _ = bot
                         .edit_message_text(
                             msg.chat().id,
                             msg.id(),
-                            format!("🕐 Step 5/5 — Select your birth time for {}:\nPlease tap the button below to open the time picker.", date_str),
+                            format!("🕐 Step 5/5 — Enter birth time for {}:\n\nPlease type your birth time in **HH:MM** format (e.g., 14:30) and send it as a message.", date_str),
                         )
-                        .reply_markup(markup)
                         .await;
                 }
             }
@@ -226,8 +217,6 @@ pub async fn handle_callback(
                 &state.db_pool,
                 user_id,
                 user.username.as_deref(),
-                Some(&user.first_name),
-                user.last_name.as_deref(),
             )
             .await;
 
@@ -243,16 +232,17 @@ pub async fn handle_callback(
                     .await;
 
                 let ref_content = build_history_msg(&state.user_contexts, user_id);
-                let user_bazi_raw = db::get_user_bazi(&state.db_pool, user_id)
-                    .await
-                    .unwrap_or_else(|| state.user_bazi.clone());
+                let (user_profile_bazi, destiny_reading) = db::get_user_profile(&state.db_pool, user_id).await;
+                let user_bazi_raw = user_profile_bazi.unwrap_or_else(|| state.user_bazi.clone());
                 let user_bazi = get_formatted_bazi(&user_bazi_raw);
+                let destiny_reading = destiny_reading.unwrap_or_default();
 
                 match llm_bazi::generate_bazi_reading(
                     &state.http_client,
                     &formatted_date,
                     &ref_content,
                     &user_bazi,
+                    &destiny_reading,
                     &state.openai_api_key,
                     &state.openai_api_base,
                     &state.llm_model_name,
@@ -301,8 +291,6 @@ pub async fn handle_callback(
                 &state.db_pool,
                 user_id,
                 user.username.as_deref(),
-                Some(&user.first_name),
-                user.last_name.as_deref(),
             )
             .await;
 
@@ -318,16 +306,17 @@ pub async fn handle_callback(
                     .await;
 
                 let ref_content = build_history_msg(&state.user_contexts, user_id);
-                let user_bazi_raw = db::get_user_bazi(&state.db_pool, user_id)
-                    .await
-                    .unwrap_or_else(|| state.user_bazi.clone());
+                let (user_profile_bazi, destiny_reading) = db::get_user_profile(&state.db_pool, user_id).await;
+                let user_bazi_raw = user_profile_bazi.unwrap_or_else(|| state.user_bazi.clone());
                 let user_bazi = get_formatted_bazi(&user_bazi_raw);
+                let destiny_reading = destiny_reading.unwrap_or_default();
 
                 match llm_bazi::generate_bazi_reading(
                     &state.http_client,
                     &formatted_date,
                     &ref_content,
                     &user_bazi,
+                    &destiny_reading,
                     &state.openai_api_key,
                     &state.openai_api_base,
                     &state.llm_model_name,
@@ -381,99 +370,80 @@ pub async fn handle_callback(
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
-pub struct WebAppSubmission {
-    pub user_id: i64,
-    pub time: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WebAppResponse {
-    pub success: bool,
-    pub message: String,
-}
-
-pub async fn handle_webapp_time(
-    State(state): State<Arc<AppState>>,
-    Json(payload): Json<WebAppSubmission>,
-) -> Json<WebAppResponse> {
-    let user_id = payload.user_id;
-    let time_str = payload.time;
-
-    info!("Received webapp time from user {}: {}", user_id, time_str);
-
-    let parts: Vec<&str> = time_str.split(':').collect();
-    if parts.len() != 2 {
-        return Json(WebAppResponse { success: false, message: "Invalid time format".to_string() });
-    }
-
-    let (Ok(hour), Ok(minute)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) else {
-        return Json(WebAppResponse { success: false, message: "Invalid time format".to_string() });
-    };
-
+/// Core logic for Bazi chart calculation and destiny reading generation.
+pub async fn perform_bazi_analysis(
+    state: Arc<AppState>,
+    bot: Bot,
+    chat_id: ChatId,
+    user_id: i64,
+    hour: u32,
+    minute: u32,
+) -> ResponseResult<()> {
     let date = state.pending_birthdate.get(&user_id)
         .map(|v| v.clone())
         .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
     
     let gender = state.pending_gender.get(&user_id).map(|v| *v).unwrap_or(1);
-    let bot = state.bot.clone();
-    let chat_id = ChatId(user_id);
 
-    let state_clone = state.clone();
-    tokio::spawn(async move {
-        // Let the user know we're working
-        let _ = bot.send_message(
-            chat_id, 
-            format!("✅ Time received.\n⏳ Calculating your Bazi chart...\n\n📅 Date: {}\n🕐 Time: {:02}:{:02}", date, hour, minute),
-        ).await;
+    // Let the user know we're working
+    let _ = bot.send_message(
+        chat_id, 
+        format!("✅ Time received.\n⏳ Calculating your Bazi chart...\n\n📅 Date: {}\n🕐 Time: {:02}:{:02}", date, hour, minute),
+    ).await;
 
-        let _ = bot.send_chat_action(chat_id, teloxide::types::ChatAction::Typing).await;
+    let _ = bot.send_chat_action(chat_id, teloxide::types::ChatAction::Typing).await;
 
-        match paipan::fetch_bazi_chart(&state_clone.http_client, &date, hour, minute, gender).await {
-            Ok((chart, raw_json)) => {
-                db::save_or_update_user_bazi(&state_clone.db_pool, user_id, &raw_json, gender).await;
-                let formatted_bazi = paipan::format_bazi_for_prompt(&chart);
+    match paipan::fetch_bazi_chart(&state.http_client, &date, hour, minute, gender).await {
+        Ok((chart, raw_json)) => {
+            let birth_dt_str = format!("{} {:02}:{:02}:00", date, hour, minute);
+            db::save_or_update_user_bazi(&state.db_pool, user_id, &raw_json, gender, Some(&birth_dt_str)).await;
+            let formatted_bazi = paipan::format_bazi_for_prompt(&chart);
 
-                let _ = bot.send_message(
-                    chat_id,
-                    "✅ Bazi chart calculated!\n🔮 Generating destiny analysis... (this may take a moment)",
-                ).await;
+            let _ = bot.send_message(
+                chat_id,
+                "✅ Bazi chart calculated!\n🔮 Generating destiny analysis... (this may take a moment)",
+            ).await;
 
-                match llm_bazi::generate_destiny_reading(
-                    &formatted_bazi,
-                    &state_clone.openai_api_key,
-                    &state_clone.openai_api_base,
-                    &state_clone.llm_model_name,
-                ).await {
-                    Ok(reading) => {
-                        db::save_request(
-                            &state_clone.db_pool,
-                            user_id,
-                            "new_bazi_reading",
-                            Some(&date),
-                            Some(&format!("Birth details updated (Gender: {})", gender)),
-                            Some(&reading),
-                        ).await;
+            match llm_bazi::generate_destiny_reading(
+                &formatted_bazi,
+                &state.openai_api_key,
+                &state.openai_api_base,
+                &state.llm_model_name,
+            ).await {
+                Ok(reading) => {
+                    db::save_user_destiny_reading(&state.db_pool, user_id, &reading).await;
 
-                        let parts = split_message(&reading, 4000);
-                        for part in parts {
-                            let _ = bot.send_message(chat_id, part).await;
-                        }
-                    }
-                    Err(e) => {
-                        error!("Error generating destiny reading: {}", e);
-                        let _ = bot.send_message(chat_id, format!("❌ Error generating analysis: {}", e)).await;
+                    db::save_request(
+                        &state.db_pool,
+                        user_id,
+                        "new_bazi_reading",
+                        Some(&date),
+                        Some(&format!("Birth details updated (Gender: {})", gender)),
+                        Some(&reading),
+                    ).await;
+
+                    let parts = split_message(&reading, 4000);
+                    for part in parts {
+                        let _ = bot.send_message(chat_id, part).await;
                     }
                 }
-            }
-            Err(e) => {
-                error!("Failed to fetch bazi chart: {}", e);
-                let _ = bot.send_message(chat_id, format!("❌ Error fetching Bazi chart from API. Please try again later.")).await;
+                Err(e) => {
+                    error!("Error generating destiny reading: {}", e);
+                    let _ = bot.send_message(chat_id, format!("❌ Error generating analysis: {}", e)).await;
+                }
             }
         }
-    });
-
-    Json(WebAppResponse { success: true, message: "Time processed".to_string() })
+        Err(e) => {
+            error!("Failed to fetch bazi chart: {}", e);
+            let _ = bot.send_message(chat_id, format!("❌ Error fetching Bazi chart from API. Please try again later.")).await;
+        }
+    }
+    
+    // Clean up pending states
+    state.pending_birthdate.remove(&user_id);
+    state.pending_gender.remove(&user_id);
+    
+    Ok(())
 }
 
 // ─────────────────────────────────────────────
@@ -491,90 +461,33 @@ pub async fn handle_message(bot: Bot, msg: Message, state: Arc<AppState>) -> Res
             &state.db_pool,
             user_id,
             user.username.as_deref(),
-            Some(&user.first_name),
-            user.last_name.as_deref(),
         )
         .await;
     }
 
-    // Process WebAppData first
-    if let Some(app_data) = msg.web_app_data() {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&app_data.data) {
-            if json.get("action").and_then(|v| v.as_str()) == Some("select_time") {
-                if let Some(time_str) = json.get("time").and_then(|v| v.as_str()) {
-                    let parts: Vec<&str> = time_str.split(':').collect();
-                    if parts.len() == 2 {
-                        if let (Ok(hour), Ok(minute)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-                            let date = state.pending_birthdate.get(&user_id)
-                                .map(|v| v.clone())
-                                .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
-                            
-                            let gender = state.pending_gender.get(&user_id).map(|v| *v).unwrap_or(1);
-                            
-                            // Let the user know we're working
-                            let _ = bot.send_message(
-                                msg.chat.id, 
-                                format!("✅ Time received.\n⏳ Calculating your Bazi chart...\n\n📅 Date: {}\n🕐 Time: {:02}:{:02}", date, hour, minute),
-                            )
-                            .reply_markup(teloxide::types::ReplyMarkup::kb_remove()) // Remove webapp keyboard
-                            .await;
-
-                            let _ = bot.send_chat_action(msg.chat.id, teloxide::types::ChatAction::Typing).await;
-
-                            match paipan::fetch_bazi_chart(&state.http_client, &date, hour, minute, gender).await {
-                                Ok((chart, raw_json)) => {
-                                    db::save_or_update_user_bazi(&state.db_pool, user_id, &raw_json, gender).await;
-                                    let formatted_bazi = paipan::format_bazi_for_prompt(&chart);
-
-                                    let _ = bot.send_message(
-                                        msg.chat.id,
-                                        "✅ Bazi chart calculated!\n🔮 Generating destiny analysis... (this may take a moment)",
-                                    ).await;
-
-                                    match llm_bazi::generate_destiny_reading(
-                                        &formatted_bazi,
-                                        &state.openai_api_key,
-                                        &state.openai_api_base,
-                                        &state.llm_model_name,
-                                    ).await {
-                                        Ok(reading) => {
-                                            db::save_request(
-                                                &state.db_pool,
-                                                user_id,
-                                                "new_bazi_reading",
-                                                Some(&date),
-                                                Some(&format!("Birth details updated (Gender: {})", gender)),
-                                                Some(&reading),
-                                            ).await;
-
-                                            let parts = split_message(&reading, 4000);
-                                            for part in parts {
-                                                bot.send_message(msg.chat.id, part).await?;
-                                            }
-                                        }
-                                        Err(e) => {
-                                            error!("Error generating destiny reading: {}", e);
-                                            bot.send_message(msg.chat.id, format!("❌ Error generating analysis: {}", e)).await?;
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("Failed to fetch bazi chart: {}", e);
-                                    bot.send_message(msg.chat.id, format!("❌ Error fetching Bazi chart from API. Please try again later.")).await?;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return Ok(());
-    }
 
     let text = match msg.text() {
         Some(t) if !t.starts_with('/') => t,
         _ => return Ok(()),
     };
+
+    // If user has a pending birthdate, check if they are providing the time via text
+    if state.pending_birthdate.contains_key(&user_id) {
+        let parts: Vec<&str> = text.split(':').collect();
+        if parts.len() == 2 {
+            if let (Ok(hour), Ok(minute)) = (parts[0].trim().parse::<u32>(), parts[1].trim().parse::<u32>()) {
+                if hour < 24 && minute < 60 {
+                    let chat_id = msg.chat.id;
+                    let state_clone = state.clone();
+                    let bot_clone = bot.clone();
+                    tokio::spawn(async move {
+                        let _ = perform_bazi_analysis(state_clone, bot_clone, chat_id, user_id, hour, minute).await;
+                    });
+                    return Ok(());
+                }
+            }
+        }
+    }
 
     // Performance optimization: cap context at max_context_messages per user
     {
@@ -593,10 +506,10 @@ pub async fn handle_message(bot: Bot, msg: Message, state: Arc<AppState>) -> Res
         .format("%Y-%m-%d")
         .to_string();
     let ref_content = build_history_msg(&state.user_contexts, user_id);
-    let user_bazi_raw = db::get_user_bazi(&state.db_pool, user_id)
-        .await
-        .unwrap_or_else(|| state.user_bazi.clone());
+    let (user_bazi_raw, destiny_reading) = db::get_user_profile(&state.db_pool, user_id).await;
+    let user_bazi_raw = user_bazi_raw.unwrap_or_else(|| state.user_bazi.clone());
     let user_bazi = get_formatted_bazi(&user_bazi_raw);
+    let destiny_reading = destiny_reading.unwrap_or_default();
 
     let _ = bot.send_chat_action(msg.chat.id, teloxide::types::ChatAction::Typing).await;
 
@@ -605,6 +518,7 @@ pub async fn handle_message(bot: Bot, msg: Message, state: Arc<AppState>) -> Res
         &today,
         &ref_content,
         &user_bazi,
+        &destiny_reading,
         &state.openai_api_key,
         &state.openai_api_base,
         &state.llm_model_name,

@@ -380,16 +380,3 @@ fn build_calendar_inner(
     InlineKeyboardMarkup::new(rows)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 4. Birth-time picker  (hour → minute two-step inline keyboard)
-// ─────────────────────────────────────────────────────────────────────────────
-
-pub fn build_time_webapp_inline(url: &str) -> InlineKeyboardMarkup {
-    let btn = InlineKeyboardButton::web_app(
-        "🕐 Open Time Picker",
-        teloxide::types::WebAppInfo {
-            url: url.parse().unwrap(),
-        },
-    );
-    InlineKeyboardMarkup::new(vec![vec![btn]])
-}

@@ -25,9 +25,8 @@ pub fn init() {
     let env_filter = EnvFilter::from_default_env()
         // Default level for the whole app
         .add_directive(log_level.parse().unwrap_or_else(|_| "info".parse().unwrap()))
-        // Specifically ensure our crate is at the desired level
         .add_directive(
-            format!("bazi_telegram_bot={}", log_level)
+            format!("baziflow_agent={}", log_level)
                 .parse()
                 .expect("Invalid log directive"),
         );

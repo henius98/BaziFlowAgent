@@ -1,4 +1,4 @@
-# Deploying Bazi-telegram-bot (Rust) to Raspberry Pi 4B (DietPi OS)
+# Deploying BaziFlowAgent (Rust) to Raspberry Pi 4B (DietPi OS)
 
 This guide will help you deploy the Rust Telegram bot to a Raspberry Pi running DietPi OS.
 
@@ -39,7 +39,7 @@ Switch to `dietpi` user or continue as is (adjust paths accordingly). This guide
 2.  Clone your repository:
     ```bash
     git clone <your-repo-url>
-    cd BaziAgentWorkflow
+    cd BaziFlowAgent
     ```
 
 ### Option B: Cross-compile on your development machine
@@ -50,17 +50,17 @@ rustup target add aarch64-unknown-linux-gnu
 # Build for Raspberry Pi
 cargo build --release --target aarch64-unknown-linux-gnu
 # Copy the binary
-scp target/aarch64-unknown-linux-gnu/release/Bazi-telegram-bot dietpi@<your-pi-ip>:/home/dietpi/BaziAgentWorkflow/
+scp target/aarch64-unknown-linux-gnu/release/baziflow-agent dietpi@<your-pi-ip>:/home/dietpi/BaziFlowAgent/
 ```
 
 ## Step 3: Build (if building on Pi)
 
 ```bash
-cd /home/dietpi/BaziAgentWorkflow
+cd /home/dietpi/BaziFlowAgent
 cargo build --release
 ```
 
-The binary will be at `target/release/Bazi-telegram-bot`.
+The binary will be at `target/release/baziflow-agent`.
 
 ## Step 4: Configure Environment Variables
 
@@ -78,7 +78,7 @@ The binary will be at `target/release/Bazi-telegram-bot`.
 
 ```bash
 # Run from the project directory (so .env is loaded)
-./target/release/Bazi-telegram-bot
+./target/release/baziflow-agent
 ```
 
 - Send `/start` to your bot.
@@ -90,7 +90,7 @@ The binary will be at `target/release/Bazi-telegram-bot`.
 
     ```bash
     # (Optional) Verify your .env is present
-    ls -la /home/dietpi/BaziAgentWorkflow/.env
+    ls -la /home/dietpi/BaziFlowAgent/.env
     ```
 
 2.  **Copy service file to systemd** (requires sudo/root):
@@ -139,5 +139,5 @@ If you modify the code and rebuild:
 
 - **Enable debug logging**:
   ```bash
-  RUST_LOG=debug ./target/release/Bazi-telegram-bot
+  RUST_LOG=debug ./target/release/baziflow-agent
   ```

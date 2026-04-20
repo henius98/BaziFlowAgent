@@ -14,7 +14,7 @@
             text-align: center;
         }
         h2 { margin-bottom: 20px; }
-        input[type="time"] {
+        #timePicker {
             font-size: 32px;
             padding: 10px;
             border-radius: 12px;
@@ -24,12 +24,13 @@
             outline: none;
             width: 100%;
             box-sizing: border-box;
+            text-align: center;
         }
     </style>
 </head>
 <body>
     <h2>Select Birth Time</h2>
-    <input type="time" id="timePicker" required />
+    <input type="text" id="timePicker" placeholder="HH:MM" required />
 
     <script>
         const tg = window.Telegram.WebApp;
@@ -37,8 +38,8 @@
 
         const timePicker = document.getElementById('timePicker');
 
-        timePicker.addEventListener('change', () => {
-            if (timePicker.value) {
+        timePicker.addEventListener('input', () => {
+            if (timePicker.value.trim()) {
                 tg.MainButton.setText("CONFIRM TIME");
                 tg.MainButton.show();
             } else {

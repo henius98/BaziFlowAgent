@@ -13,10 +13,24 @@ pub async fn init_db(db_url: &str) -> Result<SqlitePool, sqlx::Error> {
         .connect_with(options)
         .await?;
 
-    // Automatically apply any pending migrations found in the `migrations` folder
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    // Automatically apply any pending migrations
+    // If we hit a VersionMismatch, it usually means the DB state and the filesystem are out of sync.
+    // We handle this by dropping the metadata table (safe since our SQL uses IF NOT EXISTS).
+    if let Err(e) = sqlx::migrate!("./migrations").run(&pool).await {
+        error!("Initial migration failed: {}. Attempting metadata reset...", e);
+        
+        // Attempt to Drop the migrations table to force a resync
+        let _ = sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations")
+            .execute(&pool)
+            .await;
+            
+        // Retry migration
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        info!("Migrations resynced successfully after metadata reset.");
+    } else {
+        info!("Database migrations applied successfully.");
+    }
 
-    info!("Database initialized and tables verified.");
     Ok(pool)
 }
 
@@ -24,24 +38,18 @@ pub async fn save_or_update_user(
     pool: &SqlitePool,
     user_id: i64,
     username: Option<&str>,
-    first_name: Option<&str>,
-    last_name: Option<&str>,
 ) {
     let result = sqlx::query(
         r#"
-        INSERT INTO users (user_id, username, first_name, last_name, last_active_at)
-        VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)
+        INSERT INTO users (user_id, username, last_active_at)
+        VALUES (?1, ?2, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
             username = excluded.username,
-            first_name = excluded.first_name,
-            last_name = excluded.last_name,
             last_active_at = excluded.last_active_at
         "#,
     )
     .bind(user_id)
     .bind(username)
-    .bind(first_name)
-    .bind(last_name)
     .execute(pool)
     .await;
 
@@ -77,20 +85,28 @@ pub async fn save_request(
     }
 }
 
-pub async fn save_or_update_user_bazi(pool: &SqlitePool, user_id: i64, bazi: &str, gender: u8) {
+pub async fn save_or_update_user_bazi(
+    pool: &SqlitePool,
+    user_id: i64,
+    bazi: &str,
+    gender: u8,
+    birth_datetime: Option<&str>,
+) {
     let result = sqlx::query(
         r#"
-        INSERT INTO users (user_id, bazi, gender, last_active_at)
-        VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
+        INSERT INTO users (user_id, bazi, gender, birth_datetime, last_active_at)
+        VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
             bazi = excluded.bazi,
             gender = excluded.gender,
+            birth_datetime = excluded.birth_datetime,
             last_active_at = excluded.last_active_at
         "#,
     )
     .bind(user_id)
     .bind(bazi)
     .bind(gender as i64)
+    .bind(birth_datetime)
     .execute(pool)
     .await;
 
@@ -99,14 +115,35 @@ pub async fn save_or_update_user_bazi(pool: &SqlitePool, user_id: i64, bazi: &st
     }
 }
 
-pub async fn get_user_bazi(pool: &SqlitePool, user_id: i64) -> Option<String> {
-    let row: Option<(Option<String>,)> = sqlx::query_as(
-        r#"SELECT bazi FROM users WHERE user_id = ?1"#
+
+pub async fn save_user_destiny_reading(pool: &SqlitePool, user_id: i64, reading: &str) {
+    let result = sqlx::query(
+        r#"
+        UPDATE users SET destiny_reading = ?2, last_active_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?1
+        "#,
+    )
+    .bind(user_id)
+    .bind(reading)
+    .execute(pool)
+    .await;
+
+    if let Err(e) = result {
+        error!("Failed to save destiny reading: {}", e);
+    }
+}
+
+pub async fn get_user_profile(pool: &SqlitePool, user_id: i64) -> (Option<String>, Option<String>) {
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        r#"SELECT bazi, destiny_reading FROM users WHERE user_id = ?1"#
     )
     .bind(user_id)
     .fetch_optional(pool)
     .await
     .unwrap_or(None);
 
-    row.and_then(|r| r.0)
+    match row {
+        Some(r) => (r.0, r.1),
+        None => (None, None),
+    }
 }

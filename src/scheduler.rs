@@ -45,6 +45,7 @@ pub async fn start_scheduler(
                 &tomorrow,
                 "",
                 &cfg.app_state.user_bazi,
+                "",
                 &cfg.app_state.openai_api_key,
                 &cfg.app_state.openai_api_base,
                 &cfg.app_state.llm_model_name,
