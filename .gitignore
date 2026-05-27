@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+logs/
+public/
+
+# Rust
+target/
+
+# sqlite db
+*.db
+*.db-shm
+*.db-wal

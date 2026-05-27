@@ -1,0 +1,18 @@
+[Unit]
+Description=BaziFlowAgent Service (Rust)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dietpi
+Group=dietpi
+WorkingDirectory=/home/dietpi/BaziFlowAgent
+ExecStart=/home/dietpi/BaziFlowAgent/target/release/baziflow-agent
+Restart=always
+RestartSec=5
+# Environment file
+EnvironmentFile=/home/dietpi/BaziFlowAgent/.env
+
+[Install]
+WantedBy=multi-user.target

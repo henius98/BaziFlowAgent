@@ -1,0 +1,61 @@
+[package]
+name = "baziflow-agent"
+version = "0.1.0"
+edition = "2024"
+description = "BaziFlowAgent - A high-performance AI Agent for Bazi analysis and traditional Chinese almanac."
+
+[dependencies]
+# Telegram Bot Framework
+teloxide = { version = "0.17", features = ["macros", "ctrlc_handler"] }
+
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP Client
+reqwest = { version = "0.13", features = ["json", "rustls"] }
+
+# OpenAI API Client
+async-openai = { version = "0.36", features = ["full"] }
+
+# Error Handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Database
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls", "chrono", "macros", "migrate"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Environment Variables
+dotenvy = "0.15"
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+tracing-appender = "0.2"
+
+# Scheduled Jobs
+tokio-cron-scheduler = "0.15"
+
+# Concurrent HashMap
+dashmap = "6"
+
+# UUID for callback data
+uuid = { version = "1", features = ["v4"] }
+
+# Web Server (for Instant View / Web view)
+axum = { version = "0.8", features = ["macros"] }
+tower-http = { version = "0.6", features = ["fs"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1
+opt-level = "z"
+panic = "abort"

@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bazi Flow Chart - {{NAME}}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-gradient: radial-gradient(circle at top left, #1e293b, #0f172a);
+        --card-bg: rgba(30, 41, 59, 0.7);
+        --card-border: rgba(255, 255, 255, 0.1);
+        --glass-blur: blur(12px);
+
+        /* Element Colors */
+        --wood: #4ade80;
+        --fire: #f87171;
+        --earth: #fbbf24;
+        --metal: #cbd5e1;
+        --water: #60a5fa;
+
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --accent: #8b5cf6;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Inter", "Noto Sans SC", sans-serif;
+        background: var(--bg-gradient);
+        color: var(--text-primary);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 2rem;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 1100px;
+        background: var(--card-bg);
+        backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--card-border);
+        border-radius: 1.5rem;
+        padding: 2.5rem;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+        border-bottom: 1px solid var(--card-border);
+        padding-bottom: 1.5rem;
+      }
+
+      .title-section {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      .logo-icon {
+        width: 52px;
+        height: 52px;
+        background: linear-gradient(135deg, var(--accent), #d946ef);
+        border-radius: 14px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 1.6rem;
+        color: white;
+        box-shadow: 0 0 25px rgba(139, 92, 246, 0.4);
+      }
+
+      .case-name {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #fff;
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+      }
+
+      .gender-suffix {
+        font-size: 1.1rem;
+        color: var(--earth);
+        font-weight: 500;
+      }
+
+      .date-info {
+        text-align: right;
+        font-size: 1rem;
+        line-height: 1.8;
+      }
+      .date-row {
+        color: var(--text-secondary);
+      }
+      .date-value {
+        color: var(--earth);
+        font-weight: 500;
+        margin-left: 0.5rem;
+      }
+
+      /* Chart Grid Layout */
+      .chart-grid {
+        display: grid;
+        grid-template-columns: 100px repeat(6, 1fr);
+        gap: 0;
+        border: 1px solid var(--card-border);
+        border-radius: 0.75rem;
+        overflow: hidden;
+        background: rgba(15, 23, 42, 0.3);
+      }
+
+      .grid-cell {
+        padding: 1rem 0.5rem;
+        border-bottom: 1px solid var(--card-border);
+        border-right: 1px solid var(--card-border);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+      }
+
+      .grid-cell:nth-child(7n) {
+        border-right: none;
+      }
+      .grid-cell.label-cell {
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        font-weight: 500;
+        border-right: 1px solid var(--card-border);
+      }
+
+      .luck-sep {
+        border-right: 2px solid var(--card-border);
+      }
+
+      /* Row Specific Styles */
+      .row-ten-god {
+        font-weight: 600;
+        font-size: 1.1rem;
+        min-height: 3rem;
+      }
+      .row-gan-zhi {
+        font-size: 3rem;
+        font-weight: 800;
+        line-height: 1;
+        padding: 1.5rem 0;
+      }
+      .row-hidden {
+        font-size: 0.85rem;
+        min-height: 6rem;
+        gap: 0.4rem;
+      }
+      .row-extra {
+        font-size: 0.9rem;
+        gap: 0.5rem;
+        color: var(--text-secondary);
+      }
+      .row-shensha {
+        font-size: 0.9rem;
+        color: var(--earth);
+        gap: 0.4rem;
+        min-height: 8rem;
+      }
+
+      .hidden-item {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .hidden-god {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+      }
+
+      /* Colors */
+      .color-wood {
+        color: var(--wood);
+      }
+      .color-fire {
+        color: var(--fire);
+      }
+      .color-earth {
+        color: var(--earth);
+      }
+      .color-metal {
+        color: var(--metal);
+      }
+      .color-water {
+        color: var(--water);
+      }
+      .color-any {
+        color: var(--text-primary);
+      }
+
+      .interactions-footer {
+        margin-top: 2rem;
+        background: rgba(15, 23, 42, 0.5);
+        border-radius: 1.25rem;
+        padding: 1.75rem;
+        border: 1px solid var(--card-border);
+      }
+
+      .interaction-row {
+        margin-bottom: 1rem;
+        font-size: 1rem;
+        display: flex;
+        align-items: baseline;
+      }
+      .interaction-row:last-child {
+        margin-bottom: 0;
+      }
+      .interaction-label {
+        color: var(--earth);
+        font-weight: 600;
+        margin-right: 1.5rem;
+        min-width: 100px;
+      }
+      .interaction-content {
+        color: var(--text-secondary);
+        line-height: 1.6;
+      }
+
+      @media (max-width: 900px) {
+        .chart-grid {
+          grid-template-columns: 80px repeat(6, 1fr);
+        }
+        .row-gan-zhi {
+          font-size: 2rem;
+        }
+      }
+    </style>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const getColorClass = (char) => {
+          if (["甲", "乙", "寅", "卯"].includes(char)) return "color-wood";
+          if (["丙", "丁", "巳", "午"].includes(char)) return "color-fire";
+          if (["戊", "己", "辰", "戌", "丑", "未"].includes(char))
+            return "color-earth";
+          if (["庚", "辛", "申", "酉"].includes(char)) return "color-metal";
+          if (["壬", "癸", "亥", "子"].includes(char)) return "color-water";
+          return "color-any";
+        };
+
+        document
+          .querySelectorAll(".row-gan-zhi span, .hidden-stem")
+          .forEach((el) => {
+            const char = el.textContent.trim().charAt(0);
+            el.className = getColorClass(char);
+          });
+      });
+    </script>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="title-section">
+          <div class="logo-icon">命</div>
+          <div class="case-name">
+            {{NAME}} <span class="gender-suffix">({{GENDER_SUFFIX}})</span>
+          </div>
+        </div>
+        <div class="date-info">
+          <div class="date-row">
+            阴历 : <span class="date-value">{{lunisolar_date}}</span>
+          </div>
+          <div class="date-row">
+            阳历 : <span class="date-value">{{SOLAR_DATE}}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-grid">
+        <!-- Row: Label -->
+        <div class="grid-cell label-cell">日期</div>
+        <div class="grid-cell">流年</div>
+        <div class="grid-cell luck-sep">大运</div>
+        <div class="grid-cell">年柱</div>
+        <div class="grid-cell">月柱</div>
+        <div class="grid-cell">日柱</div>
+        <div class="grid-cell">时柱</div>
+
+        <!-- Row: Ten God -->
+        <div class="grid-cell label-cell">主星</div>
+        <div class="grid-cell row-ten-god">{{YEAR_GOD}}</div>
+        <div class="grid-cell row-ten-god luck-sep">{{LUCK_GOD}}</div>
+        <div class="grid-cell row-ten-god">{{YEAR_GOD}}</div>
+        <div class="grid-cell row-ten-god">{{MONTH_GOD}}</div>
+        <div class="grid-cell row-ten-god">{{DAY_GOD}}</div>
+        <div class="grid-cell row-ten-god">{{HOUR_GOD}}</div>
+
+        <!-- Row: Heaven Stem -->
+        <div class="grid-cell label-cell">天干</div>
+        <div class="grid-cell row-gan-zhi"><span>{{YEAR_PILLAR_0}}</span></div>
+        <div class="grid-cell row-gan-zhi luck-sep">
+          <span>{{LUCK_PILLAR_0}}</span>
+        </div>
+        <div class="grid-cell row-gan-zhi"><span>{{YEAR_STEM}}</span></div>
+        <div class="grid-cell row-gan-zhi"><span>{{MONTH_STEM}}</span></div>
+        <div class="grid-cell row-gan-zhi"><span>{{DAY_STEM}}</span></div>
+        <div class="grid-cell row-gan-zhi"><span>{{HOUR_STEM}}</span></div>
+
+        <!-- Row: Earthly Branch -->
+        <div class="grid-cell label-cell">地支</div>
+        <div class="grid-cell row-gan-zhi"><span>{{YEAR_PILLAR_1}}</span></div>
+        <div class="grid-cell row-gan-zhi luck-sep">
+          <span>{{LUCK_PILLAR_1}}</span>
+        </div>
+        <div class="grid-cell row-gan-zhi"><span>{{YEAR_BRANCH}}</span></div>
+        <div class="grid-cell row-gan-zhi"><span>{{MONTH_BRANCH}}</span></div>
+        <div class="grid-cell row-gan-zhi"><span>{{DAY_BRANCH}}</span></div>
+        <div class="grid-cell row-gan-zhi"><span>{{HOUR_BRANCH}}</span></div>
+
+        <!-- Row: Hidden Stems -->
+        <div class="grid-cell label-cell">藏干</div>
+        <div class="grid-cell row-hidden">{{LN_HIDDEN}}</div>
+        <div class="grid-cell row-hidden luck-sep">{{DY_HIDDEN}}</div>
+        <div class="grid-cell row-hidden">{{YEAR_HIDDEN}}</div>
+        <div class="grid-cell row-hidden">{{MONTH_HIDDEN}}</div>
+        <div class="grid-cell row-hidden">{{DAY_HIDDEN}}</div>
+        <div class="grid-cell row-hidden">{{HOUR_HIDDEN}}</div>
+
+        <!-- Row: Star Luck -->
+        <div class="grid-cell label-cell">星运</div>
+        <div class="grid-cell row-extra">{{LN_LUCK}}</div>
+        <div class="grid-cell row-extra luck-sep">{{DY_LUCK}}</div>
+        <div class="grid-cell row-extra">{{YEAR_LUCK}}</div>
+        <div class="grid-cell row-extra">{{MONTH_LUCK}}</div>
+        <div class="grid-cell row-extra">{{DAY_LUCK}}</div>
+        <div class="grid-cell row-extra">{{HOUR_LUCK}}</div>
+
+        <!-- Row: Self Sitting -->
+        <div class="grid-cell label-cell">自坐</div>
+        <div class="grid-cell row-extra">{{LN_ZIZUO}}</div>
+        <div class="grid-cell row-extra luck-sep">{{DY_ZIZUO}}</div>
+        <div class="grid-cell row-extra">{{YEAR_ZIZUO}}</div>
+        <div class="grid-cell row-extra">{{MONTH_ZIZUO}}</div>
+        <div class="grid-cell row-extra">{{DAY_ZIZUO}}</div>
+        <div class="grid-cell row-extra">{{HOUR_ZIZUO}}</div>
+
+        <!-- Row: Empty Death -->
+        <div class="grid-cell label-cell">空亡</div>
+        <div class="grid-cell row-extra">{{LN_KW}}</div>
+        <div class="grid-cell row-extra luck-sep">{{DY_KW}}</div>
+        <div class="grid-cell row-extra">{{YEAR_KW}}</div>
+        <div class="grid-cell row-extra">{{MONTH_KW}}</div>
+        <div class="grid-cell row-extra">{{DAY_KW}}</div>
+        <div class="grid-cell row-extra">{{HOUR_KW}}</div>
+
+        <!-- Row: Na Yin -->
+        <div class="grid-cell label-cell">纳音</div>
+        <div class="grid-cell row-extra">{{LN_NAYIN}}</div>
+        <div class="grid-cell row-extra luck-sep">{{DY_NAYIN}}</div>
+        <div class="grid-cell row-extra">{{YEAR_NAYIN}}</div>
+        <div class="grid-cell row-extra">{{MONTH_NAYIN}}</div>
+        <div class="grid-cell row-extra">{{DAY_NAYIN}}</div>
+        <div class="grid-cell row-extra">{{HOUR_NAYIN}}</div>
+
+        <!-- Row: Symbolic Stars -->
+        <div class="grid-cell label-cell">神煞</div>
+        <div class="grid-cell row-shensha">{{YEAR_SHENSHA_CURRENT}}</div>
+        <div class="grid-cell row-shensha luck-sep">
+          {{LUCK_SHENSHA_CURRENT}}
+        </div>
+        <div class="grid-cell row-shensha">{{YEAR_SHENSHA}}</div>
+        <div class="grid-cell row-shensha">{{MONTH_SHENSHA}}</div>
+        <div class="grid-cell row-shensha">{{DAY_SHENSHA}}</div>
+        <div class="grid-cell row-shensha">{{HOUR_SHENSHA}}</div>
+      </div>
+
+      <div class="interactions-footer">
+        <div class="interaction-row">
+          <span class="interaction-label">天干留意</span>
+          <div class="interaction-content">{{STEM_INTERACTIONS}}</div>
+        </div>
+        <div class="interaction-row">
+          <span class="interaction-label">地支留意</span>
+          <div class="interaction-content">{{BRANCH_INTERACTIONS}}</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,36 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Debug BaziFlow (Manual)",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "run",
+                    "--bin=baziflow-agent"
+                ]
+            },
+            "args": [],
+            "stopOnEntry": false,
+            "sourceMap": {
+                "/var/home/henius": "/home/henius"
+            }
+        },
+        {
+            "name": "Debug unit tests in executable 'baziflow-agent'",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--bin=baziflow-agent"
+                ]
+            }
+        }
+    ]
+}
