@@ -1,20 +1,16 @@
-use std::sync::Arc;
 use teloxide::prelude::*;
 use tracing::{error, info};
 
 use super::bazi_flow;
 use super::calendar::{self, BirthdateCalAction, CalendarAction, GenderAction, LocationAction, TimeAction};
 use super::helpers::{build_history_msg, get_display_name};
-use crate::models::AppState;
 use crate::repos;
-use crate::services::llm_bazi;
-use crate::utils;
 
 // ─────────────────────────────────────────────
 // Callback handler (calendar + time picker)
 // ─────────────────────────────────────────────
-
-pub async fn handle_callback(bot: Bot, q: CallbackQuery, state: Arc<AppState>) -> ResponseResult<()> {
+pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
+    let state = crate::models::get_state();
     let data = match q.data.as_deref() {
         Some(d) => d,
         None => return Ok(()),
@@ -122,11 +118,10 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery, state: Arc<AppState>) -
 
                 let chat_id = q.message.as_ref().map(|m| m.chat().id).unwrap_or(ChatId(0));
                 let msg_id = q.message.as_ref().map(|m| m.id());
-                let state_clone = state.clone();
                 let bot_clone = bot.clone();
                 let user_display_name = get_display_name(&q.from);
                 tokio::spawn(async move {
-                    let _ = bazi_flow::perform_bazi_analysis(state_clone, bot_clone, chat_id, user_id, user_display_name, msg_id).await;
+                    let _ = bazi_flow::perform_bazi_analysis(bot_clone, chat_id, user_id, user_display_name, msg_id).await;
                 });
             }
             LocationAction::Skip => {
@@ -137,11 +132,10 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery, state: Arc<AppState>) -
 
                 let chat_id = q.message.as_ref().map(|m| m.chat().id).unwrap_or(ChatId(0));
                 let msg_id = q.message.as_ref().map(|m| m.id());
-                let state_clone = state.clone();
                 let bot_clone = bot.clone();
                 let user_display_name = get_display_name(&q.from);
                 tokio::spawn(async move {
-                    let _ = bazi_flow::perform_bazi_analysis(state_clone, bot_clone, chat_id, user_id, user_display_name, msg_id).await;
+                    let _ = bazi_flow::perform_bazi_analysis(bot_clone, chat_id, user_id, user_display_name, msg_id).await;
                 });
             }
         }
@@ -225,13 +219,13 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery, state: Arc<AppState>) -
     match action {
         CalendarAction::SelectDate(date) => {
             let formatted_date = date.format("%Y-%m-%d").to_string();
-            process_date_selection(&bot, &q, &state, &formatted_date, "calendar_date", "📝 盲派命理分析：").await?;
+            process_date_selection(&bot, &q, &formatted_date, "calendar_date", "📝 盲派命理分析：").await?;
         }
 
         CalendarAction::Today => {
             let today = chrono::Local::now().date_naive();
             let formatted_date = today.format("%Y-%m-%d").to_string();
-            process_date_selection(&bot, &q, &state, &formatted_date, "calendar_today", "📝 今日盲派分析：").await?;
+            process_date_selection(&bot, &q, &formatted_date, "calendar_today", "📝 今日盲派分析：").await?;
         }
 
         CalendarAction::PrevMonth { year, month } | CalendarAction::NextMonth { year, month } => {
@@ -248,7 +242,8 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery, state: Arc<AppState>) -
 // ─────────────────────────────────────────────
 // Shared date selection processing (used by SelectDate)
 // ─────────────────────────────────────────────
-async fn process_date_selection(bot: &Bot, q: &CallbackQuery, state: &Arc<AppState>, formatted_date: &str, request_type: &str, response_prefix: &str) -> ResponseResult<()> {
+async fn process_date_selection(bot: &Bot, q: &CallbackQuery, formatted_date: &str, request_type: &str, response_prefix: &str) -> ResponseResult<()> {
+    let state = crate::models::get_state();
     let user = &q.from;
     let user_id = user.id.0;
     info!("User {} selected date: {}", user_id, formatted_date);
@@ -258,35 +253,37 @@ async fn process_date_selection(bot: &Bot, q: &CallbackQuery, state: &Arc<AppSta
         let _ = bot.edit_message_text(chat_id, msg_id, format!("Processing date: {}", formatted_date)).await;
 
         let ref_content = build_history_msg(&state.user_contexts, user_id);
-        let (user_profile_bazi_four_pillars, destiny_reading) = repos::get_user_profile(&state.db_pool, user_id).await;
-        let Some(user_bazi_four_pillars_raw) = user_profile_bazi_four_pillars.as_deref() else {
+        let (bazi_four_pillars, bazi_analysis) = repos::get_user_profile(&state.db_pool, user_id).await;
+        let Some(bazi_four_pillars) = bazi_four_pillars.as_deref() else {
             let _ = bot
                 .send_message(chat_id, "⚠️ You haven't set your birthdate yet! Please use /new to set your birthdate first to get accurate readings.")
                 .await;
             return Ok(());
         };
-        // let user_bazi_four_pillars = utils::get_formatted_bazi_four_pillars(user_bazi_four_pillars_raw);
-        let destiny_reading = destiny_reading.unwrap_or_default();
 
-        match llm_bazi::generate_bazi_reading(llm_bazi::BaziReadingRequest {
-            http_client: &state.http_client,
-            date_value: formatted_date,
-            history_msg: &ref_content,
-            user_bazi_four_pillars: &user_bazi_four_pillars_raw,
-            destiny_reading: &destiny_reading,
-            api_key: &state.config.openai_api_key,
-            api_base: &state.config.openai_api_base,
-            model_name: &state.config.llm_model_name,
+        match crate::services::almanac::analysis_date_fortune(crate::services::almanac::DateFortuneRequest {
+            target_date: formatted_date,
+            bazi_four_pillars,
+            bazi_analysis: bazi_analysis.as_deref().unwrap_or_default(),
+            history_context: Some(ref_content.as_str()),
         })
         .await
         {
             Ok(result_text) => {
-                repos::save_request(&state.db_pool, user_id, request_type, Some(formatted_date), Some(&ref_content), Some(&result_text)).await;
+                repos::save_request(&state.db_pool, user_id, request_type, Some(formatted_date), Some(ref_content.as_str()), Some(result_text.as_str())).await;
                 bot.send_message(chat_id, format!("{}\n{}", response_prefix, result_text)).await?;
             }
             Err(e) => {
                 error!("Error: {}", e);
-                repos::save_request(&state.db_pool, user_id, request_type, Some(formatted_date), Some(&ref_content), Some(&format!("Error: {}", e))).await;
+                repos::save_request(
+                    &state.db_pool,
+                    user_id,
+                    request_type,
+                    Some(formatted_date),
+                    Some(ref_content.as_str()),
+                    Some(format!("Error: {}", e).as_str()),
+                )
+                .await;
                 bot.send_message(chat_id, format!("Error generating reading: {}", e)).await?;
             }
         }

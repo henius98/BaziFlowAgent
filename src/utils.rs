@@ -1,5 +1,4 @@
 //! Shared utility functions used across bot handlers, scheduler, and other modules.
-use serde_json::Value;
 
 /// Split a long message into chunks that fit within Telegram's message size limit.
 pub fn split_message(text: &str, limit: usize) -> Vec<String> {
@@ -23,9 +22,4 @@ pub fn split_message(text: &str, limit: usize) -> Vec<String> {
     }
 
     result
-}
-
-/// Extract a string field from a JSON Value
-pub fn json_str<'a>(v: &'a Value, key: &str) -> &'a str {
-    v.get(key).and_then(|s| s.as_str()).unwrap_or("")
 }

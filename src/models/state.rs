@@ -1,7 +1,7 @@
 use crate::config::AppConfig;
 use chrono::Utc;
 use dashmap::DashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 #[derive(Debug, Clone)]
 pub struct UserContext {
@@ -28,7 +28,13 @@ impl Default for UserContext {
     }
 }
 
-/// Shared application state structure.
+pub static GLOBAL_STATE: OnceLock<Arc<AppState>> = OnceLock::new();
+pub fn get_state() -> Arc<AppState> {
+    GLOBAL_STATE.get().expect("AppState not initialized").clone()
+}
+
+/// Shared application state structure
+#[derive(Debug)]
 pub struct AppState {
     pub http_client: reqwest::Client,
     pub db_pool: sqlx::SqlitePool,

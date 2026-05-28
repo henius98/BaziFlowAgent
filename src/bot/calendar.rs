@@ -1,12 +1,13 @@
+use crate::models::common::{DAY_HEADERS, MONTH_NAME};
 use chrono::{Datelike, NaiveDate};
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. Bazi analysis calendar  (existing, unchanged)
+// 1. Date Fortune calendar (/Date command)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Callback data prefix for Bazi analysis calendar actions
-const CAL_PREFIX: &str = "cal";
+/// Callback data prefix for Date Fortune calendar actions
+const CALENDER_PREFIX: &str = "cal";
 
 /// Calendar action types encoded in callback data
 #[derive(Debug, Clone)]
@@ -27,22 +28,22 @@ impl CalendarAction {
     pub fn encode(&self) -> String {
         match self {
             CalendarAction::SelectDate(date) => {
-                format!("{}:sel:{}:{}:{}", CAL_PREFIX, date.year(), date.month(), date.day())
+                format!("{}:sel:{}:{}:{}", CALENDER_PREFIX, date.year(), date.month(), date.day())
             }
             CalendarAction::PrevMonth { year, month } => {
-                format!("{}:prev:{}:{}", CAL_PREFIX, year, month)
+                format!("{}:prev:{}:{}", CALENDER_PREFIX, year, month)
             }
             CalendarAction::NextMonth { year, month } => {
-                format!("{}:next:{}:{}", CAL_PREFIX, year, month)
+                format!("{}:next:{}:{}", CALENDER_PREFIX, year, month)
             }
-            CalendarAction::Today => format!("{}:today", CAL_PREFIX),
+            CalendarAction::Today => format!("{}:today", CALENDER_PREFIX),
         }
     }
 
     /// Decode callback data string into CalendarAction
     pub fn decode(data: &str) -> Option<CalendarAction> {
         let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != CAL_PREFIX {
+        if parts.is_empty() || parts[0] != CALENDER_PREFIX {
             return None;
         }
 
@@ -70,15 +71,14 @@ impl CalendarAction {
     }
 }
 
-/// Check if callback data is a Bazi analysis calendar action
+/// Check if callback data is a Date Fortune calendar action
 pub fn is_calendar_callback(data: &str) -> bool {
-    data.starts_with(CAL_PREFIX) && !data.starts_with("bdcal")
+    data.starts_with(CALENDER_PREFIX) && !data.starts_with("bdcal")
 }
 
-
-/// Build an inline keyboard calendar for the given year and month (Bazi analysis)
+/// Build an inline keyboard calendar for the given year and month (Date Fortune)
 pub fn build_calendar(year: i32, month: u32) -> InlineKeyboardMarkup {
-    build_calendar_inner(year, month, CAL_PREFIX)
+    build_calendar_inner(year, month, CALENDER_PREFIX)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ pub fn build_calendar(year: i32, month: u32) -> InlineKeyboardMarkup {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Callback data prefix for birthdate picker calendar
-const BDCAL_PREFIX: &str = "bdcal";
+const BDCALENDER_PREFIX: &str = "bdcal";
 
 /// Birthdate calendar action types
 #[derive(Debug, Clone)]
@@ -104,27 +104,27 @@ impl BirthdateCalAction {
     pub fn encode(&self) -> String {
         match self {
             BirthdateCalAction::ViewYears { start_year } => {
-                format!("{}:vy:{}", BDCAL_PREFIX, start_year)
+                format!("{}:vy:{}", BDCALENDER_PREFIX, start_year)
             }
-            BirthdateCalAction::SelectYear(year) => format!("{}:sy:{}", BDCAL_PREFIX, year),
+            BirthdateCalAction::SelectYear(year) => format!("{}:sy:{}", BDCALENDER_PREFIX, year),
             BirthdateCalAction::SelectMonth { year, month } => {
-                format!("{}:sm:{}:{}", BDCAL_PREFIX, year, month)
+                format!("{}:sm:{}:{}", BDCALENDER_PREFIX, year, month)
             }
             BirthdateCalAction::SelectDate(date) => {
-                format!("{}:sel:{}:{}:{}", BDCAL_PREFIX, date.year(), date.month(), date.day())
+                format!("{}:sel:{}:{}:{}", BDCALENDER_PREFIX, date.year(), date.month(), date.day())
             }
             BirthdateCalAction::PrevMonth { year, month } => {
-                format!("{}:prev:{}:{}", BDCAL_PREFIX, year, month)
+                format!("{}:prev:{}:{}", BDCALENDER_PREFIX, year, month)
             }
             BirthdateCalAction::NextMonth { year, month } => {
-                format!("{}:next:{}:{}", BDCAL_PREFIX, year, month)
+                format!("{}:next:{}:{}", BDCALENDER_PREFIX, year, month)
             }
         }
     }
 
     pub fn decode(data: &str) -> Option<BirthdateCalAction> {
         let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != BDCAL_PREFIX {
+        if parts.is_empty() || parts[0] != BDCALENDER_PREFIX {
             return None;
         }
 
@@ -166,13 +166,13 @@ impl BirthdateCalAction {
 
 /// Check if callback data is a birthdate calendar action
 pub fn is_birthdate_cal_callback(data: &str) -> bool {
-    data.starts_with(BDCAL_PREFIX)
+    data.starts_with(BDCALENDER_PREFIX)
 }
 
 /// Build an inline keyboard calendar for birthdate selection (/new command)
 pub fn build_birthdate_calendar(year: i32, month: u32) -> InlineKeyboardMarkup {
     // Birthdate calendar uses bdcal prefix
-    let mut markup = build_calendar_inner(year, month, BDCAL_PREFIX);
+    let mut markup = build_calendar_inner(year, month, BDCALENDER_PREFIX);
 
     // Add a Back to Month button
     let back_row = vec![InlineKeyboardButton::callback("◀️ Change Month", BirthdateCalAction::SelectYear(year).encode())];
@@ -204,7 +204,6 @@ pub fn build_year_picker(start_year: i32) -> InlineKeyboardMarkup {
 
 pub fn build_month_picker(year: i32) -> InlineKeyboardMarkup {
     let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
-    let month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     // Grid of 12 months (3x4)
     for row_start in (0..12).step_by(3) {
@@ -213,7 +212,7 @@ pub fn build_month_picker(year: i32) -> InlineKeyboardMarkup {
             let m_idx = row_start + offset;
             let m_num = (m_idx + 1) as u32;
             row.push(InlineKeyboardButton::callback(
-                month_names[m_idx as usize].to_string(),
+                MONTH_NAME[m_idx as usize].to_string(),
                 BirthdateCalAction::SelectMonth { year, month: m_num }.encode(),
             ));
         }
@@ -228,7 +227,7 @@ pub fn build_month_picker(year: i32) -> InlineKeyboardMarkup {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.5 Gender Picker
+// 3 Gender Picker
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BDGEN_PREFIX: &str = "bdgen";
@@ -274,7 +273,7 @@ pub fn build_gender_picker() -> InlineKeyboardMarkup {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.6 Location Picker
+// 4 Location Picker
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BDLOC_PREFIX: &str = "bdloc";
@@ -335,7 +334,7 @@ pub fn build_location_picker() -> InlineKeyboardMarkup {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.7 Time Picker
+// 5 Time Picker
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BDTIME_PREFIX: &str = "bdtime";
@@ -423,13 +422,12 @@ pub fn build_minute_picker(hour: u32) -> InlineKeyboardMarkup {
 // 3. Shared calendar builder
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Internal calendar builder shared between Bazi analysis and birthdate pickers
+/// Internal calendar builder shared between Date Fortune and birthdate pickers
 fn build_calendar_inner(year: i32, month: u32, prefix: &str) -> InlineKeyboardMarkup {
     let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
     // Header row: ◀️ Month Year ▶️
-    let month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    let header_text = format!("{} {}", month_names[(month - 1) as usize], year);
+    let header_text = format!("{} {}", MONTH_NAME[(month - 1) as usize], year);
 
     let (prev_year, prev_month) = if month == 1 { (year - 1, 12u32) } else { (year, month - 1) };
     let (next_year, next_month) = if month == 12 { (year + 1, 1u32) } else { (year, month + 1) };
@@ -445,8 +443,7 @@ fn build_calendar_inner(year: i32, month: u32, prefix: &str) -> InlineKeyboardMa
     ]);
 
     // Day-of-week header
-    let day_headers = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
-    rows.push(day_headers.iter().map(|&d| InlineKeyboardButton::callback(d, ignore_cb.clone())).collect());
+    rows.push(DAY_HEADERS.iter().map(|&d| InlineKeyboardButton::callback(d, ignore_cb.clone())).collect());
 
     // Calendar grid
     let first_day = match NaiveDate::from_ymd_opt(year, month, 1) {
@@ -483,7 +480,7 @@ fn build_calendar_inner(year: i32, month: u32, prefix: &str) -> InlineKeyboardMa
     }
 
     // Optional "Today" button
-    if prefix == CAL_PREFIX {
+    if prefix == CALENDER_PREFIX {
         rows.push(vec![InlineKeyboardButton::callback("📅 Today", format!("{}:today", prefix))]);
     }
 

@@ -4,8 +4,7 @@ use std::env;
 #[derive(Debug)]
 pub struct AppConfig {
     pub telegram_bot_token: String,
-    pub openai_api_key: String,
-    pub openai_api_base: String,
+    pub llm_client_config: crate::services::llm::LlmClientConfig,
     pub llm_model_name: String,
     pub database_url: String,
     pub user_contexts_expiration_minutes: i64,
@@ -22,7 +21,6 @@ impl AppConfig {
     /// Load settings from environment variables and `.env` file.
     pub fn from_env() -> anyhow::Result<Self> {
         use anyhow::Context;
-
         // Load .env file
         dotenvy::dotenv().ok();
 
@@ -33,8 +31,10 @@ impl AppConfig {
             Ok(t)
         })?;
 
-        let openai_api_key = env::var("OPENAI_API_KEY").context("OPENAI_API_KEY must be set in .env")?;
-        let openai_api_base = env::var("OPENAI_API_BASE").context("OPENAI_API_BASE must be set in .env")?;
+        let llm_client_config = crate::services::llm::LlmClientConfig {
+            api_key: env::var("LLM_API_KEY").context("LLM_API_KEY must be set in .env")?,
+            api_base: env::var("LLM_API_BASE").context("LLM_API_BASE must be set in .env")?,
+        };
         let llm_model_name = env::var("LLM_MODEL_NAME").context("LLM_MODEL_NAME must be set in .env")?;
 
         let database_url = env::var("DATABASE_URL").context("DATABASE_URL must be set in .env")?;
@@ -63,8 +63,7 @@ impl AppConfig {
 
         Ok(Self {
             telegram_bot_token,
-            openai_api_key,
-            openai_api_base,
+            llm_client_config,
             llm_model_name,
             database_url,
             user_contexts_expiration_minutes,

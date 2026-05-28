@@ -1,10 +1,11 @@
 //! Shared utility functions for local calculated bazi.
 
+use crate::models::common::{BRANCHES, STATES, STEMS};
 use crate::services::paipan::models::{AdditionalInfo, BasePillarData, BasicInfo, CurrentLuck, DaYunData, ElementStates, LuckInfo, PillarData, RawBaziChart, Relations, StructuredBazi};
 use chrono::Datelike;
 
 // ─── Structured data assembly ────────────────────────────────
-pub fn map_bazi_data(chart: &RawBaziChart, gender: u8, solar_dt_str: String, birth_year: &i16, lunisolar_year: &i32, ln_gz: &String, luck_index: &usize) -> StructuredBazi {
+pub fn map_bazi_data(chart: &RawBaziChart, gender: u8, solar_dt_str: String, birth_year: &i32, lunisolar_year: &i32, ln_gz: &str, luck_index: &usize) -> StructuredBazi {
     let pillar_names = ["年柱", "月柱", "日柱", "时柱"];
     let mut pillars = Vec::with_capacity(4);
 
@@ -25,7 +26,7 @@ pub fn map_bazi_data(chart: &RawBaziChart, gender: u8, solar_dt_str: String, bir
                 hidden_stems_and_stars: {
                     let cg = chart.cg.get(i).cloned().unwrap_or_default();
                     let cgss = chart.cgss.get(i).cloned().unwrap_or_default();
-                    cg.into_iter().zip(cgss.into_iter()).collect()
+                    cg.into_iter().zip(cgss).collect()
                 },
                 star_luck: chart.xy.get(i).cloned().unwrap_or_default(),
                 self_sitting: chart.zz.get(i).cloned().unwrap_or_default(),
@@ -37,73 +38,25 @@ pub fn map_bazi_data(chart: &RawBaziChart, gender: u8, solar_dt_str: String, bir
     }
 
     let day_master = &chart.bz.day_steam;
-
     // Build Da Yun list
-    let mut dayun: Vec<DaYunData> = if let Some(arr) = chart.dyshensha.as_array() {
-        arr.iter()
-            .enumerate()
-            .filter_map(|(i, item)| {
-                let pair = item.as_array().filter(|p| p.len() >= 2)?;
-                let p_str = pair[0].as_str().unwrap_or("");
-                let start_year = birth_year + (chart.qiyunsui as i16) + (i as i16) * 10 - 1;
-                let shensha = pair[1]
-                    .as_array()
-                    .map(|list| list.iter().filter_map(|s| s.as_str().map(|s| s.to_string())).collect())
-                    .unwrap_or_default();
+    let mut dayun: Vec<DaYunData> = chart
+        .dyshensha
+        .iter()
+        .enumerate()
+        .map(|(i, (gz_str, shensha))| {
+            let start_year = birth_year + (chart.qiyunsui as i32) + (i as i32) * 10 - 1;
+            let is_current_dayun = i == *luck_index;
+            let relation = if is_current_dayun { extract_relations(&chart.dy_gz_relations) } else { None };
 
-                let is_current_dayun = i == *luck_index;
-                let relation = if is_current_dayun {
-                    extract_relations(&chart.dy_gz_relations)
-                } else {
-                    Relations {
-                        stem_relations: None,
-                        branch_relations: None,
-                    }
-                };
-
-                Some(DaYunData {
-                    is_current_dayun,
-                    start_year,
-                    end_year: start_year + 9,
-                    info: calculate_gz_info(p_str, day_master, shensha),
-                    relation,
-                })
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
-
-    // Fallback: build from plain dayun list if dyshensha was empty
-    if dayun.is_empty() {
-        dayun = chart
-            .dayun
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                let start_age = chart.qiyunsui + i as u8 * 10;
-                let start_year = birth_year + start_age as i16 - 1;
-
-                let is_current_dayun = i == *luck_index;
-                let relation = if is_current_dayun {
-                    extract_relations(&chart.dy_gz_relations)
-                } else {
-                    Relations {
-                        stem_relations: None,
-                        branch_relations: None,
-                    }
-                };
-
-                DaYunData {
-                    is_current_dayun,
-                    start_year,
-                    end_year: start_year + 9,
-                    info: calculate_gz_info(p, day_master, Vec::new()),
-                    relation,
-                }
-            })
-            .collect();
-    }
+            DaYunData {
+                is_current_dayun,
+                start_year,
+                end_year: start_year + 9,
+                info: calculate_gz_info(gz_str, day_master, shensha.clone()),
+                relation,
+            }
+        })
+        .collect();
 
     // Filter to previous + current + next Da Yun only
     if *luck_index < dayun.len() {
@@ -144,35 +97,30 @@ pub fn fetch_liunian() -> (i32, String) {
     if now.month() == 1 || (now.month() == 2 && now.day() < 4) {
         year -= 1;
     }
-    let stems = ["庚", "辛", "壬", "癸", "甲", "乙", "丙", "丁", "戊", "己"];
-    let branches = ["申", "酉", "戌", "亥", "子", "丑", "寅", "卯", "辰", "巳", "午", "未"];
-    let gz = format!("{}{}", stems[(year.rem_euclid(10)) as usize], branches[(year.rem_euclid(12)) as usize]);
+    let stem_idx = (year.rem_euclid(10) + 6) % 10;
+    let branch_idx = (year.rem_euclid(12) + 8) % 12;
+    let gz = format!("{}{}", STEMS[stem_idx as usize], BRANCHES[branch_idx as usize]);
     (year, gz)
 }
 
 /// Find the index of the current active Da Yun based on age
-pub fn current_luck_index(chart: &RawBaziChart, birth_year: &i16) -> u8 {
-    let age = chrono::Local::now().year() as i16 - birth_year + 1;
-    ((age as u8 - chart.qiyunsui as u8) / 10).max(0)
+pub fn current_luck_index(chart: &RawBaziChart, birth_year: &i32) -> u8 {
+    let age = chrono::Local::now().year() - birth_year + 1;
+    let diff = age - chart.qiyunsui as i32;
+    (diff / 10).max(0) as u8
 }
 
-fn extract_relations(relations: &Option<Vec<Vec<String>>>) -> Relations {
-    fn clean_relations(v: &Vec<String>) -> Vec<String> {
+fn extract_relations(relations: &Option<Vec<Vec<String>>>) -> Option<Relations> {
+    fn clean_relations(v: &[String]) -> Vec<String> {
         v.iter()
             .filter(|s| !s.is_empty())
             .map(|s| s.split(',').next().map(|first| first.to_string()).unwrap_or_else(|| s.clone()))
             .collect()
     }
-    match relations {
-        Some(rel) => Relations {
-            stem_relations: rel.first().map(clean_relations).filter(|v| !v.is_empty()),
-            branch_relations: rel.get(1).map(clean_relations).filter(|v| !v.is_empty()),
-        },
-        None => Relations {
-            stem_relations: None,
-            branch_relations: None,
-        },
-    }
+    relations.as_ref().map(|rel| Relations {
+        stem_relations: rel.first().map(|v| clean_relations(v)).filter(|v| !v.is_empty()),
+        branch_relations: rel.get(1).map(|v| clean_relations(v)).filter(|v| !v.is_empty()),
+    })
 }
 
 /// Locally calculate detailed pillar info (Hidden Stems, Ten Gods, Star Luck, Empty-death, Na Yin)
@@ -194,16 +142,13 @@ pub fn calculate_gz_info(gz: &str, day_master: &str, shensha: Vec<String>) -> Ba
         };
     }
 
-    // let stem_ten_god = get_ten_god(day_master, &stem);
-    // let hidden_stems = get_hidden_stems(&branch);
-
     BasePillarData {
         stem_and_stars: vec![(stem.clone(), get_ten_god(day_master, &stem).to_string())],
         branch: branch.clone(),
         hidden_stems_and_stars: get_hidden_stems(&branch).iter().map(|&s| (s.to_string(), get_ten_god(day_master, s).to_string())).collect(),
         star_luck: get_star_luck(day_master, &branch).to_string(),
         self_sitting: get_star_luck(&stem, &branch).to_string(),
-        empty_death: get_xun_kong(&stem, &branch),
+        empty_death: get_empty_death(&stem, &branch),
         nayin: get_nayin(gz).to_string(),
         shensha,
     }
@@ -227,7 +172,7 @@ fn calculate_element_states(month_branch: &str) -> ElementStates {
     }
 }
 
-fn arrange_current_luck(chart: &RawBaziChart, lunisolar_year: &i32, ln_gz: &String) -> Option<CurrentLuck> {
+fn arrange_current_luck(chart: &RawBaziChart, lunisolar_year: &i32, ln_gz: &str) -> Option<CurrentLuck> {
     let day_master = &chart.bz.day_steam;
     let shensha = chart.ln_shensha.clone().unwrap_or_default();
 
@@ -239,9 +184,8 @@ fn arrange_current_luck(chart: &RawBaziChart, lunisolar_year: &i32, ln_gz: &Stri
 }
 
 pub fn get_ten_god(day_master: &str, target_stem: &str) -> &'static str {
-    let stems = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
-    let dm_idx = stems.iter().position(|&s| s == day_master).unwrap_or(0);
-    let tg_idx = stems.iter().position(|&s| s == target_stem).unwrap_or(0);
+    let dm_idx = STEMS.iter().position(|&s| s == day_master).unwrap_or(0);
+    let tg_idx = STEMS.iter().position(|&s| s == target_stem).unwrap_or(0);
 
     let same_polarity = dm_idx % 2 == tg_idx % 2;
     let rel = (tg_idx as i32 / 2 + 5 - dm_idx as i32 / 2).rem_euclid(5);
@@ -280,12 +224,8 @@ pub fn get_hidden_stems(branch: &str) -> Vec<&'static str> {
 }
 
 pub fn get_star_luck(stem: &str, branch: &str) -> &'static str {
-    let states = ["长生", "沐浴", "冠带", "临官", "帝旺", "衰", "病", "死", "墓", "绝", "胎", "养"];
-    let stems = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
-    let branches = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
-
-    let stem_idx = stems.iter().position(|&s| s == stem).unwrap_or(0);
-    let branch_idx = branches.iter().position(|&s| s == branch).unwrap_or(0);
+    let stem_idx = STEMS.iter().position(|&s| s == stem).unwrap_or(0);
+    let branch_idx = BRANCHES.iter().position(|&s| s == branch).unwrap_or(0);
 
     let start_idx = match stem_idx {
         0 => 11, // 甲 -> 亥
@@ -304,25 +244,22 @@ pub fn get_star_luck(stem: &str, branch: &str) -> &'static str {
     let is_yin = stem_idx % 2 != 0;
 
     let dist = if is_yin {
-        (start_idx as i32 - branch_idx as i32).rem_euclid(12)
+        (start_idx - branch_idx as i32).rem_euclid(12)
     } else {
-        (branch_idx as i32 - start_idx as i32).rem_euclid(12)
+        (branch_idx as i32 - start_idx).rem_euclid(12)
     };
 
-    states[dist as usize]
+    STATES[dist as usize]
 }
 
-pub fn get_xun_kong(stem: &str, branch: &str) -> String {
-    let stems = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
-    let branches = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
-
-    let stem_idx = stems.iter().position(|&s| s == stem).unwrap_or(0);
-    let branch_idx = branches.iter().position(|&s| s == branch).unwrap_or(0);
+pub fn get_empty_death(stem: &str, branch: &str) -> String {
+    let stem_idx = STEMS.iter().position(|&s| s == stem).unwrap_or(0);
+    let branch_idx = BRANCHES.iter().position(|&s| s == branch).unwrap_or(0);
 
     let e = (branch_idx as i32 + 10 - stem_idx as i32).rem_euclid(12) as usize;
     let next_e = (e + 1) % 12;
 
-    format!("{}{}", branches[e], branches[next_e])
+    format!("{}{}", BRANCHES[e], BRANCHES[next_e])
 }
 
 pub fn get_nayin(gz: &str) -> &'static str {

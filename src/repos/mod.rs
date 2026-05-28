@@ -32,10 +32,11 @@ pub async fn init_db(db_url: &str) -> Result<SqlitePool, sqlx::Error> {
 pub async fn save_request(pool: &SqlitePool, user_id: u64, request_type: &str, target_date: Option<&str>, text_content: Option<&str>, llm_response: Option<&str>) {
     let result = sqlx::query(
         r#"
-        INSERT INTO requests (user_id, request_type, target_date, text_content, llm_response)
-        VALUES (?1, ?2, ?3, ?4, ?5)
+        INSERT INTO requests (id, user_id, request_type, target_date, text_content, llm_response)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
         "#,
     )
+    .bind(chrono::Utc::now().timestamp_millis())
     .bind(user_id as i64)
     .bind(request_type)
     .bind(target_date)
@@ -49,7 +50,7 @@ pub async fn save_request(pool: &SqlitePool, user_id: u64, request_type: &str, t
     }
 }
 
-pub async fn save_or_update_user_bazi_four_pillars(pool: &SqlitePool, user_id: u64, bazi_four_pillars: &str, gender: u8, birth_datetime: Option<&str>) {
+pub async fn upsert_user_bazi(pool: &SqlitePool, user_id: u64, bazi_four_pillars: &str, gender: u8, birth_datetime: &str) {
     let result = sqlx::query(
         r#"
         INSERT INTO users (user_id, bazi_four_pillars, gender, birth_datetime)
@@ -72,10 +73,10 @@ pub async fn save_or_update_user_bazi_four_pillars(pool: &SqlitePool, user_id: u
     }
 }
 
-pub async fn save_user_destiny_reading(pool: &SqlitePool, user_id: u64, reading: &str) {
+pub async fn save_user_bazi_analysis(pool: &SqlitePool, user_id: u64, reading: &str) {
     let result = sqlx::query(
         r#"
-        UPDATE users SET destiny_reading = ?2
+        UPDATE users SET bazi_analysis = ?2
         WHERE user_id = ?1
         "#,
     )
@@ -85,12 +86,12 @@ pub async fn save_user_destiny_reading(pool: &SqlitePool, user_id: u64, reading:
     .await;
 
     if let Err(e) = result {
-        error!("Failed to save destiny reading: {}", e);
+        error!("Failed to save bazi_analysis: {}", e);
     }
 }
 
 pub async fn get_user_profile(pool: &SqlitePool, user_id: u64) -> (Option<String>, Option<String>) {
-    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(r#"SELECT json(bazi_four_pillars), destiny_reading FROM users WHERE user_id = ?1"#)
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(r#"SELECT json(bazi_four_pillars), bazi_analysis FROM users WHERE user_id = ?1"#)
         .bind(user_id as i64)
         .fetch_optional(pool)
         .await
@@ -108,7 +109,7 @@ pub async fn get_user_profile(pool: &SqlitePool, user_id: u64) -> (Option<String
 /// Fetch all users who have a non-null bazi_four_pillars profile for scheduled fortune generation.
 pub async fn get_all_users_with_bazi(pool: &SqlitePool) -> Vec<(u64, String, Option<String>)> {
     let rows =
-        sqlx::query_as::<_, (i64, String, Option<String>)>(r#"SELECT user_id, json(bazi_four_pillars), destiny_reading FROM users WHERE bazi_four_pillars IS NOT NULL AND bazi_four_pillars != ''"#)
+        sqlx::query_as::<_, (i64, String, Option<String>)>(r#"SELECT user_id, json(bazi_four_pillars), bazi_analysis FROM users WHERE bazi_four_pillars IS NOT NULL AND bazi_four_pillars != ''"#)
             .fetch_all(pool)
             .await
             .unwrap_or_else(|e| {
@@ -117,4 +118,27 @@ pub async fn get_all_users_with_bazi(pool: &SqlitePool) -> Vec<(u64, String, Opt
             });
 
     rows.into_iter().map(|(user_id, bazi, destiny)| (user_id as u64, bazi, destiny)).collect()
+}
+
+/// Persist an LLM call log entry (request + response or error).
+pub async fn save_llm_log(pool: &SqlitePool, model: &str, request_body: &str, response_body: &str, total_tokens: Option<i64>, duration_ms: i64, is_success: bool) {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO llm_logs (id, model, request_body, response_body, total_tokens, duration_ms, is_success)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "#,
+    )
+    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(model)
+    .bind(request_body)
+    .bind(response_body)
+    .bind(total_tokens)
+    .bind(duration_ms)
+    .bind(is_success as i32)
+    .execute(pool)
+    .await;
+
+    if let Err(e) = result {
+        error!("Failed to save LLM log: {}", e);
+    }
 }

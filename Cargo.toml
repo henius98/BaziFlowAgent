@@ -15,14 +15,20 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13", features = ["json", "rustls"] }
 
 # OpenAI API Client
-async-openai = { version = "0.36", features = ["full"] }
+async-openai = { version = "0.40", features = ["full"] }
 
 # Error Handling
 anyhow = "1.0"
 thiserror = "2.0"
 
 # Database
-sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls", "chrono", "macros", "migrate"] }
+sqlx = { version = "0.8", features = [
+    "sqlite",
+    "runtime-tokio-rustls",
+    "chrono",
+    "macros",
+    "migrate",
+] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -47,7 +53,7 @@ tokio-cron-scheduler = "0.15"
 dashmap = "6"
 
 # UUID for callback data
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v7"] }
 
 # Web Server (for Instant View / Web view)
 axum = { version = "0.8", features = ["macros"] }

@@ -1,114 +1,69 @@
-use super::bazi_utils;
-use super::models::{AdditionalInfo, BasePillarData, BasicInfo, CurrentLuck, DaYunData, ElementStates, LuckInfo, PillarData, RawBaziChart, Relations, StructuredBazi};
-use chrono::Datelike;
-use serde_json::Value;
+use super::models::{BasePillarData, StructuredBazi};
 
 const HTML_TEMPLATE: &str = include_str!("bazi_template.html");
-
-// ─── Shared helpers ──────────────────────────────────────────
-
-/// Build hidden-stem HTML from a gz_info JSON (cg + cgss arrays)
-fn hidden_html_from_info(info: &Value) -> String {
-    let cg = info.get("cg").and_then(|v| v.as_array());
-    let cgss = info.get("cgss").and_then(|v| v.as_array());
-    match (cg, cgss) {
-        (Some(cg), Some(cgss)) => cg
-            .iter()
-            .zip(cgss.iter())
-            .map(|(s, ss)| format!("<div>{}<span>{}</span></div>", s.as_str().unwrap_or(""), ss.as_str().unwrap_or("")))
-            .collect::<Vec<_>>()
-            .join(""),
-        _ => String::new(),
-    }
-}
 
 /// Build `<div>` list from a slice of strings
 fn divs_from_slice(items: &[String]) -> String {
     items.iter().map(|s| format!("<div>{}</div>", s)).collect::<Vec<_>>().join("")
 }
 
-// /// Calculate Ten God (十神) relationship between day master and target stem
-// fn calculate_ten_god(day_master: &str, target_stem: &str) -> String {
-//     let stems = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
-//     let dm_idx = stems.iter().position(|&s| s == day_master).unwrap_or(0);
-//     let tg_idx = stems.iter().position(|&s| s == target_stem).unwrap_or(0);
-
-//     let same_polarity = dm_idx % 2 == tg_idx % 2;
-//     let rel = (tg_idx / 2 + 5 - dm_idx / 2) % 5;
-
-//     match (rel, same_polarity) {
-//         (0, true) => "比肩",
-//         (0, false) => "劫财",
-//         (1, true) => "食神",
-//         (1, false) => "伤官",
-//         (2, true) => "偏财",
-//         (2, false) => "正财",
-//         (3, true) => "七杀",
-//         (3, false) => "正官",
-//         (4, true) => "偏印",
-//         (4, false) => "正印",
-//         _ => "",
-//     }
-//     .to_string()
-// }
-
 // ─── Public formatters ───────────────────────────────────────
 
-// pub fn format_bazi_for_prompt(chart: &RawBaziChart) -> String {
-//     let structured = arrange_bazi_data(chart);
-//     serde_json::to_string_pretty(&structured).unwrap_or_default()
-// }
+pub fn generate_bazi_html(chart: &StructuredBazi, name: &str) -> String {
+    let mut html = HTML_TEMPLATE.to_string();
 
-// pub fn generate_bazi_html(chart: &RawBaziChart, name: &str) -> String {
-//     let data = arrange_bazi_data(chart);
-//     let mut html = HTML_TEMPLATE.to_string();
+    // Basic Info
+    html = html.replace("{{NAME}}", name);
+    html = html.replace("{{GENDER_SUFFIX}}", &chart.info.gender);
+    html = html.replace("{{lunisolar_date}}", &chart.info.lunisolar_date);
+    html = html.replace("{{SOLAR_DATE}}", &chart.info.solar_date);
 
-//     // Basic Info
-//     html = html.replace("{{NAME}}", name);
-//     html = html.replace("{{GENDER_SUFFIX}}", if chart.sex == 1 { "乾造" } else { "坤造" });
-//     html = html.replace("{{lunisolar_date}}", &data.info.lunisolar_date);
-//     html = html.replace("{{SOLAR_DATE}}", &data.info.solar_date);
+    // Current Luck columns (流年 + 大运)
+    populate_luck_columns(&mut html, chart); // TODO: Uncomment and update when populate_luck_columns is fixed
 
-//     // Current Luck columns (流年 + 大运)
-//     populate_luck_columns(&mut html, &data);
+    // Four natal pillars
+    let prefixes = ["YEAR", "MONTH", "DAY", "HOUR"];
+    for (i, p) in chart.pillars.iter().enumerate() {
+        if i >= prefixes.len() {
+            break;
+        }
+        let px = prefixes[i];
 
-//     // Four natal pillars
-//     let prefixes = ["YEAR", "MONTH", "DAY", "HOUR"];
-//     for (i, p) in data.pillars.iter().enumerate() {
-//         let px = prefixes[i];
-//         html = html.replace(&format!("{{{{{}_GOD}}}}", px), &p.main_star);
-//         html = html.replace(&format!("{{{{{}_STEM}}}}", px), &p.stem);
-//         html = html.replace(&format!("{{{{{}_BRANCH}}}}", px), &p.branch);
-//         html = html.replace(&format!("{{{{{}_LUCK}}}}", px), &p.star_luck);
-//         html = html.replace(&format!("{{{{{}_ZIZUO}}}}", px), &p.self_sitting);
-//         html = html.replace(&format!("{{{{{}_KW}}}}", px), &p.empty_death);
-//         html = html.replace(&format!("{{{{{}_NAYIN}}}}", px), &p.nayin);
-//         html = html.replace(&format!("{{{{{}_SHENSHA}}}}", px), &divs_from_slice(&p.shensha));
-//         let hidden = p
-//             .hidden_stems_and_stars
-//             .iter()
-//             .map(|(s, god)| {
-//                 format!("<div class=\"hidden-item\"><span class=\"hidden-stem\">{}</span><span class=\"hidden-god\">{}</span></div>", s, god)
-//             })
-//             .collect::<Vec<_>>()
-//             .join("");
-//         html = html.replace(&format!("{{{{{}_HIDDEN}}}}", px), &hidden);
-//     }
+        let (stem, god) = p.base.stem_and_stars.first().map(|(s, g)| (s.as_str(), g.as_str())).unwrap_or(("", ""));
 
-//     // Interactions
-//     let format_relations = |rels: &Option<Vec<String>>| -> String {
-//         match rels {
-//             Some(items) => items.iter().map(|r| format!("<span>{}</span>", r.split(',').next().unwrap_or(r))).collect::<Vec<_>>().join(", "),
-//             None => "无明显关系".to_string(),
-//         }
-//     };
-//     html = html.replace("{{STEM_INTERACTIONS}}", &format_relations(&data.stem_relations));
-//     html = html.replace("{{BRANCH_INTERACTIONS}}", &format_relations(&data.branch_relations));
+        html = html.replace(&format!("{{{{{}_GOD}}}}", px), god);
+        html = html.replace(&format!("{{{{{}_STEM}}}}", px), stem);
+        html = html.replace(&format!("{{{{{}_BRANCH}}}}", px), &p.base.branch);
+        html = html.replace(&format!("{{{{{}_LUCK}}}}", px), &p.base.star_luck);
+        html = html.replace(&format!("{{{{{}_ZIZUO}}}}", px), &p.base.self_sitting);
+        html = html.replace(&format!("{{{{{}_KW}}}}", px), &p.base.empty_death);
+        html = html.replace(&format!("{{{{{}_NAYIN}}}}", px), &p.base.nayin);
+        html = html.replace(&format!("{{{{{}_SHENSHA}}}}", px), &divs_from_slice(&p.base.shensha));
+        let hidden = p
+            .base
+            .hidden_stems_and_stars
+            .iter()
+            .map(|(s, god)| format!("<div class=\"hidden-item\"><span class=\"hidden-stem\">{}</span><span class=\"hidden-god\">{}</span></div>", s, god))
+            .collect::<Vec<_>>()
+            .join("");
+        html = html.replace(&format!("{{{{{}_HIDDEN}}}}", px), &hidden);
+    }
 
-//     html
-// }
+    // Interactions
+    let format_relations = |rels: &Option<Vec<String>>| -> String {
+        match rels {
+            Some(items) => items.iter().map(|r| format!("<span>{}</span>", r.split(',').next().unwrap_or(r))).collect::<Vec<_>>().join(", "),
+            None => "无明显关系".to_string(),
+        }
+    };
+    let stem_relations = chart.relation.as_ref().and_then(|r| r.stem_relations.clone());
+    let branch_relations = chart.relation.as_ref().and_then(|r| r.branch_relations.clone());
+    html = html.replace("{{STEM_INTERACTIONS}}", &format_relations(&stem_relations));
+    html = html.replace("{{BRANCH_INTERACTIONS}}", &format_relations(&branch_relations));
 
-/*
+    html
+}
+
 /// Populate the 流年 and 大运 columns in the HTML template.
 fn populate_luck_columns(html: &mut String, data: &StructuredBazi) {
     // All placeholders that need clearing if no luck data
@@ -143,67 +98,55 @@ fn populate_luck_columns(html: &mut String, data: &StructuredBazi) {
         }
     };
 
-    let year_p = luck.year.as_deref().unwrap_or("");
-    let luck_p = luck.active_dayun.as_deref().unwrap_or("");
-    let day_master = data.pillars.get(2).map(|p| p.stem.as_str()).unwrap_or("");
+    let year_stem = luck.info.stem_and_stars.first().map(|s| s.0.as_str()).unwrap_or("");
+    let year_god = luck.info.stem_and_stars.first().map(|s| s.1.as_str()).unwrap_or("流年");
+    let year_branch = luck.info.branch.as_str();
 
-    // Extract first char as stem, second as branch
-    let year_stem: String = year_p.chars().next().map(|c| c.to_string()).unwrap_or_default();
-    let luck_stem: String = luck_p.chars().next().map(|c| c.to_string()).unwrap_or_default();
-    let year_branch: String = year_p.chars().nth(1).map(|c| c.to_string()).unwrap_or_default();
-    let luck_branch: String = luck_p.chars().nth(1).map(|c| c.to_string()).unwrap_or_default();
-
-    // Ten God labels
-    let year_god = if !year_stem.is_empty() && !day_master.is_empty() {
-        get_ten_god(day_master, &year_stem)
-    } else {
-        "流年".to_string()
-    };
-    let luck_god = if !luck_stem.is_empty() && !day_master.is_empty() {
-        get_ten_god(day_master, &luck_stem)
-    } else {
-        "大运".to_string()
+    let active_dy = data.dayun.iter().find(|d| d.is_current_dayun);
+    let (luck_stem, luck_branch, luck_god) = match active_dy {
+        Some(dy) => {
+            let s = dy.info.stem_and_stars.first().map(|s| s.0.as_str()).unwrap_or("");
+            let g = dy.info.stem_and_stars.first().map(|s| s.1.as_str()).unwrap_or("大运");
+            let b = dy.info.branch.as_str();
+            (s, b, g)
+        }
+        None => ("", "", ""),
     };
 
-    *html = html.replace("{{YEAR_PILLAR_0}}", &year_stem);
-    *html = html.replace("{{YEAR_PILLAR_1}}", &year_branch);
-    *html = html.replace("{{YEAR_GOD}}", &year_god);
-    *html = html.replace("{{LUCK_PILLAR_0}}", &luck_stem);
-    *html = html.replace("{{LUCK_PILLAR_1}}", &luck_branch);
-    *html = html.replace("{{LUCK_GOD}}", &luck_god);
+    *html = html.replace("{{YEAR_PILLAR_0}}", year_stem);
+    *html = html.replace("{{YEAR_PILLAR_1}}", year_branch);
+    *html = html.replace("{{YEAR_GOD}}", year_god);
+    *html = html.replace("{{LUCK_PILLAR_0}}", luck_stem);
+    *html = html.replace("{{LUCK_PILLAR_1}}", luck_branch);
+    *html = html.replace("{{LUCK_GOD}}", luck_god);
 
     // Shensha
-    let ln_shensha = luck
-        .shensha
-        .as_deref()
-        .unwrap_or("")
-        .split(", ")
-        .filter(|s| !s.is_empty())
-        .map(|s| format!("<div>{}</div>", s))
-        .collect::<String>();
+    let ln_shensha = divs_from_slice(&luck.info.shensha);
     *html = html.replace("{{YEAR_SHENSHA_CURRENT}}", &ln_shensha);
 
-    let luck_shensha = data.dayun.iter().find(|d| d.pillar == luck_p).map(|dy| divs_from_slice(&dy.shensha)).unwrap_or_default();
+    let luck_shensha = active_dy.map(|dy| divs_from_slice(&dy.info.shensha)).unwrap_or_default();
     *html = html.replace("{{LUCK_SHENSHA_CURRENT}}", &luck_shensha);
 
-    // 流年 detail rows from API data
-    populate_gz_info(html, "LN", &luck.ln_info);
+    // 流年 detail rows from BasePillarData
+    populate_gz_info(html, "LN", Some(&luck.info));
 
-    // 大运 detail rows from API data
-    populate_gz_info(html, "DY", &luck.dy_info);
+    // 大运 detail rows from BasePillarData
+    populate_gz_info(html, "DY", active_dy.map(|dy| &dy.info));
 }
 
 /// Populate HIDDEN/LUCK/ZIZUO/KW/NAYIN placeholders for a given prefix (LN or DY)
-/// using the gz_info API response.
-fn populate_gz_info(html: &mut String, prefix: &str, info: &Option<Value>) {
+/// using BasePillarData.
+fn populate_gz_info(html: &mut String, prefix: &str, info: Option<&BasePillarData>) {
     let (hidden, luck, zizuo, kw, nayin) = match info {
-        Some(v) => (
-            hidden_html_from_info(v),
-            json_str(v, "xy").to_string(),
-            json_str(v, "zz").to_string(),
-            json_str(v, "kw").to_string(),
-            json_str(v, "ny").to_string(),
-        ),
+        Some(v) => {
+            let h = v
+                .hidden_stems_and_stars
+                .iter()
+                .map(|(s, god)| format!("<div class=\"hidden-item\"><span class=\"hidden-stem\">{}</span><span class=\"hidden-god\">{}</span></div>", s, god))
+                .collect::<Vec<_>>()
+                .join("");
+            (h, v.star_luck.clone(), v.self_sitting.clone(), v.empty_death.clone(), v.nayin.clone())
+        }
         None => Default::default(),
     };
 
@@ -213,4 +156,3 @@ fn populate_gz_info(html: &mut String, prefix: &str, info: &Option<Value>) {
     *html = html.replace(&format!("{{{{{}_KW}}}}", prefix), &kw);
     *html = html.replace(&format!("{{{{{}_NAYIN}}}}", prefix), &nayin);
 }
-*/

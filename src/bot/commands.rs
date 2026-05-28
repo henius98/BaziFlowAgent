@@ -1,16 +1,13 @@
 use chrono::Datelike;
-use std::sync::Arc;
 use teloxide::{prelude::*, utils::command::BotCommands};
 
 use super::bazi_flow;
 use super::calendar;
-use crate::models::AppState;
 use crate::repos;
 
 // ─────────────────────────────────────────────
 // Bot commands
 // ─────────────────────────────────────────────
-
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "Available commands:")]
 pub enum Command {
@@ -27,8 +24,8 @@ pub enum Command {
 // ─────────────────────────────────────────────
 // Command handler
 // ─────────────────────────────────────────────
-
-pub async fn handle_command(bot: Bot, msg: Message, cmd: Command, state: Arc<AppState>) -> ResponseResult<()> {
+pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
+    let state = crate::models::get_state();
     if let Some(user) = msg.from.as_ref() {
         let user_id = user.id.0;
 
@@ -62,7 +59,7 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command, state: Arc<App
                 }
             };
 
-            bazi_flow::display_user_profile(bot, msg.chat.id, user_id, state).await?;
+            bazi_flow::display_user_profile(bot, msg.chat.id, user_id).await?;
         }
     }
     Ok(())

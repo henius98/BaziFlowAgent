@@ -9,7 +9,7 @@ mod utils;
 
 use std::sync::Arc;
 use teloxide::{prelude::*, utils::command::BotCommands};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use config::AppConfig;
 use models::AppState;
@@ -38,23 +38,19 @@ async fn main() -> anyhow::Result<()> {
 
     // Shared state
     let state = Arc::new(AppState::new(http_client.clone(), db_pool, config.clone()));
+    crate::models::state::GLOBAL_STATE.set(state).expect("Failed to set GLOBAL_STATE");
 
     // Set bot commands
     bot.set_my_commands(bot::Command::bot_commands()).await.context("Failed to set bot commands")?;
 
     // Initialize and start scheduler
-    let scheduler_config = Arc::new(scheduler::SchedulerConfig {
-        http_client: http_client.clone(),
-        bot: bot.clone(),
-        app_state: state.clone(),
-    });
+    let scheduler_config = Arc::new(scheduler::SchedulerConfig { bot: bot.clone() });
 
     let _scheduler = scheduler::start_scheduler(scheduler_config, config.user_contexts_expiration_minutes)
         .await
         .map_err(|e| anyhow::anyhow!(e))
         .context("Failed to start scheduler")?;
-
-    info!("BaziFlowAgent starting services...");
+    debug!("BaziFlowAgent starting services...");
 
     // 1. Build the Telegram bot dispatcher
     let handler = dptree::entry()
@@ -62,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
         .branch(Update::filter_message().filter_command::<bot::Command>().endpoint(bot::commands::handle_command))
         .branch(Update::filter_message().endpoint(bot::messages::handle_message));
 
-    let mut bot_dispatcher = Dispatcher::builder(bot.clone(), handler).dependencies(dptree::deps![state.clone()]).build();
+    let mut bot_dispatcher = Dispatcher::builder(bot.clone(), handler).build();
 
     let ctrl_c = async {
         tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c signal");

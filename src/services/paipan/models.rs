@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StructuredBazi {
@@ -10,7 +9,7 @@ pub struct StructuredBazi {
     #[serde(rename = "其他")]
     pub other: AdditionalInfo,
     #[serde(flatten)] // 留意关系
-    pub relation: Relations,
+    pub relation: Option<Relations>,
     #[serde(rename = "用事", skip_serializing_if = "Option::is_none")]
     pub yongshi: Option<String>,
     #[serde(rename = "五行旺衰")]
@@ -64,13 +63,13 @@ pub struct DaYunData {
     #[serde(rename = "当前大运")]
     pub is_current_dayun: bool,
     #[serde(rename = "起始年份")]
-    pub start_year: i16,
+    pub start_year: i32,
     #[serde(rename = "结束年份")]
-    pub end_year: i16,
+    pub end_year: i32,
     #[serde(flatten)]
     pub info: BasePillarData,
     #[serde(flatten)]
-    pub relation: Relations,
+    pub relation: Option<Relations>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -80,7 +79,7 @@ pub struct CurrentLuck {
     #[serde(flatten)]
     pub info: BasePillarData,
     #[serde(flatten)]
-    pub relation: Relations,
+    pub relation: Option<Relations>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -180,10 +179,10 @@ pub struct RawBaziChart {
     pub jiaoyun: String,
     #[serde(alias = "kongwang", rename = "空亡")]
     pub kongwang: String,
-    #[serde(alias = "dayun", rename = "大运")]
-    pub dayun: Vec<String>,
+    // #[serde(alias = "dayun", rename = "大运")]   // this duplicate value within dyshensha, only keep dyshensha enough
+    // pub dayun: Vec<String>,
     #[serde(alias = "dyshensha", rename = "大运神煞")]
-    pub dyshensha: Value,
+    pub dyshensha: Vec<(String, Vec<String>)>,
     // #[serde(alias = "xiaoyun", rename = "小运")]
     // pub xiaoyun: Vec<String>,
 

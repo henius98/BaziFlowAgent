@@ -1,5 +1,5 @@
-use super::bazi_utils::{calculate_gz_info, current_luck_index, fetch_liunian, map_bazi_data};
-use super::models::RawBaziChart;
+use super::bazi_utils::{current_luck_index, fetch_liunian, map_bazi_data};
+use super::models::{RawBaziChart, StructuredBazi};
 use crate::models::AppResult;
 use reqwest::Client;
 use serde_json::Value;
@@ -7,7 +7,7 @@ use serde_json::Value;
 const REFERER: &str = "https://pcbz.iwzwh.com/";
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-pub async fn fetch_bazi_chart(client: &Client, solar_dt: chrono::NaiveDateTime, gender: u8, birth_year: i16) -> AppResult<String> {
+pub async fn fetch_bazi_chart(client: &Client, solar_dt: chrono::NaiveDateTime, gender: u8, birth_year: i32) -> AppResult<(StructuredBazi, String)> {
     let solar_dt_str = solar_dt.format("%Y-%m-%d %H:%M").to_string();
 
     let mut chart = fetch_base_bazi(client, &solar_dt_str, gender).await?;
@@ -17,7 +17,6 @@ pub async fn fetch_bazi_chart(client: &Client, solar_dt: chrono::NaiveDateTime, 
         "{}{} {}{} {}{} {}{}",
         chart.bz.year_steam, chart.bz.year_branch, chart.bz.month_steam, chart.bz.month_branch, chart.bz.day_steam, chart.bz.day_branch, chart.bz.hour_steam, chart.bz.hour_branch
     );
-
     let gz_split_str = format!(
         "{} {} {} {} {} {} {} {}",
         chart.bz.year_steam, chart.bz.year_branch, chart.bz.month_steam, chart.bz.month_branch, chart.bz.day_steam, chart.bz.day_branch, chart.bz.hour_steam, chart.bz.hour_branch
@@ -26,7 +25,7 @@ pub async fn fetch_bazi_chart(client: &Client, solar_dt: chrono::NaiveDateTime, 
     // Resolve Liu Nian pillar from API or calculate from current year
     let (lunisolar_year, ln_gz) = fetch_liunian();
     let luck_index = current_luck_index(&chart, &birth_year) as usize;
-    let dy_str = chart.dayun.get(luck_index).map(|s| s.as_str()).unwrap_or("");
+    let dy_str = chart.dyshensha.get(luck_index).map(|(p, _)| p.as_str()).unwrap_or("");
 
     let dy_gz_str = format!("{} {}", dy_str, gz_str);
     let ln_gz_str = format!("{} {}", ln_gz, gz_str);
@@ -62,8 +61,8 @@ pub async fn fetch_bazi_chart(client: &Client, solar_dt: chrono::NaiveDateTime, 
     chart.ln_shensha = ln_shensha;
 
     let structured_data = map_bazi_data(&chart, gender, solar_dt_str, &birth_year, &lunisolar_year, &ln_gz, &luck_index);
-    let structured_json = serde_json::to_string_pretty(&structured_data)?;
-    Ok(structured_json)
+    let structured_json = serde_json::to_string(&structured_data)?;
+    Ok((structured_data, structured_json))
 }
 
 async fn fetch_base_bazi(client: &Client, solar_dt: &str, gender: u8) -> AppResult<RawBaziChart> {

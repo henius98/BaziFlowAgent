@@ -3,10 +3,10 @@ use dashmap::DashMap;
 
 /// Build a history message string from stored user conversation contexts.
 pub fn build_history_msg(user_contexts: &DashMap<u64, UserContext>, user_id: u64) -> String {
-    if let Some(ctx) = user_contexts.get(&user_id) {
-        if !ctx.messages.is_empty() {
-            return format!("Here are the previous message:\n{}", ctx.messages.join("\n"));
-        }
+    if let Some(ctx) = user_contexts.get(&user_id)
+        && !ctx.messages.is_empty()
+    {
+        return format!("Here are the previous message:\n{}", ctx.messages.join("\n"));
     }
     String::new()
 }

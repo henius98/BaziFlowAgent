@@ -1,5 +1,4 @@
 pub mod almanac;
-pub mod llm_bazi;
+pub mod llm;
 pub mod paipan;
 pub mod solar_time;
-
