@@ -1,6 +1,6 @@
-use baziflow_agent::bot::bazi_flow::*;
 use baziflow_agent::config::AppConfig;
 use baziflow_agent::models::AppState;
+use baziflow_agent::services::bazi_service::*;
 use mockito::Server;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -51,6 +51,7 @@ async fn test_core_bazi_analysis() {
             api_key: "test".into(),
             api_base: mock_url.clone(),
             timeout_seconds: 30,
+            http_client: None,
         },
         llm_model_name: "gpt-4o".into(),
         database_url: "sqlite::memory:".into(),
@@ -68,7 +69,16 @@ async fn test_core_bazi_analysis() {
     let state = Arc::new(AppState::new(reqwest::Client::new(), pool.clone(), Arc::new(config)));
     let _ = tokio::fs::create_dir_all("public").await;
 
-    let structured_data = prepare_bazi_data(&state, 123, "TestUser", "1990-01-01", 0, 0, 1, None).await.expect("Failed to prepare bazi data");
+    let params = BaziDataParams {
+        user_id: 123,
+        username: "TestUser",
+        birth_date: "1990-01-01",
+        birth_hour: 0,
+        birth_minute: 0,
+        gender: 1,
+        location: None,
+    };
+    let structured_data = prepare_bazi_data(&state, params).await.expect("Failed to prepare bazi data");
 
     let receiver = core_bazi_analysis(&state, &structured_data, None).await.expect("Failed to run core analysis");
     let mut rx = receiver;
