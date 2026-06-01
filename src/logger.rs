@@ -8,14 +8,13 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 /// It also outputs logs to the `logs/app.log` file with daily rotation.
 ///
 /// Returns the `WorkerGuard` which MUST be held alive for the duration of the program.
-pub fn init(config: &crate::config::AppConfig) -> (tracing_appender::non_blocking::WorkerGuard, tracing_appender::non_blocking::WorkerGuard) {
+pub fn init(config: &crate::config::AppConfig) -> anyhow::Result<(tracing_appender::non_blocking::WorkerGuard, tracing_appender::non_blocking::WorkerGuard)> {
     // 1. Prepare the file appender (daily rotation, format: YYYY-MM-DD.log)
     let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
         .filename_prefix("")
         .filename_suffix("log")
-        .build("logs")
-        .expect("initializing rolling file appender failed");
+        .build("logs")?;
     let (file_non_blocking, file_guard) = tracing_appender::non_blocking(file_appender);
 
     // 2. Define the environment filter
@@ -43,7 +42,7 @@ pub fn init(config: &crate::config::AppConfig) -> (tracing_appender::non_blockin
         cleanup_old_logs(log_retention_days);
     });
 
-    (file_guard, stdout_guard)
+    Ok((file_guard, stdout_guard))
 }
 
 /// Automatically removes log files in the "logs" directory that are older than the specified number of days.

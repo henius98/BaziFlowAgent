@@ -497,3 +497,173 @@ fn days_in_month(year: i32, month: u32) -> u32 {
     };
     next_month_first.and_then(|d| d.pred_opt()).map(|d| d.day()).unwrap_or(30) // Safe fallback for edge cases
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6 Model Picker
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MODEL_PREFIX: &str = "model";
+
+#[derive(Debug, Clone)]
+pub enum ModelAction {
+    Select(u8),
+}
+
+impl ModelAction {
+    pub fn encode(&self) -> String {
+        match self {
+            ModelAction::Select(m) => format!("{}:{}", MODEL_PREFIX, m),
+        }
+    }
+
+    pub fn decode(data: &str) -> Option<ModelAction> {
+        let parts: Vec<&str> = data.split(':').collect();
+        if parts.is_empty() || parts[0] != MODEL_PREFIX {
+            return None;
+        }
+
+        let m: u8 = parts.get(1)?.parse().ok()?;
+        Some(ModelAction::Select(m))
+    }
+}
+
+pub fn is_model_picker_callback(data: &str) -> bool {
+    data.starts_with(MODEL_PREFIX)
+}
+
+pub fn build_model_picker() -> InlineKeyboardMarkup {
+    use crate::models::common::LlmModel;
+    let rows: Vec<Vec<InlineKeyboardButton>> = LlmModel::ALL
+        .iter()
+        .map(|model| vec![InlineKeyboardButton::callback(model.as_str(), ModelAction::Select(*model as u8).encode())])
+        .collect();
+    InlineKeyboardMarkup::new(rows)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. Pick Calendar
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PCAL_PREFIX: &str = "pcal";
+
+#[derive(Debug, Clone)]
+pub enum PickCalendarAction {
+    SelectDate(NaiveDate),
+    PrevMonth { year: i32, month: u32 },
+    NextMonth { year: i32, month: u32 },
+    Today,
+}
+
+impl PickCalendarAction {
+    pub fn encode(&self) -> String {
+        match self {
+            PickCalendarAction::SelectDate(date) => {
+                format!("{}:sel:{}:{}:{}", PCAL_PREFIX, date.year(), date.month(), date.day())
+            }
+            PickCalendarAction::PrevMonth { year, month } => {
+                format!("{}:prev:{}:{}", PCAL_PREFIX, year, month)
+            }
+            PickCalendarAction::NextMonth { year, month } => {
+                format!("{}:next:{}:{}", PCAL_PREFIX, year, month)
+            }
+            PickCalendarAction::Today => format!("{}:today", PCAL_PREFIX),
+        }
+    }
+
+    pub fn decode(data: &str) -> Option<PickCalendarAction> {
+        let parts: Vec<&str> = data.split(':').collect();
+        if parts.is_empty() || parts[0] != PCAL_PREFIX {
+            return None;
+        }
+
+        match parts.get(1).copied() {
+            Some("sel") => {
+                let year: i32 = parts.get(2)?.parse().ok()?;
+                let month: u32 = parts.get(3)?.parse().ok()?;
+                let day: u32 = parts.get(4)?.parse().ok()?;
+                let date = NaiveDate::from_ymd_opt(year, month, day)?;
+                Some(PickCalendarAction::SelectDate(date))
+            }
+            Some("prev") => {
+                let year: i32 = parts.get(2)?.parse().ok()?;
+                let month: u32 = parts.get(3)?.parse().ok()?;
+                Some(PickCalendarAction::PrevMonth { year, month })
+            }
+            Some("next") => {
+                let year: i32 = parts.get(2)?.parse().ok()?;
+                let month: u32 = parts.get(3)?.parse().ok()?;
+                Some(PickCalendarAction::NextMonth { year, month })
+            }
+            Some("today") => Some(PickCalendarAction::Today),
+            _ => None,
+        }
+    }
+}
+
+pub fn is_pick_calendar_callback(data: &str) -> bool {
+    data.starts_with(PCAL_PREFIX)
+}
+
+pub fn build_pick_calendar(year: i32, month: u32) -> InlineKeyboardMarkup {
+    build_calendar_inner(year, month, PCAL_PREFIX)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. Pick Activity Picker
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PACT_PREFIX: &str = "pact";
+
+#[derive(Debug, Clone)]
+pub enum PickActivityAction {
+    Select(String),
+    Other,
+}
+
+impl PickActivityAction {
+    pub fn encode(&self) -> String {
+        match self {
+            PickActivityAction::Select(activity) => format!("{}:s:{}", PACT_PREFIX, activity),
+            PickActivityAction::Other => format!("{}:other", PACT_PREFIX),
+        }
+    }
+
+    pub fn decode(data: &str) -> Option<PickActivityAction> {
+        let parts: Vec<&str> = data.split(':').collect();
+        if parts.is_empty() || parts[0] != PACT_PREFIX {
+            return None;
+        }
+
+        match parts.get(1).copied() {
+            Some("s") => {
+                let activity = parts.get(2)?.to_string();
+                Some(PickActivityAction::Select(activity))
+            }
+            Some("other") => Some(PickActivityAction::Other),
+            _ => None,
+        }
+    }
+}
+
+pub fn is_pick_activity_callback(data: &str) -> bool {
+    data.starts_with(PACT_PREFIX)
+}
+
+pub fn build_activity_picker() -> InlineKeyboardMarkup {
+    let activities = ["考试", "结婚", "搬家", "开业", "出行", "签约"];
+    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+
+    // 2 activities per row
+    for chunk in activities.chunks(2) {
+        let mut row = Vec::new();
+        for activity in chunk {
+            row.push(InlineKeyboardButton::callback(activity.to_string(), PickActivityAction::Select(activity.to_string()).encode()));
+        }
+        rows.push(row);
+    }
+
+    // Add Other button
+    rows.push(vec![InlineKeyboardButton::callback("📝 Other (Type freely)", PickActivityAction::Other.encode())]);
+
+    InlineKeyboardMarkup::new(rows)
+}

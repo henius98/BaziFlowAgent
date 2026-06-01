@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     birth_datetime TEXT, -- ISO8601 "YYYY-MM-DD HH:MM:SS"; NULL until /new flow completes
     bazi_four_pillars BLOB, -- JSON stored via jsonb(); BLOB affinity matches binary format
     bazi_analysis TEXT NOT NULL DEFAULT '', -- LLM-generated destiny text
+    llm_model INTEGER DEFAULT NULL, -- 0=gpt-4o, 1=gemini-3.5-pro, 2=claude-3-5-sonnet, 3=deepseek-chat, 4=deepseek-reasoner; NULL=fallback to .env LLM_MODEL_NAME
     created_at TEXT NOT NULL DEFAULT (strftime ('%Y-%m-%d %H:%M:%S', 'now')),
     last_active_at TEXT NOT NULL DEFAULT (strftime ('%Y-%m-%d %H:%M:%S', 'now'))
 );
@@ -23,14 +24,15 @@ WHERE
 
 END;
 
-CREATE TABLE IF NOT EXISTS requests (
-    id INTEGER, -- timestamp as id
+-- LLM call logging table to record every request and response
+CREATE TABLE IF NOT EXISTS llm_logs (
+    id INTEGER PRIMARY KEY, -- timestamp_millis, matches existing pattern
     user_id INTEGER NOT NULL,
-    request_type TEXT NOT NULL, -- e.g. "command", "message"
-    target_date TEXT, -- ISO8601 date "YYYY-MM-DD", nullable
-    text_content TEXT,
-    llm_response TEXT,
-    PRIMARY KEY (id, user_id)
+    request_type TEXT,
+    model TEXT NOT NULL,
+    request_body TEXT NOT NULL, -- Full LlmRequestParams serialized as JSON
+    response_body TEXT NOT NULL, -- JSON response on success, error message on failure
+    total_tokens INTEGER, -- Extracted from response usage (NULL on failure)
+    duration_ms INTEGER NOT NULL, -- Wall-clock time of the API call
+    is_success INTEGER NOT NULL DEFAULT 1 -- 0 = failed, 1 = success
 );
-
-CREATE INDEX IF NOT EXISTS idx_requests_user_id ON requests (user_id, id);

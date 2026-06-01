@@ -31,10 +31,16 @@ impl AppConfig {
             Ok(t)
         })?;
 
-        let llm_client_config = crate::services::llm::LlmClientConfig {
+        let mut llm_client_config = crate::services::llm::LlmClientConfig {
             api_key: env::var("LLM_API_KEY").context("LLM_API_KEY must be set in .env")?,
             api_base: env::var("LLM_API_BASE").context("LLM_API_BASE must be set in .env")?,
+            timeout_seconds: env::var("LLM_TIMEOUT_SECONDS")
+                .unwrap_or_else(|_| "60".to_string())
+                .parse::<u64>()
+                .context("LLM_TIMEOUT_SECONDS must be a valid u64")?,
+            http_client: None,
         };
+        llm_client_config.init_http_client().context("Failed to build LLM HTTP client")?;
         let llm_model_name = env::var("LLM_MODEL_NAME").context("LLM_MODEL_NAME must be set in .env")?;
 
         let database_url = env::var("DATABASE_URL").context("DATABASE_URL must be set in .env")?;

@@ -3,18 +3,31 @@ use async_openai::{
     Client,
     config::OpenAIConfig,
     types::chat::{
-        ChatCompletionRequestMessage, ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools, CreateChatCompletionRequestArgs, CreateChatCompletionResponse, ResponseFormat,
+        ChatCompletionRequestMessage, ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools, CreateChatCompletionRequest, CreateChatCompletionRequestArgs, ResponseFormat,
     },
 };
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 /// Configuration for the LLM client (credentials and endpoint)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmClientConfig {
     pub api_key: String,
     pub api_base: String,
+    pub timeout_seconds: u64,
+    /// Pre-built HTTP client with timeout — reused across all LLM calls
+    #[serde(skip)]
+    pub http_client: Option<reqwest::Client>,
+}
+
+impl LlmClientConfig {
+    /// Build and cache the HTTP client. Call once at startup.
+    pub fn init_http_client(&mut self) -> Result<(), reqwest::Error> {
+        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(self.timeout_seconds)).build()?;
+        self.http_client = Some(client);
+        Ok(())
+    }
 }
 
 /// A parameter model matching the OpenAI chat completion schema.
@@ -22,6 +35,7 @@ pub struct LlmClientConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmRequestParams {
     // --- Core Configuration ---
+    #[serde(skip_serializing)]
     pub model: String,
     pub messages: Vec<ChatCompletionRequestMessage>,
 
@@ -78,6 +92,12 @@ pub struct LlmRequestParams {
     pub service_tier: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parallel_tool_calls: Option<bool>,
+
+    // --- Custom App Tracking ---
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_type: Option<String>,
 }
 
 impl LlmRequestParams {
@@ -104,8 +124,8 @@ impl Default for LlmRequestParams {
             stop: None,
 
             // Penalties
-            frequency_penalty: Some(0.0),
-            presence_penalty: Some(0.0),
+            frequency_penalty: None,
+            presence_penalty: None,
 
             // Tooling & Structured Output
             response_format: None,
@@ -119,30 +139,24 @@ impl Default for LlmRequestParams {
             user: None,
 
             // Advanced / Latest Defaults
-            n: Some(1),
-            max_completion_tokens: Some(4096), // Prevents runaway costs
-            store: Some(false),
+            n: None,
+            max_completion_tokens: None, // Prevent compatibility issues with non-OpenAI endpoints
+            store: None,                 // Some APIs reject this param entirely
             metadata: None,
-            reasoning_effort: None, // Left None because passing this to non-reasoning models (like gpt-4o) causes API errors
-            service_tier: None,     // Left None to let OpenAI handle routing
-            parallel_tool_calls: Some(true),
+            reasoning_effort: None,    // Left None because passing this to non-reasoning models (like gpt-4o) causes API errors
+            service_tier: None,        // Left None to let OpenAI handle routing
+            parallel_tool_calls: None, // Not all models/APIs support this
+
+            // Tracking
+            user_id: None,
+            request_type: None,
         }
     }
 }
 
-/// Provides a general LLM call service using the specified configuration and parameters.
-/// Automatically logs every request/response to the `llm_logs` table via fire-and-forget.
-pub async fn call_llm(pool: &SqlitePool, config: &LlmClientConfig, params: LlmRequestParams) -> AppResult<CreateChatCompletionResponse> {
-    info!("Initializing LLM client for model: {}", params.model);
-
-    // Capture model name and serialized request body before params are consumed by the builder
-    let model_for_log = params.model.clone();
-    let request_body_json = serde_json::to_string(&params).unwrap_or_default();
-
-    // Set up OpenAI Client config
-    let llm_client = Client::with_config(OpenAIConfig::new().with_api_base(config.api_base.clone()).with_api_key(config.api_key.clone()));
-
-    // Build the request using async_openai's builder
+/// Build a `CreateChatCompletionRequest` from `LlmRequestParams`.
+/// Single source of truth for mapping our params to async-openai's builder.
+fn build_chat_request(params: LlmRequestParams) -> AppResult<CreateChatCompletionRequest> {
     let mut builder = CreateChatCompletionRequestArgs::default();
     builder.model(params.model);
     builder.messages(params.messages);
@@ -178,14 +192,17 @@ pub async fn call_llm(pool: &SqlitePool, config: &LlmClientConfig, params: LlmRe
     if let Some(tc) = params.tool_choice {
         builder.tool_choice(tc);
     }
-    if let Some(logprobs) = params.logprobs {
-        builder.logprobs(logprobs);
+    if let Some(true) = params.logprobs {
+        builder.logprobs(true);
     }
     if let Some(top_logprobs) = params.top_logprobs {
         builder.top_logprobs(top_logprobs);
     }
     if let Some(user) = params.user {
         builder.user(user);
+    }
+    if let Some(true) = params.stream {
+        builder.stream(true);
     }
     if let Some(n) = params.n {
         builder.n(n);
@@ -227,32 +244,153 @@ pub async fn call_llm(pool: &SqlitePool, config: &LlmClientConfig, params: LlmRe
         builder.parallel_tool_calls(parallel);
     }
 
-    let request = builder.build()?;
+    Ok(builder.build()?)
+}
 
-    debug!("Sending general request to LLM...");
-    let start = std::time::Instant::now();
-    let api_result = llm_client.chat().create(request).await;
-    let duration_ms = start.elapsed().as_millis() as i64;
+/// Provides a general LLM call service using the specified configuration and parameters.
+/// Automatically logs every request/response to the `llm_logs` table via fire-and-forget.
+/// Depending on `params.stream`, returns either a full response string or a streaming receiver.
+pub async fn call_llm(pool: &SqlitePool, config: &LlmClientConfig, params: LlmRequestParams) -> AppResult<crate::models::LlmResponse> {
+    let is_stream = params.stream.unwrap_or(false);
+    info!("Initializing LLM client for model: {} (streaming: {})", params.model, is_stream);
 
-    // Fire-and-forget: log the call to the database without blocking the response path
-    let pool_clone = pool.clone();
-    match &api_result {
-        Ok(response) => {
-            let total_tokens = response.usage.as_ref().map(|u| u.total_tokens as i64);
-            let response_json = serde_json::to_string(response).unwrap_or_default();
-            tokio::spawn(async move {
-                crate::repos::save_llm_log(&pool_clone, &model_for_log, &request_body_json, &response_json, total_tokens, duration_ms, true).await;
-            });
+    // Capture model name and serialized request body before params are consumed by the builder
+    let model_for_log = params.model.clone();
+    let request_body_json = serde_json::to_string(&params).unwrap_or_default();
+    let user_id_log = params.user_id;
+    let request_type_log = params.request_type.clone();
+
+    // Reuse the pre-built HTTP client from config (initialized once at startup)
+    let http_client = config.http_client.clone().unwrap_or_else(|| {
+        tracing::warn!("LLM HTTP client not pre-initialized, building on-the-fly");
+        reqwest::Client::builder().timeout(std::time::Duration::from_secs(config.timeout_seconds)).build().unwrap_or_default()
+    });
+
+    // Set up OpenAI Client config
+    let llm_client = Client::with_config(OpenAIConfig::new().with_api_base(config.api_base.clone()).with_api_key(config.api_key.clone())).with_http_client(http_client);
+
+    let request = build_chat_request(params)?;
+
+    if is_stream {
+        debug!("Creating streaming request to LLM...");
+        let start = std::time::Instant::now();
+        let api_result = llm_client.chat().create_stream(request).await;
+
+        let stream = match api_result {
+            Ok(s) => s,
+            Err(e) => {
+                let pool_clone = pool.clone();
+                let err_msg = e.to_string();
+                tokio::spawn(async move {
+                    let params = crate::repos::LlmLogParams {
+                        model: &model_for_log,
+                        user_id: user_id_log,
+                        request_type: request_type_log.as_deref(),
+                        request_body: &request_body_json,
+                        response_body: &err_msg,
+                        total_tokens: None,
+                        duration_ms: start.elapsed().as_millis() as i64,
+                        is_success: false,
+                    };
+                    crate::repos::save_llm_log(&pool_clone, params).await;
+                });
+                return Err(e).log_err_msg("Failed to create LLM stream");
+            }
+        };
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
+        let pool_clone = pool.clone();
+
+        // Background task: read SSE deltas → forward through channel → log on completion
+        tokio::spawn(async move {
+            use futures::StreamExt;
+            let mut stream = stream;
+            let mut full_response = String::new();
+
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(response) => {
+                        for choice in &response.choices {
+                            if let Some(content) = &choice.delta.content {
+                                full_response.push_str(content);
+                                if tx.send(content.clone()).await.is_err() {
+                                    // Receiver dropped — stop reading
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("LLM stream error: {}", e);
+                        break;
+                    }
+                }
+            }
+
+            let duration_ms = start.elapsed().as_millis() as i64;
+            // Fire-and-forget: log the accumulated response
+            let params = crate::repos::LlmLogParams {
+                model: &model_for_log,
+                user_id: user_id_log,
+                request_type: request_type_log.as_deref(),
+                request_body: &request_body_json,
+                response_body: &full_response,
+                total_tokens: None,
+                duration_ms,
+                is_success: !full_response.is_empty(),
+            };
+            crate::repos::save_llm_log(&pool_clone, params).await;
+        });
+
+        Ok(crate::models::LlmResponse::Stream(rx))
+    } else {
+        debug!("Sending general request to LLM...");
+        let start = std::time::Instant::now();
+        let api_result = llm_client.chat().create(request).await;
+        let duration_ms = start.elapsed().as_millis() as i64;
+
+        // Fire-and-forget: log the call to the database without blocking the response path
+        let pool_clone = pool.clone();
+        match &api_result {
+            Ok(response) => {
+                let total_tokens = response.usage.as_ref().map(|u| u.total_tokens as i64);
+                let response_json = serde_json::to_string(response).unwrap_or_default();
+                tokio::spawn(async move {
+                    let params = crate::repos::LlmLogParams {
+                        model: &model_for_log,
+                        user_id: user_id_log,
+                        request_type: request_type_log.as_deref(),
+                        request_body: &request_body_json,
+                        response_body: &response_json,
+                        total_tokens,
+                        duration_ms,
+                        is_success: true,
+                    };
+                    crate::repos::save_llm_log(&pool_clone, params).await;
+                });
+            }
+            Err(e) => {
+                let err_msg = e.to_string();
+                tokio::spawn(async move {
+                    let params = crate::repos::LlmLogParams {
+                        model: &model_for_log,
+                        user_id: user_id_log,
+                        request_type: request_type_log.as_deref(),
+                        request_body: &request_body_json,
+                        response_body: &err_msg,
+                        total_tokens: None,
+                        duration_ms,
+                        is_success: false,
+                    };
+                    crate::repos::save_llm_log(&pool_clone, params).await;
+                });
+            }
         }
-        Err(e) => {
-            let err_msg = e.to_string();
-            tokio::spawn(async move {
-                crate::repos::save_llm_log(&pool_clone, &model_for_log, &request_body_json, &err_msg, None, duration_ms, false).await;
-            });
-        }
+
+        let response = api_result.log_err_msg("General LLM call failed")?;
+        debug!("Received response from general LLM service {:?}", response);
+
+        let content = response.choices.first().and_then(|c| c.message.content.clone()).unwrap_or_default();
+        Ok(crate::models::LlmResponse::Full(content))
     }
-
-    let response = api_result.log_err_msg("General LLM call failed")?;
-    debug!("Received response from general LLM service {:?}", response);
-    Ok(response)
 }

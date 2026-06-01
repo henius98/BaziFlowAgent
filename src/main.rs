@@ -1,18 +1,13 @@
-mod bot;
-mod config;
-mod logger;
-mod models;
-mod repos;
-mod scheduler;
-mod services;
-mod utils;
-
 use std::sync::Arc;
 use teloxide::{prelude::*, utils::command::BotCommands};
 use tracing::{debug, error, info};
 
-use config::AppConfig;
-use models::AppState;
+use baziflow_agent::bot;
+use baziflow_agent::config::AppConfig;
+use baziflow_agent::logger;
+use baziflow_agent::models::AppState;
+use baziflow_agent::repos;
+use baziflow_agent::scheduler;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -21,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
     let config = AppConfig::from_env().context("Failed to load configuration")?;
 
     // Initialize logging — _log_guard must live for the duration of main()
-    let _log_guard = logger::init(&config);
+    let _log_guard = logger::init(&config).context("Failed to initialize logger")?;
 
     let config = Arc::new(config);
 
@@ -38,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Shared state
     let state = Arc::new(AppState::new(http_client.clone(), db_pool, config.clone()));
-    crate::models::state::GLOBAL_STATE.set(state).expect("Failed to set GLOBAL_STATE");
+    baziflow_agent::models::state::GLOBAL_STATE.set(state).map_err(|_| anyhow::anyhow!("Failed to set GLOBAL_STATE"))?;
 
     // Set bot commands
     bot.set_my_commands(bot::Command::bot_commands()).await.context("Failed to set bot commands")?;
@@ -61,8 +56,11 @@ async fn main() -> anyhow::Result<()> {
     let mut bot_dispatcher = Dispatcher::builder(bot.clone(), handler).build();
 
     let ctrl_c = async {
-        tokio::signal::ctrl_c().await.expect("Failed to listen for ctrl_c signal");
-        info!("Shutdown signal received");
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            error!("Failed to listen for ctrl_c signal: {}", e);
+        } else {
+            info!("Shutdown signal received");
+        }
     };
 
     // Ensure public directory exists for static charts

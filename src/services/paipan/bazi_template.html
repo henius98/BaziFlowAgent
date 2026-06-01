@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bazi Flow Chart - {{NAME}}</title>
+    <meta property="og:title" content="八字命盘 (Bazi Chart) - {{NAME}}" />
+    <meta property="og:description" content="Click to view detailed Bazi chart and interactions." />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="BaziFlowAgent" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -385,6 +389,7 @@
       </div>
 
       <div class="interactions-footer">
+        {{PILLAR_TRAITS_ROW}}
         <div class="interaction-row">
           <span class="interaction-label">天干留意</span>
           <div class="interaction-content">{{STEM_INTERACTIONS}}</div>

@@ -21,14 +21,11 @@ pub enum AppError {
     #[error("Telegram Error: {0}")]
     Telegram(#[from] teloxide::RequestError),
 
+    #[error("Parse Error: {0}")]
+    Parse(#[from] chrono::ParseError),
+
     #[error("Application Error: {0}")]
     Message(String),
-}
-
-impl AppError {
-    pub fn context(msg: impl Into<String>) -> Self {
-        Self::Message(msg.into())
-    }
 }
 
 impl From<&str> for AppError {

@@ -19,7 +19,9 @@ pub struct StructuredBazi {
     #[serde(rename = "大运")]
     pub dayun: Vec<DaYunData>,
     #[serde(rename = "流年", skip_serializing_if = "Option::is_none")]
-    pub current_luck: Option<CurrentLuck>,
+    pub liunian: Option<LiuNian>,
+    #[serde(default, rename = "原局整柱", skip_serializing_if = "Vec::is_empty")]
+    pub pillar_traits: Vec<String>, // 盖头, 截脚, 伏吟, 反吟
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,6 +32,8 @@ pub struct BasicInfo {
     pub lunisolar_date: String,
     #[serde(rename = "阳历")]
     pub solar_date: String,
+    #[serde(rename = "出生地")]
+    pub birth_location: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,8 +46,6 @@ pub struct PillarData {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdditionalInfo {
-    #[serde(rename = "空亡")]
-    pub empty_death: String,
     #[serde(flatten)] // 三垣
     pub palace_info: PalaceInfo,
 }
@@ -73,7 +75,7 @@ pub struct DaYunData {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CurrentLuck {
+pub struct LiuNian {
     #[serde(rename = "流年")]
     pub year: i32,
     #[serde(flatten)]

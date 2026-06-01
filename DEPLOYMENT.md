@@ -18,7 +18,7 @@ source $HOME/.cargo/env
 
 ## Step 1: Create a Non-Root User (Optional but Recommended)
 
-By default, DietPi uses `root`. It is safer to run the bot as `dietpi` user.
+By default, DietPi uses `root`. It is safer to run the bot as a `dietpi` user.
 If you are logged in as `root`:
 
 ```bash
@@ -26,30 +26,32 @@ If you are logged in as `root`:
 id dietpi
 ```
 
-Switch to `dietpi` user or continue as is (adjust paths accordingly). This guide assumes you are using the `dietpi` user.
+Switch to the `dietpi` user or continue as is (adjust paths accordingly). This guide assumes you are using the `dietpi` user.
 
 ## Step 2: Transfer Files
 
 ### Option A: Using Git (Recommended)
 
-1.  SSH/Login as `dietpi`:
-    ```bash
-    su - dietpi
-    ```
-2.  Clone your repository:
-    ```bash
-    git clone <your-repo-url>
-    cd BaziFlowAgent
-    ```
+1. SSH/Login as `dietpi`:
+   ```bash
+   su - dietpi
+   ```
+2. Clone your repository:
+   ```bash
+   git clone <your-repo-url>
+   cd BaziFlowAgent
+   ```
 
 ### Option B: Cross-compile on your development machine
 
+Cross-compiling natively can be tricky due to missing C linkers. The easiest way is using `cross`:
+
 ```bash
-# Install the ARM target
-rustup target add aarch64-unknown-linux-gnu
+# Install cross
+cargo install cross
 # Build for Raspberry Pi
-cargo build --release --target aarch64-unknown-linux-gnu
-# Copy the binary
+cross build --release --target aarch64-unknown-linux-gnu
+# Copy the binary to your Pi
 scp target/aarch64-unknown-linux-gnu/release/baziflow-agent dietpi@<your-pi-ip>:/home/dietpi/BaziFlowAgent/
 ```
 
@@ -60,19 +62,22 @@ cd /home/dietpi/BaziFlowAgent
 cargo build --release
 ```
 
-The binary will be at `target/release/baziflow-agent`.
+The binary will be located at `target/release/baziflow-agent`.
 
 ## Step 4: Configure Environment Variables
 
-1.  Create `.env`:
-    ```bash
-    nano .env
-    ```
-2.  Paste your secrets:
-    ```env
-    TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-    ```
-3.  Save and exit (`Ctrl+O`, `Enter`, `Ctrl+X`).
+The bot requires multiple environment variables (LLM API Keys, Database URL, Cron schedules, etc.) to function properly.
+
+1. Copy the example `.env` file:
+   ```bash
+   cp .env.example .env
+   ```
+2. Edit the `.env` file and paste your secrets:
+   ```bash
+   nano .env
+   ```
+3. Update `TELEGRAM_BOT_TOKEN`, `LLM_API_KEY`, and ensure `DATABASE_URL` is set correctly.
+4. Save and exit (`Ctrl+O`, `Enter`, `Ctrl+X`).
 
 ## Step 5: Test Manually
 
@@ -82,62 +87,57 @@ The binary will be at `target/release/baziflow-agent`.
 ```
 
 - Send `/start` to your bot.
+- Check the terminal for any panics or database creation issues.
 - `Ctrl+C` to stop.
 
 ## Step 6: Set Up Systemd Service (Auto-start)
 
-1.  **Copy binary to deployment directory**:
+The repository includes a pre-configured `BaziFlowAgent.service` file. We will use this instead of creating a new one.
 
-    ```bash
-    # (Optional) Verify your .env is present
-    ls -la /home/dietpi/BaziFlowAgent/.env
-    ```
+1. **Verify paths in service file**:
+   Check `BaziFlowAgent.service` to ensure `WorkingDirectory` and `ExecStart` match your setup (default is `/home/dietpi/BaziFlowAgent`).
 
-2.  **Copy service file to systemd** (requires sudo/root):
+2. **Copy service file to systemd** (requires sudo/root):
+   ```bash
+   sudo cp BaziFlowAgent.service /etc/systemd/system/BaziFlowAgent.service
+   ```
 
-    ```bash
-    sudo cp telegramBot.service /etc/systemd/system/telegramBot.service
-    ```
+3. **Enable and Start**:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable BaziFlowAgent
+   sudo systemctl start BaziFlowAgent
+   ```
 
-3.  **Enable and Start**:
-
-    ```bash
-    sudo systemctl daemon-reload
-    sudo systemctl enable telegramBot
-    sudo systemctl start telegramBot
-    ```
-
-4.  **Check Status**:
-    ```bash
-    sudo systemctl status telegramBot
-    ```
+4. **Check Status**:
+   ```bash
+   sudo systemctl status BaziFlowAgent
+   ```
 
 ## Updating the Service
 
 If you modify the code and rebuild:
 
-1.  **Build the new binary:**
+1. **Build the new binary:**
+   ```bash
+   cargo build --release
+   ```
+   The service automatically uses the new binary when restarted!
 
-    ```bash
-    cargo build --release
-    ```
-
-    The service automatically uses the new binary when restarted!
-
-2.  **Restart the Service:**
-    ```bash
-    sudo systemctl restart telegramBot
-    ```
+2. **Restart the Service:**
+   ```bash
+   sudo systemctl restart BaziFlowAgent
+   ```
 
 ## Troubleshooting
 
 - **Logs**:
-
   ```bash
-  sudo journalctl -u telegramBot -f
+  sudo journalctl -u BaziFlowAgent -f
   ```
 
 - **Enable debug logging**:
+  Change `LOG_LEVEL=debug` in your `.env` file, or run manually:
   ```bash
-  RUST_LOG=debug ./target/release/baziflow-agent
+  LOG_LEVEL=debug ./target/release/baziflow-agent
   ```

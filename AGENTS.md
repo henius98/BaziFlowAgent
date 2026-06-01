@@ -8,7 +8,7 @@ This file serves as a quick-start index for AI agents (like Cursor, Windsurf, or
 
 ## 🌐 Project Overview
 
-A high-performance Telegram Bot built in **Rust** providing professional Chinese Daily Almanac (黄历) and Bazi (八字) fortune-telling analysis. Instead of relying solely on hardcoded logic, it intelligently retrieves traditional calendar data via an external API, formats it, and orchestrates requests to an **LLM service (AI Agent — via OpenAI-compatible endpoints)** using specialized "Blindman Bazi" (盲派命理) prompts to generate Chain-of-Thought (CoT) analysis.
+A high-performance Telegram Bot built in **Rust** providing professional Chinese Daily Almanac (黄历) and Bazi (八字) fortune-telling analysis. Instead of relying solely on hardcoded logic, it intelligently retrieves traditional calendar data via an external API, formats it, and natively orchestrates requests to an **LLM service (via OpenAI-compatible endpoints)** using specialized "Blindman Bazi" (盲派命理) prompts to generate Chain-of-Thought (CoT) analysis.
 
 ---
 
@@ -32,6 +32,7 @@ A high-performance Telegram Bot built in **Rust** providing professional Chinese
 ## 📂 Source Code Map (`src/`)
 
 ### Entry Point & Infrastructure
+- **`lib.rs`**: Library root declaring all public modules for external access or testing.
 - **`main.rs`**: Loads `AppConfig` from env, sets up the SQLite pool, creates the `reqwest` HTTP client, builds `AppState`, registers Telegram handlers via `dptree`, starts the scheduler, and runs the axum static file server.
 - **`logger.rs`**: Initialises `tracing-subscriber` with dual console + file output (daily rotation). Includes `cleanup_old_logs()` for retention.
 - **`scheduler.rs`**: Background cron jobs: (1) daily fortune readings for all profiled users, (2) user context expiration cleanup, (3) log file retention cleanup.
@@ -42,8 +43,8 @@ A high-performance Telegram Bot built in **Rust** providing professional Chinese
 - **`commands.rs`**: `Command` enum (`/start`, `/new`) and `handle_command` handler.
 - **`callbacks.rs`**: `handle_callback` — dispatches all inline keyboard callback queries across 5 namespaces (gender, birthdate calendar, location, time, analysis calendar).
 - **`messages.rs`**: `handle_message` — free-text message handler with conversation context tracking.
-- **`bazi_flow.rs`**: `perform_bazi_analysis` — orchestrates the `/new` birthdate flow: True Solar Time calculation → API chart fetch → HTML generation → LLM destiny reading.
-- **`helpers.rs`**: Bot-specific helpers — `build_history_msg()`, `get_display_name()`.
+- **`command_actions.rs`**: `perform_bazi_analysis` & `display_user_profile` — Telegram UI orchestration for the `/new` birthdate flow.
+- **`helpers.rs`**: Bot-specific helpers — `build_history_msg()`, `get_username()`.
 - **`calendar.rs`**: Dynamic inline Telegram keyboard builders for calendars, year/month/day/hour/minute pickers, gender selector, and location picker.
 
 ### `config/` — Configuration
@@ -53,15 +54,20 @@ A high-performance Telegram Bot built in **Rust** providing professional Chinese
 - **`mod.rs`**: Module declarations and re-exports.
 - **`error.rs`**: `AppError` enum, `AppResult<T>` type alias, and `LogErrorExt` trait for ergonomic error logging.
 - **`state.rs`**: `AppState` struct — shared via `Arc` across all handlers. Holds HTTP client, SQLite pool, config, and `DashMap`-based pending state for the `/new` flow.
+- **`common.rs`**: Common data types and enums (e.g., `LlmModel` for AI selection).
 
 ### `repos/` — Database Layer
 - **`mod.rs`**: SQLite initialization (`init_db`), user CRUD, request logging, and Bazi profile queries.
 
 ### `services/` — Domain Logic (Bot-Framework-Agnostic)
+- **`mod.rs`**: Module declarations and re-exports.
 - **`almanac.rs`**: Fetches raw calendar data from MingDecode API, applies a schema filter, recursively translates English JSON keys to Chinese labels, and computes "Kong Wang" (空亡).
-- **`llm_bazi.rs`**: Packages almanac data + user Bazi + conversation history + system prompt and calls the LLM via `async-openai`.
+- **`bazi_service.rs`**: Pure business logic orchestrator for Bazi generation (True Solar Time calculation, API fetching, DB persistence, HTML generation, and LLM prompt construction).
+- **`llm.rs`**: General-purpose LLM client utilizing `async-openai`. Includes `LlmRequestParams` mapping to builder pattern, with database logging.
 - **`solar_time.rs`**: True Solar Time (真太阳时) calculation using Equation of Time and longitude adjustment. Includes city longitude lookup.
 - **`paipan/`**: Bazi chart module:
+  - `mod.rs` — Re-exports the submodule interfaces.
+  - `bazi_utils.rs` — Helper functions and utilities for intermediate Bazi calculations.
   - `client.rs` — API client fetching base chart + supplementary data (relations, geju, yongshi, liunian) with concurrent requests.
   - `models.rs` — `BaziChart`, `StructuredBazi`, and related serde structs.
   - `formatter.rs` — Transforms raw chart data into structured JSON for LLM prompts and HTML diagram generation.
@@ -76,18 +82,18 @@ Telegram User
     │
     ▼
 teloxide Dispatcher (dptree)
-    ├─ /start, /new  ──────────► bot::commands::handle_command
-    │                                  └─ build calendar keyboard (bot/calendar.rs)
+    ├─ /start, /new, /model ───► bot::commands::handle_command
+    │                                  ├─ /new → build calendar keyboard (bot/calendar.rs)
+    │                                  └─ /model → build model selection keyboard
     ├─ Callback Query ─────────► bot::callbacks::handle_callback
     │                                  ├─ Calendar navigation  → rebuild keyboard
-    │                                  ├─ Date selected        → llm_bazi::generate_bazi_reading
-    │                                  └─ Birthtime selected   → bot::bazi_flow::perform_bazi_analysis
+    │                                  ├─ Date selected        → services::llm based reading
+    │                                  └─ Birthtime selected   → bot::command_actions::perform_bazi_analysis
     └─ Free-text Message ──────► bot::messages::handle_message
-                                       └─ llm_bazi::generate_bazi_reading
+                                       └─ services::llm call for analysis
 
-llm_bazi::generate_bazi_reading
-    ├─ almanac::fetch_and_format_almanac  (MingDecode API → filter → translate → Kong Wang)
-    └─ async-openai → LLM endpoint       (system prompt + user bazi + almanac + history)
+services::llm::call_llm
+    ├─ async-openai → LLM endpoint       (system prompt + user bazi + almanac + history)
 
 scheduler (background)
     ├─ bazi_job_cron  → personalized readings for all profiled users
@@ -117,12 +123,15 @@ scheduler (background)
 5. **Errors & Logging:**
    - Use `tracing::info!`, `tracing::warn!`, and `tracing::error!`. Return clean error messages to users via Telegram rather than panicking.
    - Use `AppResult<T>` / `LogErrorExt` from `models/error.rs` for consistent error propagation.
+   - **No `unwrap()` Policy:** `.unwrap()` is banned in production logic to maintain safety invariants. Use `.expect("reason")` only if mathematically provable or use the `?` operator to bubble up errors.
 
 6. **Module Boundaries:**
    - `services/` must remain bot-framework-agnostic — no Telegram types here.
    - `bot/` owns all Telegram-specific code (keyboards, handlers, callbacks).
    - `utils.rs` holds shared functions needed by both `bot/` and `scheduler.rs`.
 
+7. **Rust Quality & Memory Safety:**
+   - Enforce Clean Architecture separation. Minimize `clone()` arbitrarily; restructure lifetimes or use references (`&T`) when possible. Maintain Eval-Driven verification loops for robust feature development.
 ---
 
 ## ⚡ Quick Feature Reference
@@ -134,7 +143,7 @@ scheduler (background)
 | Modify shared state   | `models/state.rs` `AppState` struct                         |
 | Add a DB table/column | New file in `./migrations/` + `repos/mod.rs`                |
 | Change API parsing    | `services/almanac.rs` `KEEP_SCHEMA` / `KEY_MAP`             |
-| Tweak LLM parameters  | `services/llm_bazi.rs` `CreateChatCompletionRequestArgs`    |
+| Tweak LLM parameters  | `services/llm.rs` `LlmRequestParams`                        |
 | Add a scheduled job   | `scheduler.rs` — new `Job::new_async(cron, ...)`            |
 | Change configuration  | `config/mod.rs` `AppConfig` + `.env`                        |
 | Add keyboard UI       | `bot/calendar.rs`                                           |
@@ -147,7 +156,7 @@ scheduler (background)
 | ------------------------------- | ------------------------------------------------------------------ |
 | `README.md`                     | Top-level intro, feature list, env vars, build/run commands        |
 | `prompts/BaziHuangLiAssistant.md` | System prompt — Bazi methodology constraints for LLM             |
-| `prompts/UserBazi.md`           | System prompt — Destiny reading generation for new profiles        |
+| `prompts/UserBaziAssistant.md`           | System prompt — Destiny reading generation for new profiles        |
 | `DEPLOYMENT.md`                 | Raspberry Pi / DietPi ARM cross-compilation & systemd daemon setup |
 | `BaziFlowAgent.service`        | Pre-configured systemd unit file for background deployment         |
 | `Cargo.toml`                    | Canonical dependency list and package metadata                     |
@@ -164,26 +173,26 @@ BaziFlowAgent/
 ├── Cargo.toml                    # Cargo config and dependency tree
 ├── DEPLOYMENT.md                 # ARM/Raspberry Pi deployment guide
 ├── BaziFlowAgent.service         # Systemd unit file
-├── prompts/
-│   ├── BaziHuangLiAssistant.md   # Embedded system prompt for daily readings
-│   └── UserBazi.md               # Embedded system prompt for destiny readings
+├── prompts/                      # Embedded system prompt
 ├── src/
+│   ├── lib.rs                    # Library root declaring public modules
 │   ├── main.rs                   # Entry point & bot wiring
 │   ├── logger.rs                 # Tracing init & log cleanup
 │   ├── scheduler.rs              # Background cron jobs
 │   ├── utils.rs                  # Shared utilities (split_message, etc.)
 │   ├── bot/
 │   │   ├── mod.rs                # Module declarations
-│   │   ├── commands.rs           # /start, /new command handlers
+│   │   ├── commands.rs           # /start, /new, /model command handlers
 │   │   ├── callbacks.rs          # Callback query dispatcher
 │   │   ├── messages.rs           # Free-text message handler
-│   │   ├── bazi_flow.rs          # /new birthdate analysis orchestration
+│   │   ├── command_actions.rs    # /new birthdate Telegram UI orchestration
 │   │   ├── helpers.rs            # Bot-specific helper functions
 │   │   └── calendar.rs           # Inline keyboard UI builders
 │   ├── config/
 │   │   └── mod.rs                # AppConfig (env loader)
 │   ├── models/
 │   │   ├── mod.rs                # Re-exports
+│   │   ├── common.rs             # Common data types (e.g., LlmModel)
 │   │   ├── error.rs              # AppError, AppResult, LogErrorExt
 │   │   └── state.rs              # AppState struct
 │   ├── repos/
@@ -191,16 +200,17 @@ BaziFlowAgent/
 │   └── services/
 │       ├── mod.rs                # Module declarations
 │       ├── almanac.rs            # MingDecode API + Kong Wang calc
-│       ├── llm_bazi.rs           # LLM prompt orchestration
+│       ├── bazi_service.rs       # Core business logic for Bazi generation
+│       ├── llm.rs                # General LLM client mapping & logging
 │       ├── solar_time.rs         # True Solar Time calculation
 │       └── paipan/
 │           ├── mod.rs            # Re-exports
+│           ├── bazi_utils.rs     # Helper utilities for Bazi calculations
 │           ├── client.rs         # Bazi chart API client
 │           ├── formatter.rs      # Chart → JSON/HTML formatting
 │           ├── models.rs         # Bazi data structures
 │           └── bazi_template.html
 ├── migrations/                   # SQLx migration SQL files
-├── apiSamples/                   # Sample API response payloads
 ├── logs/                         # Runtime logs (gitignored)
 └── public/                       # Runtime HTML charts (gitignored)
 ```

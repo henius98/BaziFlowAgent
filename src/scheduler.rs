@@ -33,16 +33,19 @@ pub async fn start_scheduler(config: Arc<SchedulerConfig>, user_contexts_expirat
 
             info!("Generating scheduled fortune readings for {} user(s)...", users.len());
 
-            for (user_id, bazi_four_pillars, bazi_analysis) in &users {
+            for (user_id, bazi_four_pillars, bazi_analysis, llm_model) in &users {
                 match crate::services::almanac::analysis_date_fortune(crate::services::almanac::DateFortuneRequest {
                     target_date: &tomorrow,
                     bazi_four_pillars: bazi_four_pillars.as_str(),
                     bazi_analysis: bazi_analysis.as_deref().unwrap_or_default(),
-                    history_context: None,
+                    stream: false,
+                    llm_model: *llm_model,
+                    user_id: Some(*user_id as i64),
+                    request_type: Some("scheduled_daily".to_string()),
                 })
                 .await
                 {
-                    Ok(response) => {
+                    Ok(crate::models::LlmResponse::Full(response)) => {
                         info!("Scheduled reading generated for user {}", user_id);
                         let parts = crate::utils::split_message(&response, 4000);
                         for part in parts {
@@ -51,6 +54,9 @@ pub async fn start_scheduler(config: Arc<SchedulerConfig>, user_contexts_expirat
                                 break;
                             }
                         }
+                    }
+                    Ok(_) => {
+                        error!("Unexpected stream response for scheduled job (user {})", user_id);
                     }
                     Err(e) => {
                         error!("Scheduled job error for user {}: {}", user_id, e);

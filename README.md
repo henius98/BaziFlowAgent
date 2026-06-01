@@ -1,9 +1,15 @@
 # BaziFlowAgent ☯️🤖
 
+**Try the live demo on Telegram:** [@BaziFlowAgent_bot](https://t.me/BaziFlowAgent_bot)
+
+<p align="center">
+  <img src="./logo_ai_bot.png" alt="BaziFlowAgent Logo" width="300" />
+</p>
+
 [![Rust](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
 [![Teloxide](https://img.shields.io/badge/telegram-teloxide-blue.svg)](https://github.com/teloxide/teloxide)
 
-A high-performance Telegram Bot built in **Rust** 🦀 that integrates with **BaziFlowAgent** to provide professional Daily Almanac (黄历) & Bazi (八字) fortune-telling analysis.
+A high-performance Telegram Bot built in **Rust** 🦀 that provides professional Daily Almanac (黄历) & Bazi (八字) fortune-telling analysis.
 
 ## 🌟 Key Features
 
@@ -12,6 +18,7 @@ A high-performance Telegram Bot built in **Rust** 🦀 that integrates with **Ba
 - **LLM AI Native**: Automatically structures system prompts (based on Blindman Bazi methodology) alongside chat contexts, injecting calendar selections to a remote LLM for sophisticated CoT (Chain of Thought) analysis.
 - **Scheduled Analytics**: Built-in async job scheduler (`tokio-cron-scheduler`) triggers a daily report calculation at 10 PM SGT, proactively informing you about tomorrow's astrological landscape.
 - **Robust Concurrency**: Leverages `tokio` and `DashMap` for memory-safe, lock-free concurrency to maintain isolated user contexts.
+- **Strict Rust Quality Standards**: Enforces Microsoft Pragmatic Guidelines, Zero `.unwrap()` error handling architectures, and memory-safe Clean Architecture patterns.
 
 ## 🏗️ Architecture Stack
 
@@ -26,20 +33,53 @@ A high-performance Telegram Bot built in **Rust** 🦀 that integrates with **Ba
 
 ```text
 BaziFlowAgent/
-├── Cargo.toml                  # Rust dependencies & package config
-├── DEPLOYMENT.md               # Instructions for DietPi/Raspberry Pi setup
-├── BaziFlowAgent.service       # Systemd unit file for background running
-├── BaziHuangLiAssistantPrompt.md # Blindman Bazi system instructions for LLM Node
-├── src/                        # 🦀 Active Rust Source Code
-│   ├── main.rs                 # Bot entry point and logic hub
-│   ├── api/                    # Minimal API for system triggers
-│   ├── bot/                    # Telegram bot handlers and commands
-│   ├── config/                 # Configuration loading from environment
-│   ├── models/                 # Shared data structures and error types
-│   ├── repos/                  # Database repository layer
-│   ├── services/               # Core business logic (Bazi, Almanac, LLM)
-│   ├── scheduler.rs            # Daily & self-cleanup Cron scheduler
-│   └── logger.rs               # Logging initialization
+├── .env                          # App secrets (never commit)
+├── .env.example                  # Template for required env vars
+├── Cargo.toml                    # Cargo config and dependency tree
+├── DEPLOYMENT.md                 # ARM/Raspberry Pi deployment guide
+├── BaziFlowAgent.service         # Systemd unit file
+├── prompts/
+│   ├── BaziHuangLiAssistant.md   # Embedded system prompt for daily readings
+│   └── UserBaziAssistant.md               # Embedded system prompt for destiny readings
+├── src/
+│   ├── lib.rs                    # Library root declaring public modules
+│   ├── main.rs                   # Entry point & bot wiring
+│   ├── logger.rs                 # Tracing init & log cleanup
+│   ├── scheduler.rs              # Background cron jobs
+│   ├── utils.rs                  # Shared utilities (split_message, etc.)
+│   ├── bot/
+│   │   ├── mod.rs                # Module declarations
+│   │   ├── commands.rs           # /start, /new, /model command handlers
+│   │   ├── callbacks.rs          # Callback query dispatcher
+│   │   ├── messages.rs           # Free-text message handler
+│   │   ├── command_actions.rs    # /new birthdate Telegram UI orchestration
+│   │   ├── helpers.rs            # Bot-specific helper functions
+│   │   └── calendar.rs           # Inline keyboard UI builders
+│   ├── config/
+│   │   └── mod.rs                # AppConfig (env loader)
+│   ├── models/
+│   │   ├── mod.rs                # Re-exports
+│   │   ├── common.rs             # Common data types (e.g., LlmModel)
+│   │   ├── error.rs              # AppError, AppResult, LogErrorExt
+│   │   └── state.rs              # AppState struct
+│   ├── repos/
+│   │   └── mod.rs                # SQLite DB layer
+│   └── services/
+│       ├── mod.rs                # Module declarations
+│       ├── almanac.rs            # MingDecode API + Kong Wang calc
+│       ├── bazi_service.rs       # Core business logic for Bazi generation
+│       ├── llm.rs                # General LLM client mapping & logging
+│       ├── solar_time.rs         # True Solar Time calculation
+│       └── paipan/
+│           ├── mod.rs            # Re-exports
+│           ├── bazi_utils.rs     # Helper utilities for Bazi calculations
+│           ├── client.rs         # Bazi chart API client
+│           ├── formatter.rs      # Chart → JSON/HTML formatting
+│           ├── models.rs         # Bazi data structures
+│           └── bazi_template.html
+├── migrations/                   # SQLx migration SQL files
+├── logs/                         # Runtime logs (gitignored)
+└── public/                       # Runtime HTML charts (gitignored)
 ```
 
 ## 🚀 Getting Started
@@ -48,15 +88,17 @@ BaziFlowAgent/
 
 - Rust toolchain (run `rustup update`)
 - Telegram Bot Token (from [@BotFather](https://t.me/BotFather))
-- Your deployed AI Agent instance webhook endpoint URL
+- OpenAI-compatible LLM API Key (e.g., OpenAI, Gemini, etc.)
 
 ### 2. Environment Variables
 
-Create a `.env` file at the root of the project representing your secrets:
+We provide a template for all required environment variables, including database configuration, LLM parameters, and cron schedules.
 
-```env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-```
+1. Copy the example file:
+   ```bash
+   cp .env.example .env
+   ```
+2. Open `.env` and fill in your secrets (e.g., `TELEGRAM_BOT_TOKEN`, `LLM_API_KEY`).
 
 ### 3. Build & Run locally
 
@@ -72,10 +114,6 @@ cargo run --release
 
 Are you deploying on an ARM-based edge device like a **Raspberry Pi 4B (DietPi OS)**? Check out the comprehensive **[DEPLOYMENT.md](./DEPLOYMENT.md)** guide to cleanly install, cross-compile, and set up your systemd daemon!
 
-## 🧠 AI Agent Workflow Prompt Design
+## 🧠 Native LLM Prompt Design
 
-If you are assembling the logic inside the AI Agent AI canvas, you must use the constraints and prompts specified in the `BaziHuangLiAssistantPrompt.md`. It strictly prevents generic responses (e.g., ziping "旺衰" theory) and mandates the Blindman Bazi "体用" & "做功" methodology. Provide the Almanac data and User Intent directly within AI Agent's inputs.
-
----
-
-_Open sourced for the Bazi & Developer community._
+The bot uses `async-openai` to natively orchestrate LLM calls. It strictly enforces the constraints and prompts specified in `prompts/`. This prevents generic responses (e.g., ziping "旺衰" theory) and mandates the Blindman Bazi "体用" & "做功" methodology. The Almanac data and User Intent are constructed and provided directly within the LLM messages.

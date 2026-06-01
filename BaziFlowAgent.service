@@ -1,5 +1,5 @@
 [Unit]
-Description=BaziFlowAgent Service (Rust)
+Description=BaziFlowAgent Telegram Bot (Rust)
 After=network-online.target
 Wants=network-online.target
 
@@ -9,10 +9,21 @@ User=dietpi
 Group=dietpi
 WorkingDirectory=/home/dietpi/BaziFlowAgent
 ExecStart=/home/dietpi/BaziFlowAgent/target/release/baziflow-agent
-Restart=always
-RestartSec=5
-# Environment file
+
+# Environment
 EnvironmentFile=/home/dietpi/BaziFlowAgent/.env
+Environment="RUST_BACKTRACE=1"
+
+# Restart & Reliability
+Restart=always
+RestartSec=5s
+
+# Resource Limits (Crucial for Tokio async network sockets & SQLite)
+LimitNOFILE=65535
+
+# Basic Hardening
+NoNewPrivileges=true
+ProtectSystem=full
 
 [Install]
 WantedBy=multi-user.target

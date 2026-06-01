@@ -1,4 +1,4 @@
-use super::bazi_utils::{current_luck_index, fetch_liunian, map_bazi_data};
+use super::bazi_utils::{MapBaziParams, current_luck_index, fetch_liunian, map_bazi_data};
 use super::models::{RawBaziChart, StructuredBazi};
 use crate::models::AppResult;
 use reqwest::Client;
@@ -7,7 +7,7 @@ use serde_json::Value;
 const REFERER: &str = "https://pcbz.iwzwh.com/";
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-pub async fn fetch_bazi_chart(client: &Client, solar_dt: chrono::NaiveDateTime, gender: u8, birth_year: i32) -> AppResult<(StructuredBazi, String)> {
+pub async fn fetch_bazi_chart(client: &Client, solar_dt: chrono::NaiveDateTime, gender: u8, birth_year: i32, location: Option<String>) -> AppResult<(StructuredBazi, String)> {
     let solar_dt_str = solar_dt.format("%Y-%m-%d %H:%M").to_string();
 
     let mut chart = fetch_base_bazi(client, &solar_dt_str, gender).await?;
@@ -60,7 +60,17 @@ pub async fn fetch_bazi_chart(client: &Client, solar_dt: chrono::NaiveDateTime, 
     chart.ln_gz_relations = ln_relations;
     chart.ln_shensha = ln_shensha;
 
-    let structured_data = map_bazi_data(&chart, gender, solar_dt_str, &birth_year, &lunisolar_year, &ln_gz, &luck_index);
+    let params = MapBaziParams {
+        chart: &chart,
+        gender,
+        solar_dt_str,
+        birth_year: &birth_year,
+        lunisolar_year: &lunisolar_year,
+        ln_gz: &ln_gz,
+        luck_index: &luck_index,
+        location,
+    };
+    let structured_data = map_bazi_data(params);
     let structured_json = serde_json::to_string(&structured_data)?;
     Ok((structured_data, structured_json))
 }

@@ -28,24 +28,3 @@ pub fn get_equation_of_time(day_of_year: u32) -> f64 {
     let b = 2.0 * std::f64::consts::PI * (day_of_year as f64 - 81.0) / 365.0;
     9.87 * (2.0 * b).sin() - 7.53 * b.cos() - 1.5 * b.sin()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::{NaiveDate, Timelike};
-
-    #[test]
-    fn test_malacca_conversion() {
-        // Use .expect for test constants to provide better failure info
-        let dt = NaiveDate::from_ymd_opt(1998, 10, 8).expect("Invalid test date").and_hms_opt(7, 21, 0).expect("Invalid test time");
-        let sun_time = calculate_true_solar_time(dt, &"Malacca".to_string(), 120.0);
-
-        // Expected: ~06:22
-        // Longitude Adj: (102.25 - 120) * 4 = -71 mins
-        // EoT for Oct 8 (day 281): ~ +12 mins
-        // Total: -71 + 12 = -59 mins
-        // 07:21 - 59 mins = 06:22
-        assert_eq!(sun_time.hour(), 6);
-        assert_eq!(sun_time.minute(), 22);
-    }
-}

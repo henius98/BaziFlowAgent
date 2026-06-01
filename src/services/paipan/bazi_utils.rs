@@ -1,11 +1,31 @@
 //! Shared utility functions for local calculated bazi.
 
-use crate::models::common::{BRANCHES, STATES, STEMS};
-use crate::services::paipan::models::{AdditionalInfo, BasePillarData, BasicInfo, CurrentLuck, DaYunData, ElementStates, LuckInfo, PillarData, RawBaziChart, Relations, StructuredBazi};
+use crate::models::common::{BRANCHES, STATES, STEMS, WuXing};
+use crate::services::paipan::models::{AdditionalInfo, BasePillarData, BasicInfo, DaYunData, ElementStates, LiuNian, LuckInfo, PillarData, RawBaziChart, Relations, StructuredBazi};
 use chrono::Datelike;
 
 // ─── Structured data assembly ────────────────────────────────
-pub fn map_bazi_data(chart: &RawBaziChart, gender: u8, solar_dt_str: String, birth_year: &i32, lunisolar_year: &i32, ln_gz: &str, luck_index: &usize) -> StructuredBazi {
+pub struct MapBaziParams<'a> {
+    pub chart: &'a RawBaziChart,
+    pub gender: u8,
+    pub solar_dt_str: String,
+    pub birth_year: &'a i32,
+    pub lunisolar_year: &'a i32,
+    pub ln_gz: &'a str,
+    pub luck_index: &'a usize,
+    pub location: Option<String>,
+}
+
+pub fn map_bazi_data(params: MapBaziParams<'_>) -> StructuredBazi {
+    let chart = params.chart;
+    let gender = params.gender;
+    let solar_dt_str = params.solar_dt_str;
+    let birth_year = params.birth_year;
+    let lunisolar_year = params.lunisolar_year;
+    let ln_gz = params.ln_gz;
+    let luck_index = params.luck_index;
+    let location = params.location;
+
     let pillar_names = ["年柱", "月柱", "日柱", "时柱"];
     let mut pillars = Vec::with_capacity(4);
 
@@ -15,7 +35,7 @@ pub fn map_bazi_data(chart: &RawBaziChart, gender: u8, solar_dt_str: String, bir
             1 => (&chart.bz.month_steam, &chart.bz.month_branch),
             2 => (&chart.bz.day_steam, &chart.bz.day_branch),
             3 => (&chart.bz.hour_steam, &chart.bz.hour_branch),
-            _ => unreachable!(),
+            _ => continue,
         };
 
         pillars.push(PillarData {
@@ -66,15 +86,27 @@ pub fn map_bazi_data(chart: &RawBaziChart, gender: u8, solar_dt_str: String, bir
         dayun.clear();
     }
 
+    // Compute 原局整柱 traits (盖头, 截脚, 伏吟, 反吟)
+    let pillar_gz: Vec<(String, String)> = [
+        (&chart.bz.year_steam, &chart.bz.year_branch),
+        (&chart.bz.month_steam, &chart.bz.month_branch),
+        (&chart.bz.day_steam, &chart.bz.day_branch),
+        (&chart.bz.hour_steam, &chart.bz.hour_branch),
+    ]
+    .iter()
+    .map(|(s, b)| (s.to_string(), b.to_string()))
+    .collect();
+    let pillar_traits = compute_pillar_traits(&pillar_gz);
+
     StructuredBazi {
         info: BasicInfo {
             gender: if gender == 1 { "男,乾造" } else { "女,坤造" }.to_string(),
             lunisolar_date: chart.bz.lunisolar_date.clone(),
             solar_date: solar_dt_str,
+            birth_location: location.unwrap_or_else(|| "未知".to_string()),
         },
         pillars,
         other: AdditionalInfo {
-            empty_death: chart.kongwang.clone(),
             palace_info: chart.palace_info.clone(),
         },
         relation: extract_relations(&chart.ori_gz_relations),
@@ -86,7 +118,8 @@ pub fn map_bazi_data(chart: &RawBaziChart, gender: u8, solar_dt_str: String, bir
             start_ages: format!("出生后{}年{}月{}天{}时起运", &chart.qiyunarr[0], &chart.qiyunarr[1], &chart.qiyunarr[2], &chart.qiyunarr[3]),
         },
         dayun,
-        current_luck: arrange_current_luck(chart, lunisolar_year, ln_gz),
+        liunian: arrange_liunian(chart, lunisolar_year, ln_gz),
+        pillar_traits,
     }
 }
 
@@ -172,11 +205,11 @@ fn calculate_element_states(month_branch: &str) -> ElementStates {
     }
 }
 
-fn arrange_current_luck(chart: &RawBaziChart, lunisolar_year: &i32, ln_gz: &str) -> Option<CurrentLuck> {
+fn arrange_liunian(chart: &RawBaziChart, lunisolar_year: &i32, ln_gz: &str) -> Option<LiuNian> {
     let day_master = &chart.bz.day_steam;
     let shensha = chart.ln_shensha.clone().unwrap_or_default();
 
-    Some(CurrentLuck {
+    Some(LiuNian {
         year: *lunisolar_year,
         info: calculate_gz_info(ln_gz, day_master, shensha),
         relation: extract_relations(&chart.ln_gz_relations),
@@ -296,4 +329,116 @@ pub fn get_nayin(gz: &str) -> &'static str {
         "壬戌" | "癸亥" => "大海水",
         _ => "",
     }
+}
+
+// ─── pillar trait analysis ────────
+/// Compute the 原局整柱 summary string for all four natal pillars.
+/// Produces entries like: "戊子盖头", "戊寅截脚", "乙卯辛酉反吟"
+pub fn compute_pillar_traits(pillars: &[(String, String)]) -> Vec<String> {
+    let mut traits = Vec::new();
+
+    // Per-pillar: 盖头 / 截脚 / 比和 / 相生
+    for (stem, branch) in pillars {
+        let gz = format!("{}{}", stem, branch);
+        if is_gaitou(stem, branch) {
+            traits.push(format!("{}盖头", gz));
+        } else if is_jiejiao(stem, branch) {
+            traits.push(format!("{}截脚", gz));
+        } else if is_bihe(stem, branch) {
+            traits.push(format!("{}比和", gz));
+        } else if is_xiangsheng(stem, branch) {
+            traits.push(format!("{}相生", gz));
+        }
+    }
+
+    // Cross-pillar pairs: 伏吟 / 反吟
+    for i in 0..pillars.len() {
+        for j in (i + 1)..pillars.len() {
+            let (sa, ba) = &pillars[i];
+            let (sb, bb) = &pillars[j];
+            let gz_a = format!("{}{}", sa, ba);
+            let gz_b = format!("{}{}", sb, bb);
+            if is_fuyin(sa, ba, sb, bb) {
+                traits.push(format!("{}{}伏吟", gz_a, gz_b));
+            } else if is_fanyin(sa, ba, sb, bb) {
+                traits.push(format!("{}{}反吟", gz_a, gz_b));
+            }
+        }
+    }
+
+    traits
+}
+
+/// Map a Heavenly Stem (天干) character to its Five Element
+fn stem_element(stem: &str) -> Option<WuXing> {
+    match stem {
+        "甲" | "乙" => Some(WuXing::Wood),
+        "丙" | "丁" => Some(WuXing::Fire),
+        "戊" | "己" => Some(WuXing::Earth),
+        "庚" | "辛" => Some(WuXing::Metal),
+        "壬" | "癸" => Some(WuXing::Water),
+        _ => None,
+    }
+}
+
+/// Map an Earthly Branch (地支) character to its Five Element
+fn branch_element(branch: &str) -> Option<WuXing> {
+    match branch {
+        "寅" | "卯" => Some(WuXing::Wood),
+        "巳" | "午" => Some(WuXing::Fire),
+        "辰" | "戌" | "丑" | "未" => Some(WuXing::Earth),
+        "申" | "酉" => Some(WuXing::Metal),
+        "亥" | "子" => Some(WuXing::Water),
+        _ => None,
+    }
+}
+
+/// 盖头 (Gaitou): Stem element destroys Branch element (e.g. 庚寅 Metal克Wood)
+fn is_gaitou(stem: &str, branch: &str) -> bool {
+    match (stem_element(stem), branch_element(branch)) {
+        (Some(s), Some(b)) => s.destroys(b),
+        _ => false,
+    }
+}
+
+/// 截脚 (Jiejiao): Branch element destroys Stem element (e.g. 甲申 Metal克Wood from below)
+fn is_jiejiao(stem: &str, branch: &str) -> bool {
+    match (stem_element(stem), branch_element(branch)) {
+        (Some(s), Some(b)) => b.destroys(s),
+        _ => false,
+    }
+}
+
+/// 比和 (Bihe): Stem and Branch have the same element
+fn is_bihe(stem: &str, branch: &str) -> bool {
+    match (stem_element(stem), branch_element(branch)) {
+        (Some(s), Some(b)) => s == b,
+        _ => false,
+    }
+}
+
+/// 相生 (Xiangsheng): Stem generates Branch OR Branch generates Stem
+fn is_xiangsheng(stem: &str, branch: &str) -> bool {
+    match (stem_element(stem), branch_element(branch)) {
+        (Some(s), Some(b)) => s.generates(b) || b.generates(s),
+        _ => false,
+    }
+}
+
+/// 伏吟 (Fuyin): Two pillars are identical (same stem + same branch)
+fn is_fuyin(stem_a: &str, branch_a: &str, stem_b: &str, branch_b: &str) -> bool {
+    stem_a == stem_b && branch_a == branch_b
+}
+
+/// 反吟 (Fanyin): Two pillars clash (mutual elemental destruction on both stem and branch)
+fn is_fanyin(stem_a: &str, branch_a: &str, stem_b: &str, branch_b: &str) -> bool {
+    let stem_clash = match (stem_element(stem_a), stem_element(stem_b)) {
+        (Some(sa), Some(sb)) => sa.destroys(sb) || sb.destroys(sa),
+        _ => false,
+    };
+    let branch_clash = match (branch_element(branch_a), branch_element(branch_b)) {
+        (Some(ba), Some(bb)) => ba.destroys(bb) || bb.destroys(ba),
+        _ => false,
+    };
+    stem_clash && branch_clash
 }
