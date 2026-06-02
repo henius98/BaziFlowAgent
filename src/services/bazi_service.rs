@@ -56,6 +56,7 @@ pub async fn build_and_save_bazi_html(user_id: u64, username: &str, structured_d
 /// Core logic for Bazi chart calculation and destiny reading generation.
 pub async fn core_bazi_analysis(
     state: &std::sync::Arc<crate::models::AppState>,
+    user_id: u64,
     structured_data: &paipan::StructuredBazi,
     llm_model: Option<crate::models::common::LlmModel>,
 ) -> crate::models::AppResult<tokio::sync::mpsc::Receiver<String>> {
@@ -72,11 +73,10 @@ pub async fn core_bazi_analysis(
 
     let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
     let mut params = crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()]);
-    params.frequency_penalty = Some(0.5);
-    params.presence_penalty = Some(0.5);
     params.temperature = Some(0.2);
     params.top_p = Some(0.75);
     params.stream = Some(true);
+    params.user_id = Some(user_id as i64);
 
     match crate::services::llm::call_llm(&state.db_pool, &state.config.llm_client_config, params).await {
         Ok(crate::models::LlmResponse::Stream(receiver)) => Ok(receiver),

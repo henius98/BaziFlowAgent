@@ -80,7 +80,9 @@ async fn test_core_bazi_analysis() {
     };
     let structured_data = prepare_bazi_data(&state, params).await.expect("Failed to prepare bazi data");
 
-    let receiver = core_bazi_analysis(&state, &structured_data, None).await.expect("Failed to run core analysis");
+    let receiver = core_bazi_analysis(&state, 123 as u64, &structured_data, None::<baziflow_agent::models::common::LlmModel>)
+        .await
+        .expect("Failed to run core analysis");
     let mut rx = receiver;
     let mut out = String::new();
     while let Some(chunk) = rx.recv().await {

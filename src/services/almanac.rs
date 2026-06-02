@@ -53,8 +53,6 @@ pub async fn analysis_date_fortune(req: DateFortuneRequest<'_>) -> AppResult<Llm
 
     let model_name = req.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
     let mut params = crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()]);
-    params.frequency_penalty = Some(0.5);
-    params.presence_penalty = Some(0.5);
     params.temperature = Some(0.2);
     params.top_p = Some(0.75);
 
@@ -400,8 +398,6 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
 
     let model_name = req.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
     let mut params = crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()]);
-    params.frequency_penalty = Some(0.5);
-    params.presence_penalty = Some(0.5);
     params.temperature = Some(0.2); // Low temperature for factual analysis
     params.top_p = Some(0.75);
     params.stream = Some(stream);

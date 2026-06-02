@@ -27,34 +27,39 @@ pub fn get_username(user: &teloxide::types::User) -> String {
 /// is sent as separate messages.
 pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, msg_id: MessageId, mut receiver: tokio::sync::mpsc::Receiver<String>) -> String {
     let mut accumulated = String::new();
-    let mut last_edit = std::time::Instant::now();
-    let edit_interval = std::time::Duration::from_millis(1500);
+    let edit_interval = std::time::Duration::from_millis(1000);
+    // Allow the first chunk to be flushed immediately
+    let mut last_edit = std::time::Instant::now().checked_sub(edit_interval).unwrap_or_else(std::time::Instant::now);
     let mut pending = false;
 
     loop {
-        match tokio::time::timeout(edit_interval, receiver.recv()).await {
-            Ok(Some(chunk)) => {
-                accumulated.push_str(&chunk);
-                pending = true;
+        let sleep_dur = edit_interval.saturating_sub(last_edit.elapsed());
 
-                // Throttle: only edit if enough time has passed since last edit
-                if last_edit.elapsed() >= edit_interval {
-                    flush_edit(bot, chat_id, msg_id, &accumulated).await;
-                    last_edit = std::time::Instant::now();
-                    pending = false;
+        tokio::select! {
+            chunk_opt = receiver.recv() => {
+                match chunk_opt {
+                    Some(chunk) => {
+                        accumulated.push_str(&chunk);
+                        pending = true;
+
+                        // Throttle: flush immediately if enough time has passed
+                        if last_edit.elapsed() >= edit_interval {
+                            flush_edit(bot, chat_id, msg_id, &accumulated).await;
+                            last_edit = std::time::Instant::now();
+                            pending = false;
+                        }
+                    }
+                    None => {
+                        // Stream ended — channel closed
+                        break;
+                    }
                 }
             }
-            Ok(None) => {
-                // Stream ended — channel closed
-                break;
-            }
-            Err(_) => {
-                // Timeout — flush any buffered content
-                if pending && !accumulated.is_empty() {
-                    flush_edit(bot, chat_id, msg_id, &accumulated).await;
-                    last_edit = std::time::Instant::now();
-                    pending = false;
-                }
+            _ = tokio::time::sleep(sleep_dur), if pending => {
+                // Time to flush pending content
+                flush_edit(bot, chat_id, msg_id, &accumulated).await;
+                last_edit = std::time::Instant::now();
+                pending = false;
             }
         }
     }

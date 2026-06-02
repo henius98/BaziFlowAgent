@@ -82,7 +82,7 @@ pub async fn perform_bazi_analysis(bot: Bot, chat_id: ChatId, user_id: u64, user
         .parse_mode(teloxide::types::ParseMode::Html)
         .await;
 
-    match crate::services::bazi_service::core_bazi_analysis(&state, &structured_data, llm_model).await {
+    match crate::services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model).await {
         Ok(receiver) => {
             let placeholder = bot.send_message(chat_id, "🔮 Generating bazi analysis...").await;
             let placeholder_msg_id = match placeholder {
