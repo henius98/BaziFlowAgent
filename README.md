@@ -18,6 +18,7 @@ A high-performance Telegram Bot built in **Rust** 🦀 that provides professiona
 - **LLM AI Native**: Automatically structures system prompts (based on Blindman Bazi methodology) alongside chat contexts, injecting calendar selections to a remote LLM for sophisticated CoT (Chain of Thought) analysis, delivered via real-time token streaming to Telegram.
 - **Scheduled Analytics**: Built-in async job scheduler (`tokio-cron-scheduler`) dynamically triggers daily report calculations based on individual user schedules, proactively informing you about tomorrow's astrological landscape. Features customizable schedule settings and enhanced user profile views.
 - **Robust Concurrency**: Leverages `tokio` and `DashMap` for memory-safe, lock-free concurrency to maintain isolated user contexts.
+- **Cloudflare R2 Integration**: Optionally offloads generated HTML charts to Cloudflare R2 object storage, generating short-lived presigned URLs for secure and efficient delivery.
 - **Strict Rust Quality Standards**: Enforces Microsoft Pragmatic Guidelines, Zero `.unwrap()` error handling architectures, and memory-safe Clean Architecture patterns.
 
 ## 🏗️ Architecture Stack
@@ -27,6 +28,7 @@ A high-performance Telegram Bot built in **Rust** 🦀 that provides professiona
 - **Requests Engine**: `reqwest` + `serde_json`
 - **Task Scheduling**: `tokio-cron-scheduler`
 - **Memory Storage**: InMemory `DashMap` (Self-cleaning stale sessions automatically)
+- **Object Storage**: Cloudflare R2 (`rust-s3`) for hosting dynamic HTML charts
 - **API Trigger**: Minimal Axum server for external system orchestration.
 
 ## 📁 Repository Structure

@@ -75,9 +75,15 @@ pub async fn perform_bazi_analysis(bot: Bot, chat_id: ChatId, user_id: u64, user
         }
     };
 
-    crate::services::bazi_service::build_and_save_bazi_html(user_id, &username, &structured_data).await;
+    crate::services::bazi_service::build_and_save_bazi_html(&state, user_id, &username, &structured_data).await;
 
-    let chart_url = format!("{}/bazi_{}.html", state.config.base_url, user_id);
+    let chart_url = match crate::services::bazi_service::get_bazi_chart_url(&state, user_id) {
+        Ok(url) => url,
+        Err(e) => {
+            error!("Failed to generate bazi chart URL: {}", e);
+            format!("{}/bazi_{}.html", state.config.base_url.trim_end_matches('/'), user_id)
+        }
+    };
     let _ = bot
         .send_message(chat_id, format!("📊 <b>Bazi Chart Diagram</b>\n\nView your chart here:\n{}", chart_url))
         .parse_mode(teloxide::types::ParseMode::Html)
@@ -152,7 +158,14 @@ pub async fn display_user_profile(bot: Bot, chat_id: ChatId, user_id: u64) -> Re
                 ));
             }
 
-            let base_url = state.config.base_url.clone();
+            let chart_url = match crate::services::bazi_service::get_bazi_chart_url(&state, user_id) {
+                Ok(url) => url,
+                Err(e) => {
+                    error!("Failed to generate bazi chart URL: {}", e);
+                    format!("{}/bazi_{}.html", state.config.base_url.trim_end_matches('/'), user_id)
+                }
+            };
+
             let profile_msg = format!(
                 "👤 <b>Your Bazi Profile (个人八字档案)</b>\n\n\
                 <b>Basic Information (基本信息):</b>\n\
@@ -161,7 +174,7 @@ pub async fn display_user_profile(bot: Bot, chat_id: ChatId, user_id: u64) -> Re
                 • <b>Lunar Birthday (农历生日):</b> {lunar_str}\n\n\
                 <b>Bazi Four Pillars (四柱排盘):</b>\n\
                 {pillars_text}\
-                <a href=\"{base_url}/bazi_{user_id}.html\">View Bazi Chart Diagram</a>"
+                <a href=\"{chart_url}\">View Bazi Chart Diagram</a>"
             );
 
             bot.send_message(chat_id, profile_msg).parse_mode(teloxide::types::ParseMode::Html).await?;

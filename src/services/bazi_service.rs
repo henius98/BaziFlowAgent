@@ -44,12 +44,30 @@ pub async fn prepare_bazi_data(state: &std::sync::Arc<crate::models::AppState>, 
     Ok(structured_data)
 }
 
-pub async fn build_and_save_bazi_html(user_id: u64, username: &str, structured_data: &paipan::StructuredBazi) {
+pub async fn build_and_save_bazi_html(state: &std::sync::Arc<crate::models::AppState>, user_id: u64, username: &str, structured_data: &paipan::StructuredBazi) {
     let html_diagram = paipan::generate_bazi_html(structured_data, username);
     let filename = format!("bazi_{}.html", user_id);
-    let public_path = std::path::PathBuf::from("public").join(&filename);
-    if let Err(e) = tokio::fs::write(&public_path, html_diagram).await {
-        error!("Failed to save Bazi HTML to public: {}", e);
+
+    if let Some(bucket) = &state.r2_bucket {
+        if let Err(e) = bucket.put_object(&filename, html_diagram.as_bytes()).await {
+            error!("Failed to upload Bazi HTML to R2: {}", e);
+        }
+    } else {
+        let public_path = std::path::PathBuf::from("public").join(&filename);
+        if let Err(e) = tokio::fs::write(&public_path, html_diagram).await {
+            error!("Failed to save Bazi HTML to public: {}", e);
+        }
+    }
+}
+
+pub fn get_bazi_chart_url(state: &std::sync::Arc<crate::models::AppState>, user_id: u64) -> crate::models::AppResult<String> {
+    let filename = format!("bazi_{}.html", user_id);
+    if let Some(bucket) = &state.r2_bucket {
+        // Presign URL valid for 24 hours (86400 seconds)
+        bucket.presign_get(&filename, 86400, None)
+            .map_err(|e| crate::models::error::AppError::Message(format!("Failed to generate presigned URL: {}", e)))
+    } else {
+        Ok(format!("{}/{}", state.config.base_url.trim_end_matches('/'), filename))
     }
 }
 

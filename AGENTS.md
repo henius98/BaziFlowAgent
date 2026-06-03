@@ -26,6 +26,7 @@ A high-performance Telegram Bot built in **Rust** providing professional Chinese
 | Logging       | `tracing`, `tracing-subscriber`         | Structured async-safe logging               |
 | Serialization | `serde`, `serde_json`                   | JSON parsing for API payloads               |
 | Web Server    | `axum`, `tower-http`                    | Static file serving for Instant View        |
+| Object Storage| `rust-s3`                               | Cloudflare R2 integration for HTML charts   |
 
 ---
 
@@ -62,7 +63,7 @@ A high-performance Telegram Bot built in **Rust** providing professional Chinese
 ### `services/` — Domain Logic (Bot-Framework-Agnostic)
 - **`mod.rs`**: Module declarations and re-exports.
 - **`almanac.rs`**: Fetches raw calendar data from MingDecode API, applies a schema filter, recursively translates English JSON keys to Chinese labels, and computes "Kong Wang" (空亡).
-- **`bazi_service.rs`**: Pure business logic orchestrator for Bazi generation (True Solar Time calculation, API fetching, DB persistence, HTML generation, and LLM prompt construction).
+- **`bazi_service.rs`**: Pure business logic orchestrator for Bazi generation (True Solar Time calculation, API fetching, DB persistence, HTML generation & Cloudflare R2 upload with presigned URLs, and LLM prompt construction).
 - **`llm.rs`**: General-purpose LLM client utilizing `async-openai`. Includes `LlmRequestParams` mapping to builder pattern, with database logging.
 - **`solar_time.rs`**: True Solar Time (真太阳时) calculation using Equation of Time and longitude adjustment. Includes city longitude lookup.
 - **`paipan/`**: Bazi chart module:

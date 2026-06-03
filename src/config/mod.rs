@@ -15,6 +15,12 @@ pub struct AppConfig {
     pub max_context_messages: usize,
     pub base_url: String,
     pub log_level: String,
+
+    // Cloudflare R2 Options
+    pub r2_account_id: Option<String>,
+    pub r2_access_key_id: Option<String>,
+    pub r2_secret_access_key: Option<String>,
+    pub r2_bucket_name: Option<String>,
 }
 
 impl AppConfig {
@@ -67,6 +73,11 @@ impl AppConfig {
 
         let log_level = env::var("LOG_LEVEL").context("LOG_LEVEL must be set in .env")?;
 
+        let r2_account_id = env::var("R2_ACCOUNT_ID").ok();
+        let r2_access_key_id = env::var("R2_ACCESS_KEY_ID").ok();
+        let r2_secret_access_key = env::var("R2_SECRET_ACCESS_KEY").ok();
+        let r2_bucket_name = env::var("R2_BUCKET_NAME").ok();
+
         Ok(Self {
             telegram_bot_token,
             llm_client_config,
@@ -80,6 +91,10 @@ impl AppConfig {
             max_context_messages,
             base_url,
             log_level,
+            r2_account_id,
+            r2_access_key_id,
+            r2_secret_access_key,
+            r2_bucket_name,
         })
     }
 }
