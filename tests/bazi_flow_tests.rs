@@ -63,6 +63,10 @@ async fn test_core_bazi_analysis() {
         max_context_messages: 10,
         base_url: "http://localhost".into(),
         log_level: "info".into(),
+        r2_account_id: None,
+        r2_access_key_id: None,
+        r2_secret_access_key: None,
+        r2_bucket_name: None,
     });
     config.llm_client_config.api_base = mock_url.clone();
 

@@ -77,7 +77,7 @@ pub async fn perform_bazi_analysis(bot: Bot, chat_id: ChatId, user_id: u64, user
 
     crate::services::bazi_service::build_and_save_bazi_html(&state, user_id, &username, &structured_data).await;
 
-    let chart_url = match crate::services::bazi_service::get_bazi_chart_url(&state, user_id) {
+    let chart_url = match crate::services::bazi_service::get_bazi_chart_url(&state, user_id).await {
         Ok(url) => url,
         Err(e) => {
             error!("Failed to generate bazi chart URL: {}", e);
@@ -158,7 +158,7 @@ pub async fn display_user_profile(bot: Bot, chat_id: ChatId, user_id: u64) -> Re
                 ));
             }
 
-            let chart_url = match crate::services::bazi_service::get_bazi_chart_url(&state, user_id) {
+            let chart_url = match crate::services::bazi_service::get_bazi_chart_url(&state, user_id).await {
                 Ok(url) => url,
                 Err(e) => {
                     error!("Failed to generate bazi chart URL: {}", e);

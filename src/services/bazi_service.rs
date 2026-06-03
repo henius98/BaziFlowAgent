@@ -60,11 +60,13 @@ pub async fn build_and_save_bazi_html(state: &std::sync::Arc<crate::models::AppS
     }
 }
 
-pub fn get_bazi_chart_url(state: &std::sync::Arc<crate::models::AppState>, user_id: u64) -> crate::models::AppResult<String> {
+pub async fn get_bazi_chart_url(state: &std::sync::Arc<crate::models::AppState>, user_id: u64) -> crate::models::AppResult<String> {
     let filename = format!("bazi_{}.html", user_id);
     if let Some(bucket) = &state.r2_bucket {
         // Presign URL valid for 24 hours (86400 seconds)
-        bucket.presign_get(&filename, 86400, None)
+        bucket
+            .presign_get(&filename, 86400, None)
+            .await
             .map_err(|e| crate::models::error::AppError::Message(format!("Failed to generate presigned URL: {}", e)))
     } else {
         Ok(format!("{}/{}", state.config.base_url.trim_end_matches('/'), filename))
