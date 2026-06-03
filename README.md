@@ -15,8 +15,8 @@ A high-performance Telegram Bot built in **Rust** 🦀 that provides professiona
 
 - **Interactive Calendar UI**: Features a custom-built inline Telegram keyboard calendar for picking dates to evaluate.
 - **Daily Almanac API Integration**: Fetches traditional Chinese almanac data (MingDecode API), keeping only essential variables, calculating "Kong Wang" (空亡), and translating keys dynamically.
-- **LLM AI Native**: Automatically structures system prompts (based on Blindman Bazi methodology) alongside chat contexts, injecting calendar selections to a remote LLM for sophisticated CoT (Chain of Thought) analysis.
-- **Scheduled Analytics**: Built-in async job scheduler (`tokio-cron-scheduler`) triggers a daily report calculation at 10 PM SGT, proactively informing you about tomorrow's astrological landscape.
+- **LLM AI Native**: Automatically structures system prompts (based on Blindman Bazi methodology) alongside chat contexts, injecting calendar selections to a remote LLM for sophisticated CoT (Chain of Thought) analysis, delivered via real-time token streaming to Telegram.
+- **Scheduled Analytics**: Built-in async job scheduler (`tokio-cron-scheduler`) dynamically triggers daily report calculations based on individual user schedules, proactively informing you about tomorrow's astrological landscape. Features customizable schedule settings and enhanced user profile views.
 - **Robust Concurrency**: Leverages `tokio` and `DashMap` for memory-safe, lock-free concurrency to maintain isolated user contexts.
 - **Strict Rust Quality Standards**: Enforces Microsoft Pragmatic Guidelines, Zero `.unwrap()` error handling architectures, and memory-safe Clean Architecture patterns.
 
@@ -38,9 +38,12 @@ BaziFlowAgent/
 ├── Cargo.toml                    # Cargo config and dependency tree
 ├── DEPLOYMENT.md                 # ARM/Raspberry Pi deployment guide
 ├── BaziFlowAgent.service         # Systemd unit file
-├── prompts/
-│   ├── BaziHuangLiAssistant.md   # Embedded system prompt for daily readings
-│   └── UserBaziAssistant.md               # Embedded system prompt for destiny readings
+├── prompts/                      # Embedded system prompts
+│   ├── BaziHuangLiAssistant.md   # System prompt for daily readings
+│   ├── BaziSummaryAssistant.md   # System prompt for Bazi summarization
+│   ├── DateSelectionAssistant.md # System prompt for date selection (/pick)
+│   ├── FollowUpAssistant.md      # System prompt for free-text follow-ups
+│   └── UserBaziAssistant.md      # System prompt for destiny readings
 ├── src/
 │   ├── lib.rs                    # Library root declaring public modules
 │   ├── main.rs                   # Entry point & bot wiring
@@ -49,12 +52,12 @@ BaziFlowAgent/
 │   ├── utils.rs                  # Shared utilities (split_message, etc.)
 │   ├── bot/
 │   │   ├── mod.rs                # Module declarations
-│   │   ├── commands.rs           # /start, /new, /model command handlers
+│   │   ├── commands.rs           # /new, /date, /pick, /profile, /model, /schedule command handlers
 │   │   ├── callbacks.rs          # Callback query dispatcher
 │   │   ├── messages.rs           # Free-text message handler
 │   │   ├── command_actions.rs    # /new birthdate Telegram UI orchestration
 │   │   ├── helpers.rs            # Bot-specific helper functions
-│   │   └── calendar.rs           # Inline keyboard UI builders
+│   │   └── keyboards.rs          # Inline keyboard UI builders
 │   ├── config/
 │   │   └── mod.rs                # AppConfig (env loader)
 │   ├── models/

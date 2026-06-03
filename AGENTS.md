@@ -35,17 +35,17 @@ A high-performance Telegram Bot built in **Rust** providing professional Chinese
 - **`lib.rs`**: Library root declaring all public modules for external access or testing.
 - **`main.rs`**: Loads `AppConfig` from env, sets up the SQLite pool, creates the `reqwest` HTTP client, builds `AppState`, registers Telegram handlers via `dptree`, starts the scheduler, and runs the axum static file server.
 - **`logger.rs`**: Initialises `tracing-subscriber` with dual console + file output (daily rotation). Includes `cleanup_old_logs()` for retention.
-- **`scheduler.rs`**: Background cron jobs: (1) daily fortune readings for all profiled users, (2) user context expiration cleanup, (3) log file retention cleanup.
+- **`scheduler.rs`**: Background cron jobs: (1) dynamic daily fortune readings for users with an active schedule, (2) user context expiration cleanup, (3) log file retention cleanup.
 - **`utils.rs`**: Shared utility functions used by both `bot/` and `scheduler.rs` — `split_message()` for Telegram message chunking and `get_formatted_bazi_four_pillars()` for JSON→prompt conversion.
 
 ### `bot/` — Telegram Bot Handlers & UI
 - **`mod.rs`**: Module declarations and `Command` re-export.
-- **`commands.rs`**: `Command` enum (`/start`, `/new`) and `handle_command` handler.
-- **`callbacks.rs`**: `handle_callback` — dispatches all inline keyboard callback queries across 5 namespaces (gender, birthdate calendar, location, time, analysis calendar).
+- **`commands.rs`**: `Command` enum (`/new`, `/date`, `/pick`, `/profile`, `/model`, `/schedule`) and `handle_command` handler.
+- **`callbacks.rs`**: `handle_callback` — dispatches all inline keyboard callback queries across 9 namespaces (Date, Birthdate, Gender, Location, Time, Model, Pick Date, Pick Activity, Schedule).
 - **`messages.rs`**: `handle_message` — free-text message handler with conversation context tracking.
-- **`command_actions.rs`**: `perform_bazi_analysis` & `display_user_profile` — Telegram UI orchestration for the `/new` birthdate flow.
-- **`helpers.rs`**: Bot-specific helpers — `build_history_msg()`, `get_username()`.
-- **`calendar.rs`**: Dynamic inline Telegram keyboard builders for calendars, year/month/day/hour/minute pickers, gender selector, and location picker.
+- **`command_actions.rs`**: `perform_bazi_analysis` & `display_user_profile` — Telegram UI orchestration for the `/new` birthdate flow, and user profile management (including schedule settings).
+- **`helpers.rs`**: Bot-specific helpers — `build_history_msg()`, `get_username()`, and LLM token streaming (`stream_to_telegram()`).
+- **`keyboards.rs`**: Dynamic inline Telegram keyboard builders for calendars, year/month/day/hour/minute pickers, gender selector, location picker, model picker, and schedule settings.
 
 ### `config/` — Configuration
 - **`mod.rs`**: `AppConfig` struct — reads and validates all configuration from `.env` via `dotenvy`. Single source of truth for secrets and tunables.
@@ -82,13 +82,13 @@ Telegram User
     │
     ▼
 teloxide Dispatcher (dptree)
-    ├─ /start, /new, /model ───► bot::commands::handle_command
-    │                                  ├─ /new → build calendar keyboard (bot/calendar.rs)
-    │                                  └─ /model → build model selection keyboard
+    ├─ /new, /date, /pick... ──► bot::commands::handle_command
+    │                                  ├─ /new, /date, /pick, /model, /schedule → build respective inline keyboards (bot::keyboards)
+    │                                  └─ /profile → bot::command_actions::display_user_profile
     ├─ Callback Query ─────────► bot::callbacks::handle_callback
-    │                                  ├─ Calendar navigation  → rebuild keyboard
-    │                                  ├─ Date selected        → services::llm based reading
-    │                                  └─ Birthtime selected   → bot::command_actions::perform_bazi_analysis
+    │                                  ├─ Calendar/Time navigation  → rebuild keyboards
+    │                                  ├─ Date selected             → services::almanac / services::llm based reading
+    │                                  └─ Birthtime selected        → bot::command_actions::perform_bazi_analysis
     └─ Free-text Message ──────► bot::messages::handle_message
                                        └─ services::llm call for analysis
 
@@ -96,9 +96,9 @@ services::llm::call_llm
     ├─ async-openai → LLM endpoint       (system prompt + user bazi + almanac + history)
 
 scheduler (background)
-    ├─ bazi_job_cron  → personalized readings for all profiled users
+    ├─ dynamic user crons    → personalized daily readings for users with active schedules
     ├─ context_cleanup_cron  → evict stale user_contexts + user_last_active
-    └─ log_cleanup_cron  → remove old log files
+    └─ log_cleanup_cron      → remove old log files
 ```
 
 ---
@@ -155,8 +155,7 @@ scheduler (background)
 | File                            | Purpose                                                            |
 | ------------------------------- | ------------------------------------------------------------------ |
 | `README.md`                     | Top-level intro, feature list, env vars, build/run commands        |
-| `prompts/BaziHuangLiAssistant.md` | System prompt — Bazi methodology constraints for LLM             |
-| `prompts/UserBaziAssistant.md`           | System prompt — Destiny reading generation for new profiles        |
+| `prompts/`                      | Directory containing all system prompts (e.g. Daily readings, Destiny readings, Summarization, Date selection) |
 | `DEPLOYMENT.md`                 | Raspberry Pi / DietPi ARM cross-compilation & systemd daemon setup |
 | `BaziFlowAgent.service`        | Pre-configured systemd unit file for background deployment         |
 | `Cargo.toml`                    | Canonical dependency list and package metadata                     |
@@ -173,7 +172,7 @@ BaziFlowAgent/
 ├── Cargo.toml                    # Cargo config and dependency tree
 ├── DEPLOYMENT.md                 # ARM/Raspberry Pi deployment guide
 ├── BaziFlowAgent.service         # Systemd unit file
-├── prompts/                      # Embedded system prompt
+├── prompts/                      # Embedded system prompts (HuangLi, UserBazi, Summary, Pick, FollowUp)
 ├── src/
 │   ├── lib.rs                    # Library root declaring public modules
 │   ├── main.rs                   # Entry point & bot wiring
@@ -182,12 +181,12 @@ BaziFlowAgent/
 │   ├── utils.rs                  # Shared utilities (split_message, etc.)
 │   ├── bot/
 │   │   ├── mod.rs                # Module declarations
-│   │   ├── commands.rs           # /start, /new, /model command handlers
+│   │   ├── commands.rs           # /new, /date, /pick, /profile, /model, /schedule command handlers
 │   │   ├── callbacks.rs          # Callback query dispatcher
 │   │   ├── messages.rs           # Free-text message handler
 │   │   ├── command_actions.rs    # /new birthdate Telegram UI orchestration
 │   │   ├── helpers.rs            # Bot-specific helper functions
-│   │   └── calendar.rs           # Inline keyboard UI builders
+│   │   └── keyboards.rs          # Inline keyboard UI builders
 │   ├── config/
 │   │   └── mod.rs                # AppConfig (env loader)
 │   ├── models/
