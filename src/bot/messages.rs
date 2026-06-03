@@ -33,8 +33,8 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
         let reply_id = msg.id;
 
         tokio::spawn(async move {
-            let target = Some(super::callbacks::MessageTarget::Reply(reply_id));
-            let _ = super::callbacks::process_pick_selection(bot_clone, chat_id, user_id, target).await;
+            let target = Some(super::command_actions::MessageTarget::Reply(reply_id));
+            let _ = super::command_actions::process_pick_selection(bot_clone, chat_id, user_id, target).await;
         });
         return Ok(());
     }
@@ -47,7 +47,9 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
     }
     debug!("Stored message from {}: {}", user_id, text);
 
-    let (bazi_four_pillars, _bazi_analysis, llm_model) = repos::get_user_profile(&state.db_pool, user_id).await;
+    let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
+    let bazi_four_pillars = user_profile.bazi_four_pillars;
+    let llm_model = user_profile.llm_model;
     let Some(_bazi_four_pillars) = bazi_four_pillars.as_deref() else {
         let _ = bot
             .send_message(
@@ -58,14 +60,13 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
         return Ok(());
     };
 
-    let placeholder = bot.send_message(msg.chat.id, "📝 Generating...").await?;
     let system_prompt_text = include_str!("../../prompts/FollowUpAssistant.md");
 
     let system_msg = match async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default().content(system_prompt_text).build() {
         Ok(m) => m,
         Err(e) => {
             error!("Failed to build system message: {}", e);
-            let _ = bot.edit_message_text(msg.chat.id, placeholder.id, "Internal error: Failed to build prompt").await;
+            let _ = bot.send_message(msg.chat.id, "Internal error: Failed to build prompt").await;
             return Ok(());
         }
     };
@@ -99,7 +100,7 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
 
     match crate::services::llm::call_llm(&state.db_pool, &state.config.llm_client_config, params).await {
         Ok(crate::models::LlmResponse::Stream(receiver)) => {
-            let result_text = super::helpers::stream_to_telegram(&bot, msg.chat.id, placeholder.id, receiver).await;
+            let result_text = super::helpers::stream_to_telegram(&bot, msg.chat.id, "📝 Generating...", receiver).await;
 
             // Save assistant response to context for future follow-ups
             {
@@ -109,11 +110,11 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
         }
         Ok(_) => {
             error!("Expected stream response from LLM, got non-stream variant");
-            let _ = bot.edit_message_text(msg.chat.id, placeholder.id, "Internal error: unexpected response type").await;
+            let _ = bot.send_message(msg.chat.id, "Internal error: unexpected response type").await;
         }
         Err(e) => {
             error!("Error generating reading: {}", e);
-            let _ = bot.edit_message_text(msg.chat.id, placeholder.id, format!("Error processing request: {}", e)).await;
+            let _ = bot.send_message(msg.chat.id, format!("Error processing request: {}", e)).await;
         }
     }
 

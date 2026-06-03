@@ -1,5 +1,4 @@
 use teloxide::prelude::*;
-use teloxide::types::MessageId;
 
 /// Get a display-friendly name for a Telegram user.
 pub fn get_username(user: &teloxide::types::User) -> String {
@@ -25,12 +24,20 @@ pub fn get_username(user: &teloxide::types::User) -> String {
 ///
 /// If the final text exceeds 4096 chars, the first message is trimmed and overflow
 /// is sent as separate messages.
-pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, msg_id: MessageId, mut receiver: tokio::sync::mpsc::Receiver<String>) -> String {
+pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, mut receiver: tokio::sync::mpsc::Receiver<String>) -> String {
     let mut accumulated = String::new();
     let edit_interval = std::time::Duration::from_millis(1000);
     // Allow the first chunk to be flushed immediately
     let mut last_edit = std::time::Instant::now().checked_sub(edit_interval).unwrap_or_else(std::time::Instant::now);
     let mut pending = false;
+
+    // Generate a unique draft ID for this streaming session
+    let draft_id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+    let client = reqwest::Client::new();
+    let token = bot.token();
+
+    // Show the custom initial placeholder immediately as a draft
+    flush_draft(&client, token, chat_id, draft_id, initial_text, true).await;
 
     loop {
         let sleep_dur = edit_interval.saturating_sub(last_edit.elapsed());
@@ -44,7 +51,7 @@ pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, msg_id: MessageId, m
 
                         // Throttle: flush immediately if enough time has passed
                         if last_edit.elapsed() >= edit_interval {
-                            flush_edit(bot, chat_id, msg_id, &accumulated).await;
+                            flush_draft(&client, token, chat_id, draft_id, &accumulated, false).await;
                             last_edit = std::time::Instant::now();
                             pending = false;
                         }
@@ -57,26 +64,21 @@ pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, msg_id: MessageId, m
             }
             _ = tokio::time::sleep(sleep_dur), if pending => {
                 // Time to flush pending content
-                flush_edit(bot, chat_id, msg_id, &accumulated).await;
+                flush_draft(&client, token, chat_id, draft_id, &accumulated, false).await;
                 last_edit = std::time::Instant::now();
                 pending = false;
             }
         }
     }
 
-    // Final edit: remove cursor, handle overflow
+    // Finalize: send actual message to persist the ephemeral draft
     if accumulated.is_empty() {
-        let _ = bot.edit_message_text(chat_id, msg_id, "⚠️ No content received from LLM.").await;
+        let _ = bot.send_message(chat_id, "⚠️ No content received from LLM.").await;
     } else if accumulated.len() <= 4096 {
-        let _ = bot.edit_message_text(chat_id, msg_id, &accumulated).await;
+        let _ = bot.send_message(chat_id, &accumulated).await;
     } else {
-        // Edit first message with first ~4000 chars, send remainder as new messages
-        let mut split_idx = 4000;
-        while !accumulated.is_char_boundary(split_idx) {
-            split_idx -= 1;
-        }
-        let _ = bot.edit_message_text(chat_id, msg_id, &accumulated[..split_idx]).await;
-        let parts = crate::utils::split_message(&accumulated[split_idx..], 4000);
+        // Send in multiple messages if >4096
+        let parts = crate::utils::split_message(&accumulated, 4000);
         for part in parts {
             let _ = bot.send_message(chat_id, part).await;
         }
@@ -85,10 +87,11 @@ pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, msg_id: MessageId, m
     accumulated
 }
 
-/// Send a throttled edit with a typing cursor appended.
-async fn flush_edit(bot: &Bot, chat_id: ChatId, msg_id: MessageId, text: &str) {
-    // Telegram message limit is 4096 chars; show tail if exceeding
-    let display = if text.len() <= 4000 {
+/// Send a throttled draft edit using the sendMessageDraft API.
+async fn flush_draft(client: &reqwest::Client, token: &str, chat_id: ChatId, draft_id: i64, text: &str, is_initial: bool) {
+    let display = if text.is_empty() && !is_initial {
+        "Thinking...".to_string()
+    } else if text.len() <= 4000 {
         format!("{}...", text)
     } else {
         let mut start_idx = text.len().saturating_sub(4000);
@@ -97,5 +100,17 @@ async fn flush_edit(bot: &Bot, chat_id: ChatId, msg_id: MessageId, text: &str) {
         }
         format!("…{}...", &text[start_idx..])
     };
-    let _ = bot.edit_message_text(chat_id, msg_id, &display).await;
+
+    let url = format!("https://api.telegram.org/bot{}/sendMessageDraft", token);
+
+    // We send a JSON payload with the required parameters
+    let _ = client
+        .post(&url)
+        .json(&serde_json::json!({
+            "chat_id": chat_id.0,
+            "draft_id": draft_id,
+            "text": display
+        }))
+        .send()
+        .await;
 }

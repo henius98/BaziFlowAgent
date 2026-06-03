@@ -5,9 +5,11 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT, -- Telegram @handle, nullable (not all users set one)
     gender INTEGER CHECK (gender IN (0, 1)), -- 0=female, 1=male; NULL until /new flow completes
     birth_datetime TEXT, -- ISO8601 "YYYY-MM-DD HH:MM:SS"; NULL until /new flow completes
+    llm_model INTEGER, -- 0=gpt-4o, 1=gemini-3.5-pro, 2=claude-3-5-sonnet, 3=deepseek-chat, 4=deepseek-reasoner; NULL=fallback to .env LLM_MODEL_NAME
+    schedule TEXT, -- cron for user receive scheduled daily date fortune analysis report; if NULL then disable schedule for this user
     bazi_four_pillars BLOB, -- JSON stored via jsonb(); BLOB affinity matches binary format
-    bazi_analysis TEXT NOT NULL DEFAULT '', -- LLM-generated destiny text
-    llm_model INTEGER DEFAULT NULL, -- 0=gpt-4o, 1=gemini-3.5-pro, 2=claude-3-5-sonnet, 3=deepseek-chat, 4=deepseek-reasoner; NULL=fallback to .env LLM_MODEL_NAME
+    bazi_analysis TEXT, -- LLM-generated destiny text
+    bazi_summary TEXT, -- main essential keypoint life for improve user date fortune analysis + save token
     created_at TEXT NOT NULL DEFAULT (strftime ('%Y-%m-%d %H:%M:%S', 'now')),
     last_active_at TEXT NOT NULL DEFAULT (strftime ('%Y-%m-%d %H:%M:%S', 'now'))
 );

@@ -70,6 +70,9 @@ pub struct AppState {
 
     /// Global dictionary to store user contexts and pending inputs
     pub user_contexts: DashMap<u64, UserContext>,
+
+    /// Track user-specific background jobs (user_id -> Job UUID)
+    pub user_jobs: DashMap<u64, uuid::Uuid>,
 }
 
 impl AppState {
@@ -79,6 +82,7 @@ impl AppState {
             db_pool,
             config,
             user_contexts: DashMap::new(),
+            user_jobs: DashMap::new(),
         }
     }
 }

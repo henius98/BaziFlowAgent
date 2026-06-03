@@ -8,8 +8,9 @@ use tracing::{debug, info};
 
 pub struct DateFortuneRequest<'a> {
     pub target_date: &'a str,
+    pub almanac_data: &'a str,
     pub bazi_four_pillars: &'a str,
-    pub bazi_analysis: &'a str,
+    pub bazi_summary: &'a str,
     /// Whether to stream the LLM response. Defaults to `false`.
     pub stream: bool,
     pub llm_model: Option<crate::models::common::LlmModel>,
@@ -22,18 +23,15 @@ pub struct DateFortuneRequest<'a> {
 pub async fn analysis_date_fortune(req: DateFortuneRequest<'_>) -> AppResult<LlmResponse> {
     let stream = req.stream;
     let state = crate::models::get_state();
-    info!("Fetching almanac data for {}", req.target_date);
 
-    let almanac_data = fetch_and_format_almanac(&state.http_client, req.target_date)
-        .await
-        .log_err_msg("Failed to fetch or format almanac data")?;
-    debug!("Almanac data fetched successfully. Building LLM prompt...");
+    let almanac_data = req.almanac_data;
+    debug!("Building LLM prompt with provided almanac data...");
 
     let system_message = ChatCompletionRequestSystemMessageArgs::default()
         .content(include_str!("../../prompts/BaziHuangLiAssistant.md"))
         .build()?;
 
-    if req.bazi_four_pillars.is_empty() || req.bazi_analysis.is_empty() {
+    if req.bazi_four_pillars.is_empty() || req.bazi_summary.is_empty() {
         let msg = "请先输入您的生辰八字进行排盘。".to_string();
         if stream {
             let (tx, rx) = tokio::sync::mpsc::channel(1);
@@ -44,8 +42,8 @@ pub async fn analysis_date_fortune(req: DateFortuneRequest<'_>) -> AppResult<Llm
     }
 
     let user_content = format!(
-        "请结合以下信息进行精确的日运势推演：\n【用户八字排盘】\n{}\n【用户命格详批】\n{}\n【目标预测日期】\n{}",
-        req.bazi_four_pillars, req.bazi_analysis, almanac_data
+        "请结合以下信息进行精确的日运势推演：\n【用户八字排盘】\n{}\n{}\n【目标预测日期】\n{}",
+        req.bazi_four_pillars, req.bazi_summary, almanac_data
     );
 
     debug!("Full User Prompt:\n{}", user_content);
@@ -314,7 +312,7 @@ pub struct PickSelectionRequest<'a> {
     pub end_date: &'a str,
     pub activity: &'a str,
     pub bazi_four_pillars: &'a str,
-    pub bazi_analysis: &'a str,
+    pub bazi_summary: &'a str,
     pub stream: bool,
     pub llm_model: Option<crate::models::common::LlmModel>,
     pub user_id: Option<i64>,
@@ -378,7 +376,7 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
         .content(include_str!("../../prompts/DateSelectionAssistant.md"))
         .build()?;
 
-    if req.bazi_four_pillars.is_empty() || req.bazi_analysis.is_empty() {
+    if req.bazi_four_pillars.is_empty() || req.bazi_summary.is_empty() {
         let msg = "请先输入您的生辰八字进行排盘。".to_string();
         if stream {
             let (tx, rx) = tokio::sync::mpsc::channel(1);
@@ -390,7 +388,7 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
 
     let user_content = format!(
         "请结合以下信息为用户进行择吉日推演：\n【用户八字排盘】\n{}\n【用户命格详批】\n{}\n【目标活动】\n{}\n【备选日期范围黄历数据】\n{}",
-        req.bazi_four_pillars, req.bazi_analysis, req.activity, combined_almanac
+        req.bazi_four_pillars, req.bazi_summary, req.activity, combined_almanac
     );
 
     tracing::debug!("Date Selection Full User Prompt:\n{}", user_content);

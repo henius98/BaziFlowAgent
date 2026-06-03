@@ -20,6 +20,8 @@ pub enum Command {
     Profile,
     #[command(description = "🤖 Select Model: Choose the LLM model to be used for your readings")]
     Model,
+    #[command(description = "⏰ Schedule: Set up daily background fortune analysis delivery")]
+    Schedule,
 }
 
 // ─────────────────────────────────────────────
@@ -71,6 +73,13 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
         Command::Model => {
             let markup = keyboards::build_model_picker();
             bot.send_message(msg.chat.id, "🤖 Select an LLM model:").reply_markup(markup).await?;
+        }
+
+        Command::Schedule => {
+            let markup = keyboards::build_schedule_picker();
+            bot.send_message(msg.chat.id, "⏰ Select a time to receive your daily Bazi fortune reading:")
+                .reply_markup(markup)
+                .await?;
         }
     }
     Ok(())

@@ -20,6 +20,8 @@ pub enum CalendarAction {
     NextMonth { year: i32, month: u32 },
     /// Select today
     Today,
+    /// Select tomorrow
+    Tomorrow,
 }
 
 impl CalendarAction {
@@ -37,6 +39,7 @@ impl CalendarAction {
                 format!("{}:next:{}:{}", CALENDER_PREFIX, year, month)
             }
             CalendarAction::Today => format!("{}:today", CALENDER_PREFIX),
+            CalendarAction::Tomorrow => format!("{}:tomorrow", CALENDER_PREFIX),
         }
     }
 
@@ -66,6 +69,7 @@ impl CalendarAction {
                 Some(CalendarAction::NextMonth { year, month })
             }
             Some("today") => Some(CalendarAction::Today),
+            Some("tomorrow") => Some(CalendarAction::Tomorrow),
             _ => None,
         }
     }
@@ -383,7 +387,10 @@ pub fn is_time_picker_callback(data: &str) -> bool {
     data.starts_with(BDTIME_PREFIX)
 }
 
-pub fn build_hour_picker() -> InlineKeyboardMarkup {
+pub fn build_hour_picker<F>(encode_hour: F) -> InlineKeyboardMarkup
+where
+    F: Fn(u32) -> String,
+{
     let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
     // 24 hours in 4x6 grid
@@ -391,7 +398,7 @@ pub fn build_hour_picker() -> InlineKeyboardMarkup {
         let mut row = Vec::new();
         for col_idx in 0..4 {
             let h = row_idx * 4 + col_idx;
-            row.push(InlineKeyboardButton::callback(format!("{:02}:00", h), TimeAction::SelectHour(h).encode()));
+            row.push(InlineKeyboardButton::callback(format!("{:02}:00", h), encode_hour(h)));
         }
         rows.push(row);
     }
@@ -399,7 +406,11 @@ pub fn build_hour_picker() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(rows)
 }
 
-pub fn build_minute_picker(hour: u32) -> InlineKeyboardMarkup {
+pub fn build_minute_picker<F1, F2>(hour: u32, encode_min: F1, encode_back: F2) -> InlineKeyboardMarkup
+where
+    F1: Fn(u32, u32) -> String,
+    F2: Fn() -> String,
+{
     let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
     // 60 minutes in an 8-column grid (Telegram's standard row limit)
@@ -408,12 +419,12 @@ pub fn build_minute_picker(hour: u32) -> InlineKeyboardMarkup {
             rows.push(Vec::new());
         }
         if let Some(row) = rows.last_mut() {
-            row.push(InlineKeyboardButton::callback(format!("{:02}", m), TimeAction::SelectMinute { hour, minute: m }.encode()));
+            row.push(InlineKeyboardButton::callback(format!("{:02}", m), encode_min(hour, m)));
         }
     }
 
     // Add a back button
-    rows.push(vec![InlineKeyboardButton::callback("◀️ Back to Hour", TimeAction::BackToHour.encode())]);
+    rows.push(vec![InlineKeyboardButton::callback("◀️ Back to Hour", encode_back())]);
 
     InlineKeyboardMarkup::new(rows)
 }
@@ -479,9 +490,12 @@ fn build_calendar_inner(year: i32, month: u32, prefix: &str) -> InlineKeyboardMa
         rows.push(current_row);
     }
 
-    // Optional "Today" button
-    if prefix == CALENDER_PREFIX {
-        rows.push(vec![InlineKeyboardButton::callback("📅 Today", format!("{}:today", prefix))]);
+    // Optional "Today" and "Tomorrow" buttons
+    if prefix == CALENDER_PREFIX || prefix == PCAL_PREFIX {
+        rows.push(vec![
+            InlineKeyboardButton::callback("📅 Today", format!("{}:today", prefix)),
+            InlineKeyboardButton::callback("🌅 Tomorrow", format!("{}:tomorrow", prefix)),
+        ]);
     }
 
     InlineKeyboardMarkup::new(rows)
@@ -552,6 +566,7 @@ pub enum PickCalendarAction {
     PrevMonth { year: i32, month: u32 },
     NextMonth { year: i32, month: u32 },
     Today,
+    Tomorrow,
 }
 
 impl PickCalendarAction {
@@ -567,6 +582,7 @@ impl PickCalendarAction {
                 format!("{}:next:{}:{}", PCAL_PREFIX, year, month)
             }
             PickCalendarAction::Today => format!("{}:today", PCAL_PREFIX),
+            PickCalendarAction::Tomorrow => format!("{}:tomorrow", PCAL_PREFIX),
         }
     }
 
@@ -595,6 +611,7 @@ impl PickCalendarAction {
                 Some(PickCalendarAction::NextMonth { year, month })
             }
             Some("today") => Some(PickCalendarAction::Today),
+            Some("tomorrow") => Some(PickCalendarAction::Tomorrow),
             _ => None,
         }
     }
@@ -666,4 +683,65 @@ pub fn build_activity_picker() -> InlineKeyboardMarkup {
     rows.push(vec![InlineKeyboardButton::callback("📝 Other (Type freely)", PickActivityAction::Other.encode())]);
 
     InlineKeyboardMarkup::new(rows)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. Schedule Time Picker
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SCHEDULE_PREFIX: &str = "schedule_time";
+
+#[derive(Debug, Clone)]
+pub enum ScheduleAction {
+    SelectHour(u32),
+    SelectMinute { hour: u32, minute: u32 },
+    BackToHour,
+    Disable,
+}
+
+impl ScheduleAction {
+    pub fn encode(&self) -> String {
+        match self {
+            ScheduleAction::SelectHour(h) => format!("{}:sh:{}", SCHEDULE_PREFIX, h),
+            ScheduleAction::SelectMinute { hour, minute } => {
+                format!("{}:sm:{}:{}", SCHEDULE_PREFIX, hour, minute)
+            }
+            ScheduleAction::BackToHour => format!("{}:back_h", SCHEDULE_PREFIX),
+            ScheduleAction::Disable => format!("{}:disable", SCHEDULE_PREFIX),
+        }
+    }
+
+    pub fn decode(data: &str) -> Option<ScheduleAction> {
+        let parts: Vec<&str> = data.split(':').collect();
+        if parts.is_empty() || parts[0] != SCHEDULE_PREFIX {
+            return None;
+        }
+
+        match parts.get(1).copied() {
+            Some("sh") => {
+                let h: u32 = parts.get(2)?.parse().ok()?;
+                Some(ScheduleAction::SelectHour(h))
+            }
+            Some("sm") => {
+                let h: u32 = parts.get(2)?.parse().ok()?;
+                let m: u32 = parts.get(3)?.parse().ok()?;
+                Some(ScheduleAction::SelectMinute { hour: h, minute: m })
+            }
+            Some("back_h") => Some(ScheduleAction::BackToHour),
+            Some("disable") => Some(ScheduleAction::Disable),
+            _ => None,
+        }
+    }
+}
+
+pub fn is_schedule_picker_callback(data: &str) -> bool {
+    data.starts_with(SCHEDULE_PREFIX)
+}
+
+pub fn build_schedule_picker() -> InlineKeyboardMarkup {
+    let mut markup = build_hour_picker(|h| ScheduleAction::SelectHour(h).encode());
+    markup
+        .inline_keyboard
+        .push(vec![InlineKeyboardButton::callback("🚫 Disable Daily Schedule", ScheduleAction::Disable.encode())]);
+    markup
 }

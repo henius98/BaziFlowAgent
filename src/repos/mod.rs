@@ -83,37 +83,54 @@ pub async fn save_user_bazi_analysis(pool: &SqlitePool, user_id: u64, reading: &
     }
 }
 
-pub async fn get_user_profile(pool: &SqlitePool, user_id: u64) -> (Option<String>, Option<String>, Option<LlmModel>) {
-    let row: Option<(Option<String>, Option<String>, Option<u8>)> = sqlx::query_as(r#"SELECT json(bazi_four_pillars), bazi_analysis, llm_model FROM users WHERE user_id = ?1"#)
-        .bind(user_id as i64)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or_else(|e| {
-            error!("Failed to fetch user profile for {}: {}", user_id, e);
-            None
-        });
+pub struct UserProfileData {
+    pub bazi_four_pillars: Option<String>,
+    pub bazi_analysis: Option<String>,
+    pub bazi_summary: Option<String>,
+    pub llm_model: Option<LlmModel>,
+    pub schedule: Option<String>,
+}
+
+pub async fn get_user_profile(pool: &SqlitePool, user_id: u64) -> UserProfileData {
+    let row: Option<(Option<String>, Option<String>, Option<String>, Option<u8>, Option<String>)> =
+        sqlx::query_as(r#"SELECT json(bazi_four_pillars), bazi_analysis, bazi_summary, llm_model, schedule FROM users WHERE user_id = ?1"#)
+            .bind(user_id as i64)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or_else(|e| {
+                error!("Failed to fetch user profile for {}: {}", user_id, e);
+                None
+            });
 
     match row {
-        Some(r) => (r.0, r.1, r.2.and_then(LlmModel::from_u8)),
-        None => (None, None, None),
+        Some(r) => UserProfileData {
+            bazi_four_pillars: r.0,
+            bazi_analysis: r.1,
+            bazi_summary: r.2,
+            llm_model: r.3.and_then(LlmModel::from_u8),
+            schedule: r.4,
+        },
+        None => UserProfileData {
+            bazi_four_pillars: None,
+            bazi_analysis: None,
+            bazi_summary: None,
+            llm_model: None,
+            schedule: None,
+        },
     }
 }
 
-/// Fetch all users who have a non-null bazi_four_pillars profile for scheduled fortune generation.
-pub async fn get_all_users_with_bazi(pool: &SqlitePool) -> Vec<(u64, String, Option<String>, Option<LlmModel>)> {
-    let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<u8>)>(
-        r#"SELECT user_id, json(bazi_four_pillars), bazi_analysis, llm_model FROM users WHERE bazi_four_pillars IS NOT NULL AND bazi_four_pillars != ''"#,
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_else(|e| {
-        error!("Failed to fetch users with bazi profiles: {}", e);
-        Vec::new()
-    });
+/// Fetch all users who have a non-null schedule for scheduled fortune generation.
+pub async fn get_all_scheduled_users(pool: &SqlitePool) -> Vec<(u64, String)> {
+    let rows = sqlx::query_as::<_, (i64, String)>(r#"SELECT user_id, schedule FROM users WHERE schedule IS NOT NULL AND schedule != '' AND bazi_four_pillars IS NOT NULL AND bazi_four_pillars != ''"#)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_else(|e| {
+            error!("Failed to fetch scheduled users: {}", e);
+            Vec::new()
+        });
 
-    rows.into_iter()
-        .map(|(user_id, bazi, destiny, llm_model)| (user_id as u64, bazi, destiny, llm_model.and_then(LlmModel::from_u8)))
-        .collect()
+    rows.into_iter().map(|(user_id, schedule)| (user_id as u64, schedule)).collect()
 }
 
 pub struct LlmLogParams<'a> {
@@ -168,5 +185,39 @@ pub async fn update_user_llm_model(pool: &SqlitePool, user_id: u64, llm_model: u
 
     if let Err(e) = result {
         error!("Failed to update user LLM model: {}", e);
+    }
+}
+
+pub async fn save_user_bazi_summary(pool: &SqlitePool, user_id: u64, summary: &str) {
+    let result = sqlx::query(
+        r#"
+        UPDATE users SET bazi_summary = ?2
+        WHERE user_id = ?1
+        "#,
+    )
+    .bind(user_id as i64)
+    .bind(summary)
+    .execute(pool)
+    .await;
+
+    if let Err(e) = result {
+        error!("Failed to save bazi_summary: {}", e);
+    }
+}
+
+pub async fn update_user_schedule(pool: &SqlitePool, user_id: u64, schedule: Option<&str>) {
+    let result = sqlx::query(
+        r#"
+        UPDATE users SET schedule = ?2
+        WHERE user_id = ?1
+        "#,
+    )
+    .bind(user_id as i64)
+    .bind(schedule)
+    .execute(pool)
+    .await;
+
+    if let Err(e) = result {
+        error!("Failed to update user schedule: {}", e);
     }
 }
