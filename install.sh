@@ -23,7 +23,6 @@ cd "$BASE_DIR"
 echo "[2/5] Downloading latest release assets..."
 wget -q --show-progress "$REPO_URL/releases/download/$RELEASE_TAG/baziflow-agent" -O "$BIN_DIR/baziflow-agent"
 wget -q --show-progress "$REPO_URL/releases/download/$RELEASE_TAG/baziflow-agent.sha256" -O "$BIN_DIR/baziflow-agent.sha256"
-wget -q --show-progress "$REPO_URL/releases/download/$RELEASE_TAG/.env.example" -O .env.example
 wget -q --show-progress "$REPO_URL/releases/download/$RELEASE_TAG/BaziFlowAgent.service" -O BaziFlowAgent.service
 
 echo "[3/5] Verifying checksum..."
@@ -34,16 +33,16 @@ cd "$BASE_DIR"
 
 echo "[4/5] Configuring environment..."
 if [ ! -f .env ]; then
-    echo "Creating new .env file from template..."
-    cp .env.example .env
-    echo "WARNING: Please edit $BASE_DIR/.env with your actual tokens before starting the service!"
+    echo "WARNING: .env file not found!"
+    echo "You must manually create $BASE_DIR/.env and add your configuration."
     NEEDS_CONFIG=1
 else
-    echo ".env file already exists. Skipping overwrite."
+    echo ".env file already exists."
     NEEDS_CONFIG=0
 fi
 
 echo "[5/5] Setting up systemd service..."
+sudo chown -R dietpi:dietpi "$BASE_DIR"
 sudo cp BaziFlowAgent.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable BaziFlowAgent.service
@@ -51,7 +50,7 @@ sudo systemctl enable BaziFlowAgent.service
 if [ "$NEEDS_CONFIG" -eq 1 ]; then
     echo "==========================================="
     echo "Deployment downloaded successfully!"
-    echo "ACTION REQUIRED: Edit the .env file with your Telegram Bot Token:"
+    echo "ACTION REQUIRED: You MUST create a .env file with your tokens before starting!"
     echo "  nano $BASE_DIR/.env"
     echo "Then start the bot with:"
     echo "  sudo systemctl start BaziFlowAgent"
