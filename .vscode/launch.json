@@ -15,7 +15,7 @@
             "stopOnEntry": false,
             "preLaunchTask": "Sync bashrc to env",
             "sourceMap": {
-                "/var/home/henius": "/home/henius"
+                "/var/home": "/home"
             }
         },
         {
