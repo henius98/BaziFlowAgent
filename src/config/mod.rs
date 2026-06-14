@@ -41,6 +41,7 @@ impl AppConfig {
             api_base: env::var("LLM_API_BASE").context("LLM_API_BASE must be set in .env")?,
             timeout_seconds: env::var("LLM_TIMEOUT_SECONDS")
                 .unwrap_or_else(|_| "60".to_string())
+                .trim()
                 .parse::<u64>()
                 .context("LLM_TIMEOUT_SECONDS must be a valid u64")?,
             http_client: None,
@@ -52,6 +53,7 @@ impl AppConfig {
 
         let user_contexts_expiration_minutes = env::var("USER_CONTEXTS_EXPIRATION_MINUTES")
             .context("USER_CONTEXTS_EXPIRATION_MINUTES must be set in .env")?
+            .trim()
             .parse::<i64>()
             .context("USER_CONTEXTS_EXPIRATION_MINUTES must be a valid i64")?;
 
@@ -59,11 +61,13 @@ impl AppConfig {
         let log_cleanup_cron = env::var("LOG_CLEANUP_CRON").context("LOG_CLEANUP_CRON must be set in .env")?;
         let log_retention_days = env::var("LOG_RETENTION_DAYS")
             .context("LOG_RETENTION_DAYS must be set in .env")?
+            .trim()
             .parse::<u64>()
             .context("LOG_RETENTION_DAYS must be a valid u64")?;
 
         let max_context_messages = env::var("MAX_CONTEXT_MESSAGES")
             .context("MAX_CONTEXT_MESSAGES must be set in .env")?
+            .trim()
             .parse::<usize>()
             .context("MAX_CONTEXT_MESSAGES must be a valid usize")?;
 
