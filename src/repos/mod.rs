@@ -91,8 +91,10 @@ pub struct UserProfileData {
     pub schedule: Option<String>,
 }
 
+type UserProfileRow = (Option<String>, Option<String>, Option<String>, Option<u8>, Option<String>);
+
 pub async fn get_user_profile(pool: &SqlitePool, user_id: u64) -> UserProfileData {
-    let row: Option<(Option<String>, Option<String>, Option<String>, Option<u8>, Option<String>)> =
+    let row: Option<UserProfileRow> =
         sqlx::query_as(r#"SELECT json(bazi_four_pillars), bazi_analysis, bazi_summary, llm_model, schedule FROM users WHERE user_id = ?1"#)
             .bind(user_id as i64)
             .fetch_optional(pool)

@@ -13,6 +13,7 @@ tokio = { version = "1", features = ["full"] }
 
 # HTTP Client
 reqwest = { version = "0.13", features = ["json", "rustls"] }
+openssl = { version = "0.10", features = ["vendored"] }
 
 # OpenAI API Client
 async-openai = { version = "0.40", features = ["full"] }
@@ -63,7 +64,9 @@ axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6", features = ["fs"] }
 
 # S3 Client for Cloudflare R2
-rust-s3 = { version = "0.34", default-features = false, features = ["tokio-rustls-tls"] }
+rust-s3 = { version = "0.34", default-features = false, features = [
+    "tokio-rustls-tls",
+] }
 
 [profile.release]
 lto = "thin"
