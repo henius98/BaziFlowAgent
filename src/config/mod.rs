@@ -8,7 +8,6 @@ pub struct AppConfig {
     pub llm_model_name: String,
     pub database_url: String,
     pub user_contexts_expiration_minutes: i64,
-    pub bazi_job_cron: String,
     pub context_cleanup_cron: String,
     pub log_cleanup_cron: String,
     pub log_retention_days: u64,
@@ -56,7 +55,6 @@ impl AppConfig {
             .parse::<i64>()
             .context("USER_CONTEXTS_EXPIRATION_MINUTES must be a valid i64")?;
 
-        let bazi_job_cron = env::var("BAZI_JOB_CRON").context("BAZI_JOB_CRON must be set in .env")?;
         let context_cleanup_cron = env::var("CONTEXT_CLEANUP_CRON").context("CONTEXT_CLEANUP_CRON must be set in .env")?;
         let log_cleanup_cron = env::var("LOG_CLEANUP_CRON").context("LOG_CLEANUP_CRON must be set in .env")?;
         let log_retention_days = env::var("LOG_RETENTION_DAYS")
@@ -84,7 +82,6 @@ impl AppConfig {
             llm_model_name,
             database_url,
             user_contexts_expiration_minutes,
-            bazi_job_cron,
             context_cleanup_cron,
             log_cleanup_cron,
             log_retention_days,

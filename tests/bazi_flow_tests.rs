@@ -56,7 +56,6 @@ async fn test_core_bazi_analysis() {
         llm_model_name: "gpt-4o".into(),
         database_url: "sqlite::memory:".into(),
         user_contexts_expiration_minutes: 60,
-        bazi_job_cron: "".into(),
         context_cleanup_cron: "".into(),
         log_cleanup_cron: "".into(),
         log_retention_days: 7,

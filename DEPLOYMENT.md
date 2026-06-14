@@ -67,27 +67,21 @@ scp target/aarch64-unknown-linux-gnu/release/baziflow-agent dietpi@<your-pi-ip>:
 
 ### Option C: Download Pre-built Binary (GitHub Actions - Easiest)
 
-This repository includes a GitHub Action that automatically compiles the `aarch64` release binary. Everything you need is bundled in the Release — no compilation or `git clone` required.
+This repository includes a GitHub Action that automatically cross-compiles a standalone `aarch64` release binary. Everything you need is bundled in the Release — no compilation or `git clone` required.
 
-1. Go to the **Releases** section on your GitHub repository.
-2. Download all 4 assets from the latest release: `baziflow-agent`, `baziflow-agent.sha256`, `.env.example`, and `BaziFlowAgent.service`.
-3. Transfer everything to your Pi and set up:
-   ```bash
-   # Create project directory and transfer files
-   ssh dietpi@<your-pi-ip> "mkdir -p /home/dietpi/BaziFlowAgent/target/release"
-   scp baziflow-agent dietpi@<your-pi-ip>:/home/dietpi/BaziFlowAgent/target/release/
-   scp .env.example BaziFlowAgent.service dietpi@<your-pi-ip>:/home/dietpi/BaziFlowAgent/
+To install or update the bot on your Raspberry Pi, simply SSH into your DietPi terminal and run this one-liner:
 
-   # SSH into Pi, make binary executable, and verify checksum
-   ssh dietpi@<your-pi-ip>
-   cd /home/dietpi/BaziFlowAgent
-   chmod +x target/release/baziflow-agent
-   ```
-4. Verify the binary was not corrupted during transfer (run on the machine where you downloaded the files):
-   ```bash
-   sha256sum -c baziflow-agent.sha256
-   ```
-   You should see `baziflow-agent: OK`. If the check fails, re-download the file.
+```bash
+curl -sSL https://raw.githubusercontent.com/henius98/BaziFlowAgent/main/install.sh | bash
+```
+
+The script will automatically:
+1. Download the latest `aarch64` release binary, `.env.example`, and service files.
+2. Verify the checksum to ensure no corruption.
+3. Prepare a new `.env` file (if one doesn't already exist).
+4. Register and enable the `systemd` auto-start service.
+
+After running the script, follow the on-screen instructions to edit your `.env` file before starting the service.
 
 ## Step 3: Build (if building on Pi)
 
