@@ -235,6 +235,47 @@ pub fn build_month_picker(year: i32) -> InlineKeyboardMarkup {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BDGEN_PREFIX: &str = "bdgen";
+const NEW_BAZI_WARN_PREFIX: &str = "newbazi";
+
+#[derive(Debug, Clone)]
+pub enum NewBaziWarningAction {
+    Continue,
+    Cancel,
+}
+
+impl NewBaziWarningAction {
+    pub fn encode(&self) -> String {
+        match self {
+            NewBaziWarningAction::Continue => format!("{}:cont", NEW_BAZI_WARN_PREFIX),
+            NewBaziWarningAction::Cancel => format!("{}:cancel", NEW_BAZI_WARN_PREFIX),
+        }
+    }
+
+    pub fn decode(data: &str) -> Option<NewBaziWarningAction> {
+        let parts: Vec<&str> = data.split(':').collect();
+        if parts.is_empty() || parts[0] != NEW_BAZI_WARN_PREFIX {
+            return None;
+        }
+
+        match parts.get(1).copied() {
+            Some("cont") => Some(NewBaziWarningAction::Continue),
+            Some("cancel") => Some(NewBaziWarningAction::Cancel),
+            _ => None,
+        }
+    }
+}
+
+pub fn is_new_bazi_warning_callback(data: &str) -> bool {
+    data.starts_with(NEW_BAZI_WARN_PREFIX)
+}
+
+pub fn build_new_bazi_warning() -> InlineKeyboardMarkup {
+    let rows = vec![vec![
+        InlineKeyboardButton::callback("✅ Continue", NewBaziWarningAction::Continue.encode()),
+        InlineKeyboardButton::callback("❌ Cancel", NewBaziWarningAction::Cancel.encode()),
+    ]];
+    InlineKeyboardMarkup::new(rows)
+}
 
 #[derive(Debug, Clone)]
 pub enum GenderAction {

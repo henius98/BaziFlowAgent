@@ -15,6 +15,36 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         None => return Ok(()),
     };
 
+    // ── New Bazi Warning callbacks (newbazi:…) ────────────────────────────
+    if keyboards::is_new_bazi_warning_callback(data) {
+        let action = match super::keyboards::NewBaziWarningAction::decode(data) {
+            Some(a) => a,
+            None => {
+                bot.answer_callback_query(q.id).await?;
+                return Ok(());
+            }
+        };
+
+        match action {
+            super::keyboards::NewBaziWarningAction::Continue => {
+                let markup = keyboards::build_gender_picker();
+                if let Some(msg) = &q.message {
+                    let _ = bot
+                        .edit_message_text(msg.chat().id, msg.id(), "📅 Step 1/6 — Select your gender:\n\nThis is required for accurate Bazi calculation.")
+                        .reply_markup(markup)
+                        .await;
+                }
+            }
+            super::keyboards::NewBaziWarningAction::Cancel => {
+                if let Some(msg) = &q.message {
+                    let _ = bot.edit_message_text(msg.chat().id, msg.id(), "✅ Operation cancelled. Your existing Bazi profile is safe.").await;
+                }
+            }
+        }
+        bot.answer_callback_query(q.id).await?;
+        return Ok(());
+    }
+
     // ── Gender picker callbacks (bdgen:…) ──────────────────────────────────
     if keyboards::is_gender_picker_callback(data) {
         let action = match GenderAction::decode(data) {
@@ -257,7 +287,15 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                 let schedule_val = Some(format!("0 {} {} * * * *", minute, hour));
                 let time_str = format!("{:02}:{:02}", hour, minute);
 
-                repos::update_user_schedule(&state.db_pool, user_id, schedule_val.as_deref()).await;
+                if let Err(_) = repos::update_user_schedule(&state.db_pool, user_id, schedule_val.as_deref()).await {
+                    if let Some(msg) = &q.message {
+                        let _ = bot
+                            .edit_message_text(msg.chat().id, msg.id(), "❌ Failed to update schedule due to a database error. Please try again later.")
+                            .await;
+                    }
+                    bot.answer_callback_query(q.id).await?;
+                    return Ok(());
+                }
 
                 // Update scheduler
                 crate::scheduler::add_or_update_user_schedule(bot.clone(), user_id, schedule_val.as_deref().unwrap()).await;
@@ -276,7 +314,15 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
             }
             ScheduleAction::Disable => {
                 let user_id = q.from.id.0;
-                repos::update_user_schedule(&state.db_pool, user_id, None).await;
+                if let Err(_) = repos::update_user_schedule(&state.db_pool, user_id, None).await {
+                    if let Some(msg) = &q.message {
+                        let _ = bot
+                            .edit_message_text(msg.chat().id, msg.id(), "❌ Failed to disable schedule due to a database error. Please try again later.")
+                            .await;
+                    }
+                    bot.answer_callback_query(q.id).await?;
+                    return Ok(());
+                }
                 crate::scheduler::remove_user_daily_job(user_id).await;
                 if let Some(msg) = &q.message {
                     let _ = bot.edit_message_text(msg.chat().id, msg.id(), "✅ Daily schedule disabled.").await;

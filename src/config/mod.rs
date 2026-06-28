@@ -14,6 +14,7 @@ pub struct AppConfig {
     pub max_context_messages: usize,
     pub base_url: String,
     pub log_level: String,
+    pub app_timezone: chrono_tz::Tz,
 
     // Cloudflare R2 Options
     pub r2_account_id: Option<String>,
@@ -75,6 +76,13 @@ impl AppConfig {
 
         let log_level = env::var("LOG_LEVEL").context("LOG_LEVEL must be set in .env")?;
 
+        let app_timezone_str = env::var("APP_TIMEZONE").unwrap_or_else(|_| "UTC".to_string());
+        let app_timezone = if app_timezone_str.trim().is_empty() {
+            "UTC".parse::<chrono_tz::Tz>().unwrap()
+        } else {
+            app_timezone_str.trim().parse::<chrono_tz::Tz>().map_err(|e| anyhow::anyhow!("Invalid APP_TIMEZONE: {}", e))?
+        };
+
         let r2_account_id = env::var("R2_ACCOUNT_ID").ok();
         let r2_access_key_id = env::var("R2_ACCESS_KEY_ID").ok();
         let r2_secret_access_key = env::var("R2_SECRET_ACCESS_KEY").ok();
@@ -92,6 +100,7 @@ impl AppConfig {
             max_context_messages,
             base_url,
             log_level,
+            app_timezone,
             r2_account_id,
             r2_access_key_id,
             r2_secret_access_key,

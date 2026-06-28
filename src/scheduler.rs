@@ -32,7 +32,7 @@ pub async fn start_scheduler(config: Arc<SchedulerConfig>, user_contexts_expirat
     }
 
     // Add cleanup job to run every 5 minutes
-    let cleanup_job = Job::new_async(crate::models::get_state().config.context_cleanup_cron.as_str(), move |_uuid, _l| {
+    let cleanup_job = Job::new_async_tz(crate::models::get_state().config.context_cleanup_cron.as_str(), crate::models::get_state().config.app_timezone, move |_uuid, _l| {
         let exp_mins = user_contexts_expiration_minutes;
         Box::pin(async move {
             let state = crate::models::get_state();
@@ -57,7 +57,7 @@ pub async fn start_scheduler(config: Arc<SchedulerConfig>, user_contexts_expirat
 
     // Add log cleanup job to run daily
     let log_retention = crate::models::get_state().config.log_retention_days;
-    let log_cleanup_job = Job::new(crate::models::get_state().config.log_cleanup_cron.as_str(), move |_uuid, _l| {
+    let log_cleanup_job = Job::new_tz(crate::models::get_state().config.log_cleanup_cron.as_str(), crate::models::get_state().config.app_timezone, move |_uuid, _l| {
         info!("Running daily log cleanup task...");
         crate::logger::cleanup_old_logs(log_retention);
     })?;
@@ -81,7 +81,7 @@ pub async fn add_or_update_user_schedule(bot: Bot, user_id: u64, cron_str: &str)
         let _ = sched.remove(&old_uuid).await;
     }
 
-    let daily_job = match Job::new_async(cron_str, move |_uuid, _l| {
+    let daily_job = match Job::new_async_tz(cron_str, crate::models::get_state().config.app_timezone, move |_uuid, _l| {
         let bot_clone = bot.clone();
         Box::pin(async move {
             let state = crate::models::get_state();

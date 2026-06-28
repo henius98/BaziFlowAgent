@@ -94,15 +94,14 @@ pub struct UserProfileData {
 type UserProfileRow = (Option<String>, Option<String>, Option<String>, Option<u8>, Option<String>);
 
 pub async fn get_user_profile(pool: &SqlitePool, user_id: u64) -> UserProfileData {
-    let row: Option<UserProfileRow> =
-        sqlx::query_as(r#"SELECT json(bazi_four_pillars), bazi_analysis, bazi_summary, llm_model, schedule FROM users WHERE user_id = ?1"#)
-            .bind(user_id as i64)
-            .fetch_optional(pool)
-            .await
-            .unwrap_or_else(|e| {
-                error!("Failed to fetch user profile for {}: {}", user_id, e);
-                None
-            });
+    let row: Option<UserProfileRow> = sqlx::query_as(r#"SELECT json(bazi_four_pillars), bazi_analysis, bazi_summary, llm_model, schedule FROM users WHERE user_id = ?1"#)
+        .bind(user_id as i64)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or_else(|e| {
+            error!("Failed to fetch user profile for {}: {}", user_id, e);
+            None
+        });
 
     match row {
         Some(r) => UserProfileData {
@@ -207,7 +206,7 @@ pub async fn save_user_bazi_summary(pool: &SqlitePool, user_id: u64, summary: &s
     }
 }
 
-pub async fn update_user_schedule(pool: &SqlitePool, user_id: u64, schedule: Option<&str>) {
+pub async fn update_user_schedule(pool: &SqlitePool, user_id: u64, schedule: Option<&str>) -> crate::models::error::AppResult<()> {
     let result = sqlx::query(
         r#"
         UPDATE users SET schedule = ?2
@@ -219,7 +218,9 @@ pub async fn update_user_schedule(pool: &SqlitePool, user_id: u64, schedule: Opt
     .execute(pool)
     .await;
 
-    if let Err(e) = result {
+    if let Err(e) = &result {
         error!("Failed to update user schedule: {}", e);
     }
+
+    result.map(|_| ()).map_err(|e| e.into())
 }

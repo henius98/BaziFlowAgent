@@ -2,6 +2,19 @@ use std::fs;
 use std::time::{Duration, SystemTime};
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use tracing_subscriber::fmt::time::FormatTime;
+
+#[derive(Clone)]
+struct LocalTimer {
+    tz: chrono_tz::Tz,
+}
+
+impl FormatTime for LocalTimer {
+    fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
+        let now = chrono::Utc::now().with_timezone(&self.tz);
+        write!(w, "{}", now.format("%Y-%m-%dT%H:%M:%S%.6f%:z"))
+    }
+}
 
 /// Initializes the logging system for the application.
 /// It uses the `RUST_LOG` environment variable if present.
@@ -9,6 +22,8 @@ use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 ///
 /// Returns the `WorkerGuard` which MUST be held alive for the duration of the program.
 pub fn init(config: &crate::config::AppConfig) -> anyhow::Result<(tracing_appender::non_blocking::WorkerGuard, tracing_appender::non_blocking::WorkerGuard)> {
+    let timer = LocalTimer { tz: config.app_timezone };
+
     // 1. Prepare the file appender (daily rotation, format: YYYY-MM-DD.log)
     let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
@@ -23,7 +38,11 @@ pub fn init(config: &crate::config::AppConfig) -> anyhow::Result<(tracing_append
 
     // 3. Define the stdout layer (console) - NON-BLOCKING
     let (stdout_non_blocking, stdout_guard) = tracing_appender::non_blocking(std::io::stdout());
-    let stdout_layer = fmt::layer().with_writer(stdout_non_blocking).compact().with_target(false);
+    let stdout_layer = fmt::layer()
+        .with_writer(stdout_non_blocking)
+        .compact()
+        .with_target(false)
+        .with_timer(timer.clone());
 
     // 4. Define the file layer (no ANSI colors for the file)
     let file_layer = fmt::layer()
@@ -31,7 +50,8 @@ pub fn init(config: &crate::config::AppConfig) -> anyhow::Result<(tracing_append
         .with_writer(file_non_blocking)
         .with_file(true)
         .with_line_number(true)
-        .with_thread_names(true);
+        .with_thread_names(true)
+        .with_timer(timer);
 
     // 5. Initialize the registry with both layers
     tracing_subscriber::registry().with(env_filter).with(stdout_layer).with(file_layer).init();

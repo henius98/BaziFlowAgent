@@ -30,6 +30,23 @@ pub enum Command {
 pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
     match cmd {
         Command::New => {
+            let state = crate::models::get_state();
+            if let Some(user) = msg.from.as_ref() {
+                let user_id = user.id.0;
+                let profile = crate::repos::get_user_profile(&state.db_pool, user_id).await;
+
+                if profile.bazi_four_pillars.is_some() {
+                    let markup = keyboards::build_new_bazi_warning();
+                    bot.send_message(
+                        msg.chat.id,
+                        "⚠️ Warning\n\nYou already have a Bazi profile set up. Creating a new one will overwrite your existing data.\n\nDo you want to continue?",
+                    )
+                    .reply_markup(markup)
+                    .await?;
+                    return Ok(());
+                }
+            }
+
             let markup = keyboards::build_gender_picker();
             bot.send_message(msg.chat.id, "📅 Step 1/6 — Select your gender:\n\nThis is required for accurate Bazi calculation.")
                 .reply_markup(markup)
