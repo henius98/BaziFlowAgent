@@ -786,3 +786,20 @@ pub fn build_schedule_picker() -> InlineKeyboardMarkup {
         .push(vec![InlineKeyboardButton::callback("🚫 Disable Daily Schedule", ScheduleAction::Disable.encode())]);
     markup
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. API Key regenerate button
+// ─────────────────────────────────────────────────────────────────────────────
+
+const APIKEY_PREFIX: &str = "apikey";
+
+pub fn is_apikey_callback(data: &str) -> bool {
+    data.starts_with(APIKEY_PREFIX)
+}
+
+pub fn build_apikey_regenerate() -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+        "🔄 Regenerate Key",
+        format!("{}:regen", APIKEY_PREFIX),
+    )]])
+}

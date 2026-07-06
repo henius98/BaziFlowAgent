@@ -58,6 +58,7 @@ async fn test_core_bazi_analysis() {
         user_contexts_expiration_minutes: 60,
         context_cleanup_cron: "".into(),
         log_cleanup_cron: "".into(),
+        app_timezone: chrono_tz::Tz::UTC,
         log_retention_days: 7,
         max_context_messages: 10,
         base_url: "http://localhost".into(),

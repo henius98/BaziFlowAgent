@@ -22,6 +22,8 @@ pub enum Command {
     Model,
     #[command(description = "⏰ Schedule: Set up daily background fortune analysis delivery")]
     Schedule,
+    #[command(description = "🔑 API Key: Generate or view your API key for third-party access")]
+    ApiKey,
 }
 
 // ─────────────────────────────────────────────
@@ -97,6 +99,60 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
             bot.send_message(msg.chat.id, "⏰ Select a time to receive your daily Bazi fortune reading:")
                 .reply_markup(markup)
                 .await?;
+        }
+
+        Command::ApiKey => {
+            let state = crate::models::get_state();
+            if let Some(user) = msg.from.as_ref() {
+                let user_id = user.id.0;
+                let existing = crate::repos::get_api_key_info(&state.db_pool, user_id).await;
+
+                match existing {
+                    Some((prefix, created_at)) => {
+                        // User already has a key — show status with regenerate button
+                        let markup = keyboards::build_apikey_regenerate();
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "🔑 <b>API Key Status</b>\n\n\
+                                 Key: <code>{}****</code>\n\
+                                 Created: {}\n\n\
+                                 Use the button below to regenerate (revokes the old key).",
+                                prefix, created_at
+                            ),
+                        )
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .reply_markup(markup)
+                        .await?;
+                    }
+                    None => {
+                        // No key exists — generate a new one
+                        match crate::repos::create_api_key(&state.db_pool, user_id).await {
+                            Ok(raw_key) => {
+                                bot.send_message(
+                                    msg.chat.id,
+                                    format!(
+                                        "🔑 <b>Your API Key</b> (shown only once):\n\n\
+                                         <code>{}</code>\n\n\
+                                         ⚠️ Save this key now — it will <b>NOT</b> be shown again.\n\n\
+                                         <b>Usage:</b>\n\
+                                         <code>Authorization: Bearer {}</code>\n\
+                                         <b>Endpoint:</b> <code>{}/api/v1/</code>",
+                                        raw_key, raw_key, state.config.base_url.trim_end_matches('/')
+                                    ),
+                                )
+                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .await?;
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to create API key for user {}: {}", user_id, e);
+                                bot.send_message(msg.chat.id, "❌ Failed to generate API key. Please try again later.")
+                                    .await?;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     Ok(())

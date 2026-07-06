@@ -85,13 +85,23 @@ Telegram User
 teloxide Dispatcher (dptree)
     ├─ /new, /date, /pick... ──► bot::commands::handle_command
     │                                  ├─ /new, /date, /pick, /model, /schedule → build respective inline keyboards (bot::keyboards)
+    │                                  ├─ /apikey → handle API key generation and display (bot::commands)
     │                                  └─ /profile → bot::command_actions::display_user_profile
     ├─ Callback Query ─────────► bot::callbacks::handle_callback
     │                                  ├─ Calendar/Time navigation  → rebuild keyboards
     │                                  ├─ Date selected             → services::almanac / services::llm based reading
+    │                                  ├─ API Key Regenerate        → update DB and issue new key
     │                                  └─ Birthtime selected        → bot::command_actions::perform_bazi_analysis
     └─ Free-text Message ──────► bot::messages::handle_message
                                        └─ services::llm call for analysis
+
+Third-Party API User
+    │
+    ▼
+axum Router (HTTP 8080)
+    ├─ /api/v1/profile, /date-fortune, /pick-date, /model, /schedule, /chat
+    │      └─ api::auth::AuthUser (Bearer token middleware)
+    │            └─ api::handlers (calls core services:: layer identically to bot commands)
 
 services::llm::call_llm
     ├─ async-openai → LLM endpoint       (system prompt + user bazi + almanac + history)
@@ -180,6 +190,11 @@ BaziFlowAgent/
 │   ├── logger.rs                 # Tracing init & log cleanup
 │   ├── scheduler.rs              # Background cron jobs
 │   ├── utils.rs                  # Shared utilities (split_message, etc.)
+│   ├── api/                      # Web API module
+│   │   ├── mod.rs                # API router and module declarations
+│   │   ├── auth.rs               # Bearer token auth middleware
+│   │   ├── handlers.rs           # API request handlers
+│   │   └── models.rs             # Request/response structs
 │   ├── bot/
 │   │   ├── mod.rs                # Module declarations
 │   │   ├── commands.rs           # /new, /date, /pick, /profile, /model, /schedule command handlers

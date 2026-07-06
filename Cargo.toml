@@ -68,6 +68,14 @@ rust-s3 = { version = "0.34", default-features = false, features = [
     "tokio-rustls-tls",
 ] }
 
+# API Key Generation & Hashing
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.9"
+
+# Async Stream utilities (for SSE streaming)
+async-stream = "0.3"
+
 [profile.release]
 lto = "thin"
 strip = true

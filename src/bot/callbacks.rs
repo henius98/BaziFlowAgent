@@ -45,6 +45,48 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         return Ok(());
     }
 
+    // ── API Key callbacks (apikey:…) ──────────────────────────────────────
+    if keyboards::is_apikey_callback(data) {
+        if data == "apikey:regen" {
+            let user_id = q.from.id.0;
+            let state = crate::models::get_state();
+            match repos::create_api_key(&state.db_pool, user_id).await {
+                Ok(raw_key) => {
+                    if let Some(msg) = &q.message {
+                        let _ = bot
+                            .edit_message_text(
+                                msg.chat().id,
+                                msg.id(),
+                                format!(
+                                    "🔑 <b>New API Key</b> (shown only once):\n\n\
+                                     <code>{}</code>\n\n\
+                                     ⚠️ Your previous key has been revoked.\n\
+                                     Save this key now — it will <b>NOT</b> be shown again.\n\n\
+                                     <b>Usage:</b>\n\
+                                     <code>Authorization: Bearer {}</code>\n\
+                                     <b>Endpoint:</b> <code>{}/api/v1/</code>",
+                                    raw_key,
+                                    raw_key,
+                                    state.config.base_url.trim_end_matches('/')
+                                ),
+                            )
+                            .parse_mode(teloxide::types::ParseMode::Html)
+                            .await;
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to regenerate API key for user {}: {}", user_id, e);
+                    if let Some(msg) = &q.message {
+                        let _ = bot
+                            .edit_message_text(msg.chat().id, msg.id(), "❌ Failed to regenerate API key. Please try again later.")
+                            .await;
+                    }
+                }
+            }
+        }
+        bot.answer_callback_query(q.id).await?;
+        return Ok(());
+    }
     // ── Gender picker callbacks (bdgen:…) ──────────────────────────────────
     if keyboards::is_gender_picker_callback(data) {
         let action = match GenderAction::decode(data) {

@@ -224,3 +224,82 @@ pub async fn update_user_schedule(pool: &SqlitePool, user_id: u64, schedule: Opt
 
     result.map(|_| ()).map_err(|e| e.into())
 }
+
+// ─────────────────────────────────────────────
+// API Key Management
+// ─────────────────────────────────────────────
+
+/// Generate a new API key for the user. Revokes any existing key.
+/// Returns the raw key (shown once to user). Only the SHA-256 hash is stored.
+pub async fn create_api_key(pool: &SqlitePool, user_id: u64) -> crate::models::AppResult<String> {
+    use rand::Rng;
+    use sha2::{Digest, Sha256};
+
+    // Generate 32 random hex chars with bfa_ prefix
+    let random_bytes: [u8; 16] = rand::rng().random();
+    let raw_key = format!("bfa_{}", hex::encode(random_bytes));
+
+    // SHA-256 hash for storage
+    let mut hasher = Sha256::new();
+    hasher.update(raw_key.as_bytes());
+    let key_hash = hex::encode(hasher.finalize());
+
+    let key_prefix = &raw_key[..12]; // "bfa_" + first 8 hex chars
+
+    // INSERT OR REPLACE to enforce one-key-per-user
+    sqlx::query(
+        r#"
+        INSERT INTO api_keys (user_id, key_hash, key_prefix)
+        VALUES (?1, ?2, ?3)
+        ON CONFLICT(user_id) DO UPDATE SET
+            key_hash = excluded.key_hash,
+            key_prefix = excluded.key_prefix,
+            created_at = strftime('%Y-%m-%d %H:%M:%S', 'now')
+        "#,
+    )
+    .bind(user_id as i64)
+    .bind(&key_hash)
+    .bind(key_prefix)
+    .execute(pool)
+    .await?;
+
+    Ok(raw_key)
+}
+
+/// Look up a user_id from a raw API key by hashing it and querying the DB.
+pub async fn get_user_id_by_api_key(pool: &SqlitePool, raw_key: &str) -> Option<u64> {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(raw_key.as_bytes());
+    let key_hash = hex::encode(hasher.finalize());
+
+    sqlx::query_as::<_, (i64,)>("SELECT user_id FROM api_keys WHERE key_hash = ?1")
+        .bind(&key_hash)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .map(|(uid,)| uid as u64)
+}
+
+/// Get API key display info (prefix + created_at) for a user.
+pub async fn get_api_key_info(pool: &SqlitePool, user_id: u64) -> Option<(String, String)> {
+    sqlx::query_as::<_, (String, String)>("SELECT key_prefix, created_at FROM api_keys WHERE user_id = ?1")
+        .bind(user_id as i64)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Get the username for a user_id from the users table.
+pub async fn get_username_by_user_id(pool: &SqlitePool, user_id: u64) -> Option<String> {
+    sqlx::query_as::<_, (Option<String>,)>("SELECT username FROM users WHERE user_id = ?1")
+        .bind(user_id as i64)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|(name,)| name)
+}

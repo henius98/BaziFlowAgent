@@ -66,8 +66,9 @@ async fn main() -> anyhow::Result<()> {
     // Ensure public directory exists for static charts
     let _ = tokio::fs::create_dir_all("public").await;
 
-    // Start minimal web server for Instant View / Web view
-    let app = axum::Router::new().fallback_service(tower_http::services::ServeDir::new("public"));
+    // Start web server with API routes + static file serving for Instant View / Web view
+    let app = baziflow_agent::api::api_router()
+        .fallback_service(tower_http::services::ServeDir::new("public"));
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], 8080));
     info!("Starting web server on http://{}", addr);
