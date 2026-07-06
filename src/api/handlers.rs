@@ -549,7 +549,26 @@ pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<Cha
     params.request_type = Some("api_chat".to_string());
 
     match services::llm::call_llm(&state.db_pool, &state.config.llm_client_config, params).await {
-        Ok(models::LlmResponse::Stream(receiver)) if is_stream => Sse::new(stream_to_sse(receiver)).into_response(),
+        Ok(models::LlmResponse::Stream(mut receiver)) if is_stream => {
+            let (tx, rx) = tokio::sync::mpsc::channel::<String>(100);
+            let state_clone = state.clone();
+            
+            tokio::spawn(async move {
+                let mut full_reply = String::new();
+                while let Some(chunk) = receiver.recv().await {
+                    full_reply.push_str(&chunk);
+                    if tx.send(chunk).await.is_err() {
+                        break;
+                    }
+                }
+                
+                // Save assistant response to context after stream completes
+                let mut ctx = state_clone.user_contexts.entry(user_id).or_default();
+                ctx.push_message(format!("Assistant: {}", full_reply), state_clone.config.max_context_messages);
+            });
+            
+            Sse::new(stream_to_sse(rx)).into_response()
+        },
         Ok(models::LlmResponse::Full(reply)) => {
             // Save assistant response to context
             {
