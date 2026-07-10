@@ -3,7 +3,9 @@ use async_openai::{
     Client,
     config::OpenAIConfig,
     types::chat::{
-        ChatCompletionRequestMessage, ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools, CreateChatCompletionRequest, CreateChatCompletionRequestArgs, ResponseFormat,
+        ChatCompletionRequestMessage, ChatCompletionTool, ChatCompletionToolChoiceOption,
+        ChatCompletionTools, CreateChatCompletionRequest, CreateChatCompletionRequestArgs,
+        ResponseFormat,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -24,7 +26,9 @@ pub struct LlmClientConfig {
 impl LlmClientConfig {
     /// Build and cache the HTTP client. Call once at startup.
     pub fn init_http_client(&mut self) -> Result<(), reqwest::Error> {
-        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(self.timeout_seconds)).build()?;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(self.timeout_seconds))
+            .build()?;
         self.http_client = Some(client);
         Ok(())
     }
@@ -143,8 +147,8 @@ impl Default for LlmRequestParams {
             max_completion_tokens: None, // Prevent compatibility issues with non-OpenAI endpoints
             store: None,                 // Some APIs reject this param entirely
             metadata: None,
-            reasoning_effort: None,    // Left None because passing this to non-reasoning models (like gpt-4o) causes API errors
-            service_tier: None,        // Left None to let OpenAI handle routing
+            reasoning_effort: None, // Left None because passing this to non-reasoning models (like gpt-4o) causes API errors
+            service_tier: None,     // Left None to let OpenAI handle routing
             parallel_tool_calls: None, // Not all models/APIs support this
 
             // Tracking
@@ -186,7 +190,10 @@ fn build_chat_request(params: LlmRequestParams) -> AppResult<CreateChatCompletio
         builder.response_format(rf);
     }
     if let Some(tools) = params.tools {
-        let tools_enum: Vec<ChatCompletionTools> = tools.into_iter().map(ChatCompletionTools::Function).collect();
+        let tools_enum: Vec<ChatCompletionTools> = tools
+            .into_iter()
+            .map(ChatCompletionTools::Function)
+            .collect();
         builder.tools(tools_enum);
     }
     if let Some(tc) = params.tool_choice {
@@ -250,9 +257,16 @@ fn build_chat_request(params: LlmRequestParams) -> AppResult<CreateChatCompletio
 /// Provides a general LLM call service using the specified configuration and parameters.
 /// Automatically logs every request/response to the `llm_logs` table via fire-and-forget.
 /// Depending on `params.stream`, returns either a full response string or a streaming receiver.
-pub async fn call_llm(pool: &SqlitePool, config: &LlmClientConfig, params: LlmRequestParams) -> AppResult<crate::models::LlmResponse> {
+pub async fn call_llm(
+    pool: &SqlitePool,
+    config: &LlmClientConfig,
+    params: LlmRequestParams,
+) -> AppResult<crate::models::LlmResponse> {
     let is_stream = params.stream.unwrap_or(false);
-    info!("Initializing LLM client for model: {} (streaming: {})", params.model, is_stream);
+    info!(
+        "Initializing LLM client for model: {} (streaming: {})",
+        params.model, is_stream
+    );
 
     // Capture model name and serialized request body before params are consumed by the builder
     let model_for_log = params.model.clone();
@@ -263,11 +277,19 @@ pub async fn call_llm(pool: &SqlitePool, config: &LlmClientConfig, params: LlmRe
     // Reuse the pre-built HTTP client from config (initialized once at startup)
     let http_client = config.http_client.clone().unwrap_or_else(|| {
         tracing::warn!("LLM HTTP client not pre-initialized, building on-the-fly");
-        reqwest::Client::builder().timeout(std::time::Duration::from_secs(config.timeout_seconds)).build().unwrap_or_default()
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(config.timeout_seconds))
+            .build()
+            .unwrap_or_default()
     });
 
     // Set up OpenAI Client config
-    let llm_client = Client::with_config(OpenAIConfig::new().with_api_base(config.api_base.clone()).with_api_key(config.api_key.clone())).with_http_client(http_client);
+    let llm_client = Client::with_config(
+        OpenAIConfig::new()
+            .with_api_base(config.api_base.clone())
+            .with_api_key(config.api_key.clone()),
+    )
+    .with_http_client(http_client);
 
     let request = build_chat_request(params)?;
 
@@ -390,7 +412,11 @@ pub async fn call_llm(pool: &SqlitePool, config: &LlmClientConfig, params: LlmRe
         let response = api_result.log_err_msg("General LLM call failed")?;
         debug!("Received response from general LLM service {:?}", response);
 
-        let content = response.choices.first().and_then(|c| c.message.content.clone()).unwrap_or_default();
+        let content = response
+            .choices
+            .first()
+            .and_then(|c| c.message.content.clone())
+            .unwrap_or_default();
         Ok(crate::models::LlmResponse::Full(content))
     }
 }

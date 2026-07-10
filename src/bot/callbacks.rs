@@ -2,7 +2,9 @@ use teloxide::prelude::*;
 
 use super::command_actions;
 use super::helpers::get_username;
-use super::keyboards::{self, BirthdateCalAction, CalendarAction, GenderAction, LocationAction, ModelAction, TimeAction};
+use super::keyboards::{
+    self, BirthdateCalAction, CalendarAction, GenderAction, LocationAction, ModelAction, TimeAction,
+};
 use crate::repos;
 
 // ─────────────────────────────────────────────
@@ -37,7 +39,13 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
             }
             super::keyboards::NewBaziWarningAction::Cancel => {
                 if let Some(msg) = &q.message {
-                    let _ = bot.edit_message_text(msg.chat().id, msg.id(), "✅ Operation cancelled. Your existing Bazi profile is safe.").await;
+                    let _ = bot
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            "✅ Operation cancelled. Your existing Bazi profile is safe.",
+                        )
+                        .await;
                 }
             }
         }
@@ -78,7 +86,11 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                     tracing::error!("Failed to regenerate API key for user {}: {}", user_id, e);
                     if let Some(msg) = &q.message {
                         let _ = bot
-                            .edit_message_text(msg.chat().id, msg.id(), "❌ Failed to regenerate API key. Please try again later.")
+                            .edit_message_text(
+                                msg.chat().id,
+                                msg.id(),
+                                "❌ Failed to regenerate API key. Please try again later.",
+                            )
                             .await;
                     }
                 }
@@ -99,13 +111,29 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
 
         match action {
             GenderAction::SelectMale | GenderAction::SelectFemale => {
-                let gender_val = if matches!(action, GenderAction::SelectMale) { 1 } else { 0 };
+                let gender_val = if matches!(action, GenderAction::SelectMale) {
+                    1
+                } else {
+                    0
+                };
                 let user_id = q.from.id.0;
-                state.user_contexts.entry(user_id).or_default().profile_state.gender = Some(gender_val);
+                state
+                    .user_contexts
+                    .entry(user_id)
+                    .or_default()
+                    .profile_state
+                    .gender = Some(gender_val);
 
                 let markup = keyboards::build_year_picker(1996);
                 if let Some(msg) = &q.message {
-                    let _ = bot.edit_message_text(msg.chat().id, msg.id(), "📅 Step 2/6 — Select your birth year:").reply_markup(markup).await;
+                    let _ = bot
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            "📅 Step 2/6 — Select your birth year:",
+                        )
+                        .reply_markup(markup)
+                        .await;
                 }
             }
         }
@@ -127,14 +155,21 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
             BirthdateCalAction::ViewYears { start_year } => {
                 let markup = keyboards::build_year_picker(start_year);
                 if let Some(msg) = &q.message {
-                    let _ = bot.edit_message_reply_markup(msg.chat().id, msg.id()).reply_markup(markup).await;
+                    let _ = bot
+                        .edit_message_reply_markup(msg.chat().id, msg.id())
+                        .reply_markup(markup)
+                        .await;
                 }
             }
             BirthdateCalAction::SelectYear(year) => {
                 let markup = keyboards::build_month_picker(year);
                 if let Some(msg) = &q.message {
                     let _ = bot
-                        .edit_message_text(msg.chat().id, msg.id(), format!("📅 Step 3/6 — Year: {}\nNow select your birth month:", year))
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            format!("📅 Step 3/6 — Year: {}\nNow select your birth month:", year),
+                        )
                         .reply_markup(markup)
                         .await;
                 }
@@ -143,7 +178,14 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                 let markup = keyboards::build_birthdate_calendar(year, month);
                 if let Some(msg) = &q.message {
                     let _ = bot
-                        .edit_message_text(msg.chat().id, msg.id(), format!("📅 Step 4/6 — Year: {}, Month: {}\nNow select your birth day:", year, month))
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            format!(
+                                "📅 Step 4/6 — Year: {}, Month: {}\nNow select your birth day:",
+                                year, month
+                            ),
+                        )
                         .reply_markup(markup)
                         .await;
                 }
@@ -151,20 +193,34 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
             BirthdateCalAction::SelectDate(date) => {
                 let date_str = date.format("%Y-%m-%d").to_string();
                 let user_id = q.from.id.0;
-                state.user_contexts.entry(user_id).or_default().profile_state.birthdate = Some(date_str.clone());
+                state
+                    .user_contexts
+                    .entry(user_id)
+                    .or_default()
+                    .profile_state
+                    .birthdate = Some(date_str.clone());
 
-                let markup = keyboards::build_hour_picker(|h| keyboards::TimeAction::SelectHour(h).encode());
+                let markup =
+                    keyboards::build_hour_picker(|h| keyboards::TimeAction::SelectHour(h).encode());
                 if let Some(msg) = &q.message {
                     let _ = bot
-                        .edit_message_text(msg.chat().id, msg.id(), format!("🕐 Step 5/6 — Select birth hour for {}:", date_str))
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            format!("🕐 Step 5/6 — Select birth hour for {}:", date_str),
+                        )
                         .reply_markup(markup)
                         .await;
                 }
             }
-            BirthdateCalAction::PrevMonth { year, month } | BirthdateCalAction::NextMonth { year, month } => {
+            BirthdateCalAction::PrevMonth { year, month }
+            | BirthdateCalAction::NextMonth { year, month } => {
                 let markup = keyboards::build_birthdate_calendar(year, month);
                 if let Some(msg) = &q.message {
-                    let _ = bot.edit_message_reply_markup(msg.chat().id, msg.id()).reply_markup(markup).await;
+                    let _ = bot
+                        .edit_message_reply_markup(msg.chat().id, msg.id())
+                        .reply_markup(markup)
+                        .await;
                 }
             }
         }
@@ -185,14 +241,22 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         match action {
             LocationAction::SelectCity(city) => {
                 let user_id = q.from.id.0;
-                state.user_contexts.entry(user_id).or_default().profile_state.location = Some(city.clone());
+                state
+                    .user_contexts
+                    .entry(user_id)
+                    .or_default()
+                    .profile_state
+                    .location = Some(city.clone());
 
                 let chat_id = q.message.as_ref().map(|m| m.chat().id).unwrap_or(ChatId(0));
                 let msg_id = q.message.as_ref().map(|m| m.id());
                 let bot_clone = bot.clone();
                 let username = get_username(&q.from);
                 tokio::spawn(async move {
-                    let _ = command_actions::perform_bazi_analysis(bot_clone, chat_id, user_id, username, msg_id).await;
+                    let _ = command_actions::perform_bazi_analysis(
+                        bot_clone, chat_id, user_id, username, msg_id,
+                    )
+                    .await;
                 });
             }
             LocationAction::Skip => {
@@ -206,7 +270,10 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                 let bot_clone = bot.clone();
                 let username = get_username(&q.from);
                 tokio::spawn(async move {
-                    let _ = command_actions::perform_bazi_analysis(bot_clone, chat_id, user_id, username, msg_id).await;
+                    let _ = command_actions::perform_bazi_analysis(
+                        bot_clone, chat_id, user_id, username, msg_id,
+                    )
+                    .await;
                 });
             }
         }
@@ -227,7 +294,12 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         match action {
             TimeAction::SelectHour(hour) => {
                 let user_id = q.from.id.0;
-                state.user_contexts.entry(user_id).or_default().profile_state.hour = Some(hour as u8);
+                state
+                    .user_contexts
+                    .entry(user_id)
+                    .or_default()
+                    .profile_state
+                    .hour = Some(hour as u8);
                 let markup = keyboards::build_minute_picker(
                     hour,
                     |h, m| keyboards::TimeAction::SelectMinute { hour: h, minute: m }.encode(),
@@ -235,15 +307,32 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                 );
                 if let Some(msg) = &q.message {
                     let _ = bot
-                        .edit_message_text(msg.chat().id, msg.id(), format!("🕐 Step 5/6 — Selected hour: {:02}:xx\nNow select exact minute:", hour))
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            format!(
+                                "🕐 Step 5/6 — Selected hour: {:02}:xx\nNow select exact minute:",
+                                hour
+                            ),
+                        )
                         .reply_markup(markup)
                         .await;
                 }
             }
             TimeAction::SelectMinute { hour, minute } => {
                 let user_id = q.from.id.0;
-                state.user_contexts.entry(user_id).or_default().profile_state.hour = Some(hour as u8);
-                state.user_contexts.entry(user_id).or_default().profile_state.minute = Some(minute as u8);
+                state
+                    .user_contexts
+                    .entry(user_id)
+                    .or_default()
+                    .profile_state
+                    .hour = Some(hour as u8);
+                state
+                    .user_contexts
+                    .entry(user_id)
+                    .or_default()
+                    .profile_state
+                    .minute = Some(minute as u8);
 
                 let markup = keyboards::build_location_picker();
                 if let Some(msg) = &q.message {
@@ -258,7 +347,8 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                 }
             }
             TimeAction::BackToHour => {
-                let markup = keyboards::build_hour_picker(|h| keyboards::TimeAction::SelectHour(h).encode());
+                let markup =
+                    keyboards::build_hour_picker(|h| keyboards::TimeAction::SelectHour(h).encode());
                 let user_id = q.from.id.0;
                 let date_str = state
                     .user_contexts
@@ -268,7 +358,11 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
 
                 if let Some(msg) = &q.message {
                     let _ = bot
-                        .edit_message_text(msg.chat().id, msg.id(), format!("🕐 Step 5/6 — Select birth hour for {}:", date_str))
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            format!("🕐 Step 5/6 — Select birth hour for {}:", date_str),
+                        )
                         .reply_markup(markup)
                         .await;
                 }
@@ -293,9 +387,17 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                 let user_id = q.from.id.0;
                 repos::update_user_llm_model(&state.db_pool, user_id, m).await;
 
-                let model_name = crate::models::common::LlmModel::from_u8(m).map(|model| model.as_str()).unwrap_or("Unknown");
+                let model_name = crate::models::common::LlmModel::from_u8(m)
+                    .map(|model| model.as_str())
+                    .unwrap_or("Unknown");
                 if let Some(msg) = &q.message {
-                    let _ = bot.edit_message_text(msg.chat().id, msg.id(), format!("✅ LLM Model updated to: {}", model_name)).await;
+                    let _ = bot
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            format!("✅ LLM Model updated to: {}", model_name),
+                        )
+                        .await;
                 }
             }
         }
@@ -316,10 +418,18 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
 
         match action {
             ScheduleAction::SelectHour(hour) => {
-                let markup = keyboards::build_minute_picker(hour, |h, m| ScheduleAction::SelectMinute { hour: h, minute: m }.encode(), || ScheduleAction::BackToHour.encode());
+                let markup = keyboards::build_minute_picker(
+                    hour,
+                    |h, m| ScheduleAction::SelectMinute { hour: h, minute: m }.encode(),
+                    || ScheduleAction::BackToHour.encode(),
+                );
                 if let Some(msg) = &q.message {
                     let _ = bot
-                        .edit_message_text(msg.chat().id, msg.id(), format!("⏰ Selected hour: {:02}:xx\nNow select exact minute:", hour))
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            format!("⏰ Selected hour: {:02}:xx\nNow select exact minute:", hour),
+                        )
                         .reply_markup(markup)
                         .await;
                 }
@@ -329,7 +439,10 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                 let schedule_val = Some(format!("0 {} {} * * * *", minute, hour));
                 let time_str = format!("{:02}:{:02}", hour, minute);
 
-                if let Err(_) = repos::update_user_schedule(&state.db_pool, user_id, schedule_val.as_deref()).await {
+                if let Err(_) =
+                    repos::update_user_schedule(&state.db_pool, user_id, schedule_val.as_deref())
+                        .await
+                {
                     if let Some(msg) = &q.message {
                         let _ = bot
                             .edit_message_text(msg.chat().id, msg.id(), "❌ Failed to update schedule due to a database error. Please try again later.")
@@ -340,16 +453,31 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                 }
 
                 // Update scheduler
-                crate::scheduler::add_or_update_user_schedule(bot.clone(), user_id, schedule_val.as_deref().unwrap()).await;
+                crate::scheduler::add_or_update_user_schedule(
+                    bot.clone(),
+                    user_id,
+                    schedule_val.as_deref().unwrap(),
+                )
+                .await;
                 if let Some(msg) = &q.message {
-                    let _ = bot.edit_message_text(msg.chat().id, msg.id(), format!("✅ Schedule updated to daily at: {}", time_str)).await;
+                    let _ = bot
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            format!("✅ Schedule updated to daily at: {}", time_str),
+                        )
+                        .await;
                 }
             }
             ScheduleAction::BackToHour => {
                 let markup = keyboards::build_schedule_picker();
                 if let Some(msg) = &q.message {
                     let _ = bot
-                        .edit_message_text(msg.chat().id, msg.id(), "⏰ Select a time to receive your daily Bazi fortune reading:")
+                        .edit_message_text(
+                            msg.chat().id,
+                            msg.id(),
+                            "⏰ Select a time to receive your daily Bazi fortune reading:",
+                        )
                         .reply_markup(markup)
                         .await;
                 }
@@ -367,7 +495,9 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                 }
                 crate::scheduler::remove_user_daily_job(user_id).await;
                 if let Some(msg) = &q.message {
-                    let _ = bot.edit_message_text(msg.chat().id, msg.id(), "✅ Daily schedule disabled.").await;
+                    let _ = bot
+                        .edit_message_text(msg.chat().id, msg.id(), "✅ Daily schedule disabled.")
+                        .await;
                 }
             }
         }
@@ -388,11 +518,15 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         };
 
         match action {
-            PickCalendarAction::SelectDate(_) | PickCalendarAction::Today | PickCalendarAction::Tomorrow => {
+            PickCalendarAction::SelectDate(_)
+            | PickCalendarAction::Today
+            | PickCalendarAction::Tomorrow => {
                 let date = match action {
                     PickCalendarAction::SelectDate(d) => d,
                     PickCalendarAction::Today => chrono::Local::now().date_naive(),
-                    PickCalendarAction::Tomorrow => chrono::Local::now().date_naive() + chrono::Duration::days(1),
+                    PickCalendarAction::Tomorrow => {
+                        chrono::Local::now().date_naive() + chrono::Duration::days(1)
+                    }
                     _ => unreachable!(),
                 };
 
@@ -416,7 +550,13 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                         Err(e) => {
                             tracing::error!("Failed to parse start date {}: {}", start, e);
                             if let Some(msg) = &q.message {
-                                let _ = bot.edit_message_text(msg.chat().id, msg.id(), "⚠️ Invalid start date encountered.").await;
+                                let _ = bot
+                                    .edit_message_text(
+                                        msg.chat().id,
+                                        msg.id(),
+                                        "⚠️ Invalid start date encountered.",
+                                    )
+                                    .await;
                             }
                             return Ok(());
                         }
@@ -445,7 +585,12 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                         }
                     } else {
                         // Valid end date
-                        state.user_contexts.entry(user_id).or_default().pick_state.end_date = Some(date_str.clone());
+                        state
+                            .user_contexts
+                            .entry(user_id)
+                            .or_default()
+                            .pick_state
+                            .end_date = Some(date_str.clone());
                         let markup = keyboards::build_activity_picker();
                         if let Some(msg) = &q.message {
                             let _ = bot
@@ -459,16 +604,27 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                     let markup = keyboards::build_pick_calendar(date.year(), date.month());
                     if let Some(msg) = &q.message {
                         let _ = bot
-                            .edit_message_text(msg.chat().id, msg.id(), format!("🎯 Step 2/3 — Start Date: {}\n\nPlease select the End Date:", date_str))
+                            .edit_message_text(
+                                msg.chat().id,
+                                msg.id(),
+                                format!(
+                                    "🎯 Step 2/3 — Start Date: {}\n\nPlease select the End Date:",
+                                    date_str
+                                ),
+                            )
                             .reply_markup(markup)
                             .await;
                     }
                 }
             }
-            PickCalendarAction::PrevMonth { year, month } | PickCalendarAction::NextMonth { year, month } => {
+            PickCalendarAction::PrevMonth { year, month }
+            | PickCalendarAction::NextMonth { year, month } => {
                 let markup = keyboards::build_pick_calendar(year, month);
                 if let Some(msg) = &q.message {
-                    let _ = bot.edit_message_reply_markup(msg.chat().id, msg.id()).reply_markup(markup).await;
+                    let _ = bot
+                        .edit_message_reply_markup(msg.chat().id, msg.id())
+                        .reply_markup(markup)
+                        .await;
                 }
             }
         }
@@ -490,7 +646,12 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         match action {
             PickActivityAction::Select(activity) => {
                 let user_id = q.from.id.0;
-                state.user_contexts.entry(user_id).or_default().pick_state.activity = Some(activity.clone());
+                state
+                    .user_contexts
+                    .entry(user_id)
+                    .or_default()
+                    .pick_state
+                    .activity = Some(activity.clone());
 
                 let chat_id = q.message.as_ref().map(|m| m.chat().id).unwrap_or(ChatId(0));
                 let msg_id = q.message.as_ref().map(|m| m.id());
@@ -499,12 +660,20 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
                 // Spawn a task to process the selection
                 tokio::spawn(async move {
                     let target = msg_id.map(command_actions::MessageTarget::Edit);
-                    let _ = command_actions::process_pick_selection(bot_clone, chat_id, user_id, target).await;
+                    let _ = command_actions::process_pick_selection(
+                        bot_clone, chat_id, user_id, target,
+                    )
+                    .await;
                 });
             }
             PickActivityAction::Other => {
                 let user_id = q.from.id.0;
-                state.user_contexts.entry(user_id).or_default().pick_state.waiting_for_text = true;
+                state
+                    .user_contexts
+                    .entry(user_id)
+                    .or_default()
+                    .pick_state
+                    .waiting_for_text = true;
 
                 if let Some(msg) = &q.message {
                     let _ = bot
@@ -541,25 +710,49 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
     match action {
         CalendarAction::SelectDate(date) => {
             let formatted_date = date.format("%Y-%m-%d").to_string();
-            command_actions::process_date_selection(&bot, &q, &formatted_date, "calendar_date", "📝 盲派命理分析：").await?;
+            command_actions::process_date_selection(
+                &bot,
+                &q,
+                &formatted_date,
+                "calendar_date",
+                "📝 盲派命理分析：",
+            )
+            .await?;
         }
 
         CalendarAction::Today => {
             let today = chrono::Local::now().date_naive();
             let formatted_date = today.format("%Y-%m-%d").to_string();
-            command_actions::process_date_selection(&bot, &q, &formatted_date, "calendar_today", "📝 今日盲派分析：").await?;
+            command_actions::process_date_selection(
+                &bot,
+                &q,
+                &formatted_date,
+                "calendar_today",
+                "📝 今日盲派分析：",
+            )
+            .await?;
         }
 
         CalendarAction::Tomorrow => {
             let tomorrow = chrono::Local::now().date_naive() + chrono::Duration::days(1);
             let formatted_date = tomorrow.format("%Y-%m-%d").to_string();
-            command_actions::process_date_selection(&bot, &q, &formatted_date, "calendar_tomorrow", "📝 明日盲派分析：").await?;
+            command_actions::process_date_selection(
+                &bot,
+                &q,
+                &formatted_date,
+                "calendar_tomorrow",
+                "📝 明日盲派分析：",
+            )
+            .await?;
         }
 
         CalendarAction::PrevMonth { year, month } | CalendarAction::NextMonth { year, month } => {
             let markup = keyboards::build_calendar(year, month);
             if let Some(msg) = &q.message {
-                let _ = bot.edit_message_reply_markup(msg.chat().id, msg.id()).reply_markup(markup).await;
+                let _ = bot
+                    .edit_message_reply_markup(msg.chat().id, msg.id())
+                    .reply_markup(markup)
+                    .await;
             }
         }
     }

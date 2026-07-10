@@ -2,8 +2,15 @@ use crate::models::common::COMMON_CITIES;
 use chrono::{Datelike, Duration, NaiveDateTime};
 
 /// Converts Standard Time (usually Beijing Time / UTC+8) to True Solar Time (真太阳时).
-pub fn calculate_true_solar_time(origin_time: NaiveDateTime, city_name: &String, standard_meridian: f64) -> NaiveDateTime {
-    let longitude = COMMON_CITIES.iter().find(|c| c.name.contains(city_name) || city_name.contains(c.name)).map(|c| c.longitude);
+pub fn calculate_true_solar_time(
+    origin_time: NaiveDateTime,
+    city_name: &String,
+    standard_meridian: f64,
+) -> NaiveDateTime {
+    let longitude = COMMON_CITIES
+        .iter()
+        .find(|c| c.name.contains(city_name) || city_name.contains(c.name))
+        .map(|c| c.longitude);
     if let Some(lon) = longitude {
         // 1. Longitude Adjustment: 4 minutes per degree
         let longitude_diff = lon - standard_meridian;
@@ -14,7 +21,8 @@ pub fn calculate_true_solar_time(origin_time: NaiveDateTime, city_name: &String,
         let eot_adjustment_mins = get_equation_of_time(day_of_year);
 
         // Total adjustment in seconds
-        let total_adjustment_secs = ((longitude_adjustment_mins + eot_adjustment_mins) * 60.0).round() as i64;
+        let total_adjustment_secs =
+            ((longitude_adjustment_mins + eot_adjustment_mins) * 60.0).round() as i64;
 
         origin_time + Duration::seconds(total_adjustment_secs)
     } else {

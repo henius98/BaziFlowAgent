@@ -7,8 +7,13 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_core_bazi_analysis() {
-    let pool = SqlitePool::connect("sqlite::memory:").await.expect("Failed to connect to memory db");
-    sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
+    let pool = SqlitePool::connect("sqlite::memory:")
+        .await
+        .expect("Failed to connect to memory db");
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .expect("Failed to run migrations");
 
     let mut server = Server::new_async().await;
     let mock_url = server.url();
@@ -19,21 +24,30 @@ async fn test_core_bazi_analysis() {
         .create_async().await;
 
     server
-        .mock("GET", mockito::Matcher::Regex(r"^/getRysl\.php.*".to_string()))
+        .mock(
+            "GET",
+            mockito::Matcher::Regex(r"^/getRysl\.php.*".to_string()),
+        )
         .with_status(200)
         .with_body(r#"{"data":"some yongshi"}"#)
         .create_async()
         .await;
 
     server
-        .mock("GET", mockito::Matcher::Regex(r"^/getGZRelaction3\.php.*".to_string()))
+        .mock(
+            "GET",
+            mockito::Matcher::Regex(r"^/getGZRelaction3\.php.*".to_string()),
+        )
         .with_status(200)
         .with_body(r#"[["relation1"]]"#)
         .create_async()
         .await;
 
     server
-        .mock("GET", mockito::Matcher::Regex(r"^/getliunianshensha5\.php.*".to_string()))
+        .mock(
+            "GET",
+            mockito::Matcher::Regex(r"^/getliunianshensha5\.php.*".to_string()),
+        )
         .with_status(200)
         .with_body(r#"{"shensha":[[],["shensha1"]]}"#)
         .create_async()
@@ -70,7 +84,11 @@ async fn test_core_bazi_analysis() {
     });
     config.llm_client_config.api_base = mock_url.clone();
 
-    let state = Arc::new(AppState::new(reqwest::Client::new(), pool.clone(), Arc::new(config)));
+    let state = Arc::new(AppState::new(
+        reqwest::Client::new(),
+        pool.clone(),
+        Arc::new(config),
+    ));
     let _ = tokio::fs::create_dir_all("public").await;
 
     let params = BaziDataParams {
@@ -82,11 +100,18 @@ async fn test_core_bazi_analysis() {
         gender: 1,
         location: None,
     };
-    let structured_data = prepare_bazi_data(&state, params).await.expect("Failed to prepare bazi data");
-
-    let receiver = core_bazi_analysis(&state, 123 as u64, &structured_data, None::<baziflow_agent::models::common::LlmModel>)
+    let structured_data = prepare_bazi_data(&state, params)
         .await
-        .expect("Failed to run core analysis");
+        .expect("Failed to prepare bazi data");
+
+    let receiver = core_bazi_analysis(
+        &state,
+        123 as u64,
+        &structured_data,
+        None::<baziflow_agent::models::common::LlmModel>,
+    )
+    .await
+    .expect("Failed to run core analysis");
     let mut rx = receiver;
     let mut out = String::new();
     while let Some(chunk) = rx.recv().await {

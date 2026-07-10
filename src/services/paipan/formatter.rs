@@ -14,7 +14,12 @@ impl fmt::Display for StructuredBazi {
             .pillars
             .iter()
             .map(|p| {
-                let stems: Vec<String> = p.base.stem_and_stars.iter().map(|(s, _)| s.clone()).collect();
+                let stems: Vec<String> = p
+                    .base
+                    .stem_and_stars
+                    .iter()
+                    .map(|(s, _)| s.clone())
+                    .collect();
                 format!("{}: {}{}", p.name, stems.join(""), p.base.branch)
             })
             .collect();
@@ -30,7 +35,12 @@ impl fmt::Display for StructuredBazi {
             .pillars
             .iter()
             .map(|p| {
-                let stars: Vec<String> = p.base.stem_and_stars.iter().map(|(_, g)| g.clone()).collect();
+                let stars: Vec<String> = p
+                    .base
+                    .stem_and_stars
+                    .iter()
+                    .map(|(_, g)| g.clone())
+                    .collect();
                 format!("{}: {}", p.name, stars.join(", "))
             })
             .collect();
@@ -42,7 +52,12 @@ impl fmt::Display for StructuredBazi {
             .pillars
             .iter()
             .map(|p| {
-                let stems: Vec<String> = p.base.hidden_stems_and_stars.iter().map(|(s, _)| s.clone()).collect();
+                let stems: Vec<String> = p
+                    .base
+                    .hidden_stems_and_stars
+                    .iter()
+                    .map(|(s, _)| s.clone())
+                    .collect();
                 format!("{}: {}", p.name, stems.join(", "))
             })
             .collect();
@@ -54,7 +69,12 @@ impl fmt::Display for StructuredBazi {
             .pillars
             .iter()
             .map(|p| {
-                let stars: Vec<String> = p.base.hidden_stems_and_stars.iter().map(|(_, g)| g.clone()).collect();
+                let stars: Vec<String> = p
+                    .base
+                    .hidden_stems_and_stars
+                    .iter()
+                    .map(|(_, g)| g.clone())
+                    .collect();
                 format!("{}: {}", p.name, stars.join(", "))
             })
             .collect();
@@ -62,39 +82,75 @@ impl fmt::Display for StructuredBazi {
 
         // 星运
         writeln!(f, "- 星运")?;
-        let lucks_str: Vec<String> = self.pillars.iter().map(|p| format!("{}: {}", p.name, p.base.star_luck)).collect();
+        let lucks_str: Vec<String> = self
+            .pillars
+            .iter()
+            .map(|p| format!("{}: {}", p.name, p.base.star_luck))
+            .collect();
         writeln!(f, "  {}", lucks_str.join("; "))?;
 
         // 自坐
         writeln!(f, "- 自坐")?;
-        let self_sitting_str: Vec<String> = self.pillars.iter().map(|p| format!("{}: {}", p.name, p.base.self_sitting)).collect();
+        let self_sitting_str: Vec<String> = self
+            .pillars
+            .iter()
+            .map(|p| format!("{}: {}", p.name, p.base.self_sitting))
+            .collect();
         writeln!(f, "  {}", self_sitting_str.join("; "))?;
 
         // 空亡
         writeln!(f, "- 空亡")?;
-        let kw_str: Vec<String> = self.pillars.iter().map(|p| format!("{}: {}", p.name, p.base.empty_death)).collect();
+        let kw_str: Vec<String> = self
+            .pillars
+            .iter()
+            .map(|p| format!("{}: {}", p.name, p.base.empty_death))
+            .collect();
         writeln!(f, "  {}", kw_str.join("; "))?;
 
         // 纳音
         writeln!(f, "- 纳音")?;
-        let nayin_str: Vec<String> = self.pillars.iter().map(|p| format!("{}: {}", p.name, p.base.nayin)).collect();
+        let nayin_str: Vec<String> = self
+            .pillars
+            .iter()
+            .map(|p| format!("{}: {}", p.name, p.base.nayin))
+            .collect();
         writeln!(f, "  {}", nayin_str.join("; "))?;
 
         // 神煞
         writeln!(f, "- 神煞")?;
-        let shensha_str: Vec<String> = self.pillars.iter().map(|p| format!("{}: {}", p.name, p.base.shensha.join(", "))).collect();
+        let shensha_str: Vec<String> = self
+            .pillars
+            .iter()
+            .map(|p| format!("{}: {}", p.name, p.base.shensha.join(", ")))
+            .collect();
         writeln!(f, "  {}", shensha_str.join("; "))?;
 
         // 三垣
         writeln!(f, "- 三垣")?;
         let pi = &self.other.palace_info;
-        writeln!(f, "  胎元: {}; 纳音: {}", pi.fetal_origin, pi.fetal_origin_nayin)?;
-        writeln!(f, "  命宫: {}; 纳音: {}", pi.life_palace, pi.life_palace_nayin)?;
-        writeln!(f, "  身宫: {}; 纳音: {}", pi.body_palace, pi.body_palace_nayin)?;
+        writeln!(
+            f,
+            "  胎元: {}; 纳音: {}",
+            pi.fetal_origin, pi.fetal_origin_nayin
+        )?;
+        writeln!(
+            f,
+            "  命宫: {}; 纳音: {}",
+            pi.life_palace, pi.life_palace_nayin
+        )?;
+        writeln!(
+            f,
+            "  身宫: {}; 纳音: {}",
+            pi.body_palace, pi.body_palace_nayin
+        )?;
 
         // 五行旺衰
         let e = &self.element_states;
-        writeln!(f, "五行旺衰: 木{}, 火{}, 土{}, 金{}, 水{}", e.wood, e.fire, e.earth, e.metal, e.water)?;
+        writeln!(
+            f,
+            "五行旺衰: 木{}, 火{}, 土{}, 金{}, 水{}",
+            e.wood, e.fire, e.earth, e.metal, e.water
+        )?;
 
         // 原局关系
         if let Some(r) = &self.relation {
@@ -120,7 +176,11 @@ impl fmt::Display for StructuredBazi {
         // 大运 (all)
         for dy in &self.dayun {
             let current_marker = if dy.is_current_dayun { " (当前)" } else { "" };
-            writeln!(f, "- 大运 {}年~{}年{}", dy.start_year, dy.end_year, current_marker)?;
+            writeln!(
+                f,
+                "- 大运 {}年~{}年{}",
+                dy.start_year, dy.end_year, current_marker
+            )?;
             write_pillar_detail(f, &dy.info)?;
             if let Some(r) = &dy.relation {
                 if let Some(sr) = &r.stem_relations {
@@ -156,7 +216,11 @@ fn write_pillar_detail(f: &mut fmt::Formatter<'_>, info: &BasePillarData) -> fmt
     writeln!(f, "  主星: {}", gods.join(", "))?;
     writeln!(f, "  天干: {}", stems.join(", "))?;
     writeln!(f, "  地支: {}", info.branch)?;
-    let hidden: Vec<String> = info.hidden_stems_and_stars.iter().map(|(s, g)| format!("{} {}", s, g)).collect();
+    let hidden: Vec<String> = info
+        .hidden_stems_and_stars
+        .iter()
+        .map(|(s, g)| format!("{} {}", s, g))
+        .collect();
     writeln!(f, "  藏干: {}", hidden.join(", "))?;
     writeln!(f, "  星运: {}", info.star_luck)?;
     writeln!(f, "  自坐: {}", info.self_sitting)?;
@@ -186,7 +250,12 @@ pub fn generate_bazi_html(chart: &StructuredBazi, name: &str) -> String {
         }
         let px = prefixes[i];
 
-        let (stem, god) = p.base.stem_and_stars.first().map(|(s, g)| (s.as_str(), g.as_str())).unwrap_or(("", ""));
+        let (stem, god) = p
+            .base
+            .stem_and_stars
+            .first()
+            .map(|(s, g)| (s.as_str(), g.as_str()))
+            .unwrap_or(("", ""));
 
         html = html.replace(&format!("{{{{{}_GOD}}}}", px), god);
         html = html.replace(&format!("{{{{{}_STEM}}}}", px), stem);
@@ -195,7 +264,10 @@ pub fn generate_bazi_html(chart: &StructuredBazi, name: &str) -> String {
         html = html.replace(&format!("{{{{{}_ZIZUO}}}}", px), &p.base.self_sitting);
         html = html.replace(&format!("{{{{{}_KW}}}}", px), &p.base.empty_death);
         html = html.replace(&format!("{{{{{}_NAYIN}}}}", px), &p.base.nayin);
-        html = html.replace(&format!("{{{{{}_SHENSHA}}}}", px), &divs_from_slice(&p.base.shensha));
+        html = html.replace(
+            &format!("{{{{{}_SHENSHA}}}}", px),
+            &divs_from_slice(&p.base.shensha),
+        );
         let hidden = p
             .base
             .hidden_stems_and_stars
@@ -211,7 +283,11 @@ pub fn generate_bazi_html(chart: &StructuredBazi, name: &str) -> String {
         if items.is_empty() {
             "无明显关系".to_string()
         } else {
-            items.iter().map(|r| format!("<span>{}</span>", r.split(',').next().unwrap_or(r))).collect::<Vec<_>>().join(", ")
+            items
+                .iter()
+                .map(|r| format!("<span>{}</span>", r.split(',').next().unwrap_or(r)))
+                .collect::<Vec<_>>()
+                .join(", ")
         }
     };
 
@@ -229,7 +305,12 @@ pub fn generate_bazi_html(chart: &StructuredBazi, name: &str) -> String {
     }
 
     // DaYun relations
-    if let Some(r) = chart.dayun.iter().find(|d| d.is_current_dayun).and_then(|d| d.relation.as_ref()) {
+    if let Some(r) = chart
+        .dayun
+        .iter()
+        .find(|d| d.is_current_dayun)
+        .and_then(|d| d.relation.as_ref())
+    {
         if let Some(sr) = &r.stem_relations {
             stem_rels.extend(sr.iter().map(|s| format!("<i>(大运)</i>{}", s)));
         }
@@ -266,7 +347,11 @@ pub fn generate_bazi_html(chart: &StructuredBazi, name: &str) -> String {
 
 /// Build `<div>` list from a slice of strings
 fn divs_from_slice(items: &[String]) -> String {
-    items.iter().map(|s| format!("<div>{}</div>", s)).collect::<Vec<_>>().join("")
+    items
+        .iter()
+        .map(|s| format!("<div>{}</div>", s))
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 /// Populate the 流年 and 大运 columns in the HTML template.
@@ -303,15 +388,35 @@ fn populate_luck_columns(html: &mut String, data: &StructuredBazi) {
         }
     };
 
-    let year_stem = luck.info.stem_and_stars.first().map(|s| s.0.as_str()).unwrap_or("");
-    let year_god = luck.info.stem_and_stars.first().map(|s| s.1.as_str()).unwrap_or("流年");
+    let year_stem = luck
+        .info
+        .stem_and_stars
+        .first()
+        .map(|s| s.0.as_str())
+        .unwrap_or("");
+    let year_god = luck
+        .info
+        .stem_and_stars
+        .first()
+        .map(|s| s.1.as_str())
+        .unwrap_or("流年");
     let year_branch = luck.info.branch.as_str();
 
     let active_dy = data.dayun.iter().find(|d| d.is_current_dayun);
     let (luck_stem, luck_branch, luck_god) = match active_dy {
         Some(dy) => {
-            let s = dy.info.stem_and_stars.first().map(|s| s.0.as_str()).unwrap_or("");
-            let g = dy.info.stem_and_stars.first().map(|s| s.1.as_str()).unwrap_or("大运");
+            let s = dy
+                .info
+                .stem_and_stars
+                .first()
+                .map(|s| s.0.as_str())
+                .unwrap_or("");
+            let g = dy
+                .info
+                .stem_and_stars
+                .first()
+                .map(|s| s.1.as_str())
+                .unwrap_or("大运");
             let b = dy.info.branch.as_str();
             (s, b, g)
         }
@@ -329,7 +434,9 @@ fn populate_luck_columns(html: &mut String, data: &StructuredBazi) {
     let ln_shensha = divs_from_slice(&luck.info.shensha);
     *html = html.replace("{{YEAR_SHENSHA_CURRENT}}", &ln_shensha);
 
-    let luck_shensha = active_dy.map(|dy| divs_from_slice(&dy.info.shensha)).unwrap_or_default();
+    let luck_shensha = active_dy
+        .map(|dy| divs_from_slice(&dy.info.shensha))
+        .unwrap_or_default();
     *html = html.replace("{{LUCK_SHENSHA_CURRENT}}", &luck_shensha);
 
     // 流年 detail rows from BasePillarData
@@ -349,7 +456,13 @@ fn populate_gz_info(html: &mut String, prefix: &str, info: Option<&BasePillarDat
                 .map(|(s, god)| format!("<div class=\"hidden-item\"><span class=\"hidden-stem\">{}</span><span class=\"hidden-god\">{}</span></div>", s, god))
                 .collect::<Vec<_>>()
                 .join("");
-            (h, v.star_luck.clone(), v.self_sitting.clone(), v.empty_death.clone(), v.nayin.clone())
+            (
+                h,
+                v.star_luck.clone(),
+                v.self_sitting.clone(),
+                v.empty_death.clone(),
+                v.nayin.clone(),
+            )
         }
         None => Default::default(),
     };

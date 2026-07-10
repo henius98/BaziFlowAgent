@@ -30,12 +30,16 @@ impl AppConfig {
         // Load .env file
         dotenvy::dotenv().ok();
 
-        let telegram_bot_token = env::var("TELEGRAM_BOT_TOKEN").context("TELEGRAM_BOT_TOKEN must be set in .env").and_then(|t| {
-            if t.trim().is_empty() {
-                anyhow::bail!("TELEGRAM_BOT_TOKEN is invalid or contains the default placeholder");
-            }
-            Ok(t)
-        })?;
+        let telegram_bot_token = env::var("TELEGRAM_BOT_TOKEN")
+            .context("TELEGRAM_BOT_TOKEN must be set in .env")
+            .and_then(|t| {
+                if t.trim().is_empty() {
+                    anyhow::bail!(
+                        "TELEGRAM_BOT_TOKEN is invalid or contains the default placeholder"
+                    );
+                }
+                Ok(t)
+            })?;
 
         let mut llm_client_config = crate::services::llm::LlmClientConfig {
             api_key: env::var("LLM_API_KEY").context("LLM_API_KEY must be set in .env")?,
@@ -47,8 +51,11 @@ impl AppConfig {
                 .context("LLM_TIMEOUT_SECONDS must be a valid u64")?,
             http_client: None,
         };
-        llm_client_config.init_http_client().context("Failed to build LLM HTTP client")?;
-        let llm_model_name = env::var("LLM_MODEL_NAME").context("LLM_MODEL_NAME must be set in .env")?;
+        llm_client_config
+            .init_http_client()
+            .context("Failed to build LLM HTTP client")?;
+        let llm_model_name =
+            env::var("LLM_MODEL_NAME").context("LLM_MODEL_NAME must be set in .env")?;
 
         let database_url = env::var("DATABASE_URL").context("DATABASE_URL must be set in .env")?;
 
@@ -58,8 +65,10 @@ impl AppConfig {
             .parse::<i64>()
             .context("USER_CONTEXTS_EXPIRATION_MINUTES must be a valid i64")?;
 
-        let context_cleanup_cron = env::var("CONTEXT_CLEANUP_CRON").context("CONTEXT_CLEANUP_CRON must be set in .env")?;
-        let log_cleanup_cron = env::var("LOG_CLEANUP_CRON").context("LOG_CLEANUP_CRON must be set in .env")?;
+        let context_cleanup_cron =
+            env::var("CONTEXT_CLEANUP_CRON").context("CONTEXT_CLEANUP_CRON must be set in .env")?;
+        let log_cleanup_cron =
+            env::var("LOG_CLEANUP_CRON").context("LOG_CLEANUP_CRON must be set in .env")?;
         let log_retention_days = env::var("LOG_RETENTION_DAYS")
             .context("LOG_RETENTION_DAYS must be set in .env")?
             .trim()
@@ -80,7 +89,10 @@ impl AppConfig {
         let app_timezone = if app_timezone_str.trim().is_empty() {
             "UTC".parse::<chrono_tz::Tz>().unwrap()
         } else {
-            app_timezone_str.trim().parse::<chrono_tz::Tz>().map_err(|e| anyhow::anyhow!("Invalid APP_TIMEZONE: {}", e))?
+            app_timezone_str
+                .trim()
+                .parse::<chrono_tz::Tz>()
+                .map_err(|e| anyhow::anyhow!("Invalid APP_TIMEZONE: {}", e))?
         };
 
         let r2_account_id = env::var("R2_ACCOUNT_ID").ok();

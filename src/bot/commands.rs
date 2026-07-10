@@ -10,13 +10,21 @@ use super::keyboards;
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "Available commands:")]
 pub enum Command {
-    #[command(description = "✨ 输入八字 (New Profile): Create a new Bazi profile (gender, birthdate & time) for personalized readings")]
+    #[command(
+        description = "✨ 输入八字 (New Profile): Create a new Bazi profile (gender, birthdate & time) for personalized readings"
+    )]
     New,
-    #[command(description = "📅 每日分析 (Daily Fortune): Choose a specific date to receive its detailed Bazi analysis")]
+    #[command(
+        description = "📅 每日分析 (Daily Fortune): Choose a specific date to receive its detailed Bazi analysis"
+    )]
     Date,
-    #[command(description = "🎯 择吉日 (Date Selection): Find the most auspicious dates and times for an activity")]
+    #[command(
+        description = "🎯 择吉日 (Date Selection): Find the most auspicious dates and times for an activity"
+    )]
     Pick,
-    #[command(description = "👤 My Profile: View your currently registered Bazi profile and birth details")]
+    #[command(
+        description = "👤 My Profile: View your currently registered Bazi profile and birth details"
+    )]
     Profile,
     #[command(description = "🤖 Select Model: Choose the LLM model to be used for your readings")]
     Model,
@@ -58,7 +66,9 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
         Command::Date => {
             let now = chrono::Local::now();
             let markup = keyboards::build_calendar(now.year(), now.month());
-            bot.send_message(msg.chat.id, "Please select a date:").reply_markup(markup).await?;
+            bot.send_message(msg.chat.id, "Please select a date:")
+                .reply_markup(markup)
+                .await?;
         }
 
         Command::Pick => {
@@ -74,14 +84,17 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
 
             let now = chrono::Local::now();
             let markup = keyboards::build_pick_calendar(now.year(), now.month());
-            bot.send_message(msg.chat.id, "🎯 Step 1/3 — Please select the Start Date:").reply_markup(markup).await?;
+            bot.send_message(msg.chat.id, "🎯 Step 1/3 — Please select the Start Date:")
+                .reply_markup(markup)
+                .await?;
         }
 
         Command::Profile => {
             let user_id = match msg.from.as_ref() {
                 Some(u) => u.id.0,
                 None => {
-                    bot.send_message(msg.chat.id, "⚠️ Could not identify user.").await?;
+                    bot.send_message(msg.chat.id, "⚠️ Could not identify user.")
+                        .await?;
                     return Ok(());
                 }
             };
@@ -91,14 +104,19 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
 
         Command::Model => {
             let markup = keyboards::build_model_picker();
-            bot.send_message(msg.chat.id, "🤖 Select an LLM model:").reply_markup(markup).await?;
+            bot.send_message(msg.chat.id, "🤖 Select an LLM model:")
+                .reply_markup(markup)
+                .await?;
         }
 
         Command::Schedule => {
             let markup = keyboards::build_schedule_picker();
-            bot.send_message(msg.chat.id, "⏰ Select a time to receive your daily Bazi fortune reading:")
-                .reply_markup(markup)
-                .await?;
+            bot.send_message(
+                msg.chat.id,
+                "⏰ Select a time to receive your daily Bazi fortune reading:",
+            )
+            .reply_markup(markup)
+            .await?;
         }
 
         Command::ApiKey => {
@@ -145,9 +163,16 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
                                 .await?;
                             }
                             Err(e) => {
-                                tracing::error!("Failed to create API key for user {}: {}", user_id, e);
-                                bot.send_message(msg.chat.id, "❌ Failed to generate API key. Please try again later.")
-                                    .await?;
+                                tracing::error!(
+                                    "Failed to create API key for user {}: {}",
+                                    user_id,
+                                    e
+                                );
+                                bot.send_message(
+                                    msg.chat.id,
+                                    "❌ Failed to generate API key. Please try again later.",
+                                )
+                                .await?;
                             }
                         }
                     }

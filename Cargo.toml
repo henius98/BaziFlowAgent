@@ -61,7 +61,7 @@ uuid = { version = "1", features = ["v7"] }
 
 # Web Server (for Instant View / Web view)
 axum = { version = "0.8", features = ["macros"] }
-tower-http = { version = "0.6", features = ["fs"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
 
 # S3 Client for Cloudflare R2
 rust-s3 = { version = "0.34", default-features = false, features = [
@@ -75,6 +75,7 @@ rand = "0.9"
 
 # Async Stream utilities (for SSE streaming)
 async-stream = "0.3"
+tower = { version = "0.5.3", features = ["util"] }
 
 [profile.release]
 lto = "thin"

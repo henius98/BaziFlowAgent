@@ -30,7 +30,13 @@ impl CalendarAction {
     pub fn encode(&self) -> String {
         match self {
             CalendarAction::SelectDate(date) => {
-                format!("{}:sel:{}:{}:{}", CALENDER_PREFIX, date.year(), date.month(), date.day())
+                format!(
+                    "{}:sel:{}:{}:{}",
+                    CALENDER_PREFIX,
+                    date.year(),
+                    date.month(),
+                    date.day()
+                )
             }
             CalendarAction::PrevMonth { year, month } => {
                 format!("{}:prev:{}:{}", CALENDER_PREFIX, year, month)
@@ -115,7 +121,13 @@ impl BirthdateCalAction {
                 format!("{}:sm:{}:{}", BDCALENDER_PREFIX, year, month)
             }
             BirthdateCalAction::SelectDate(date) => {
-                format!("{}:sel:{}:{}:{}", BDCALENDER_PREFIX, date.year(), date.month(), date.day())
+                format!(
+                    "{}:sel:{}:{}:{}",
+                    BDCALENDER_PREFIX,
+                    date.year(),
+                    date.month(),
+                    date.day()
+                )
             }
             BirthdateCalAction::PrevMonth { year, month } => {
                 format!("{}:prev:{}:{}", BDCALENDER_PREFIX, year, month)
@@ -179,7 +191,10 @@ pub fn build_birthdate_calendar(year: i32, month: u32) -> InlineKeyboardMarkup {
     let mut markup = build_calendar_inner(year, month, BDCALENDER_PREFIX);
 
     // Add a Back to Month button
-    let back_row = vec![InlineKeyboardButton::callback("◀️ Change Month", BirthdateCalAction::SelectYear(year).encode())];
+    let back_row = vec![InlineKeyboardButton::callback(
+        "◀️ Change Month",
+        BirthdateCalAction::SelectYear(year).encode(),
+    )];
     markup.inline_keyboard.push(back_row);
     markup
 }
@@ -192,15 +207,30 @@ pub fn build_year_picker(start_year: i32) -> InlineKeyboardMarkup {
         let mut row = Vec::new();
         for offset in 0..3 {
             let y = start_year + row_start + offset;
-            row.push(InlineKeyboardButton::callback(y.to_string(), BirthdateCalAction::SelectYear(y).encode()));
+            row.push(InlineKeyboardButton::callback(
+                y.to_string(),
+                BirthdateCalAction::SelectYear(y).encode(),
+            ));
         }
         rows.push(row);
     }
 
     // Nav row
     rows.push(vec![
-        InlineKeyboardButton::callback("◀️ Prev 12", BirthdateCalAction::ViewYears { start_year: start_year - 12 }.encode()),
-        InlineKeyboardButton::callback("Next 12 ▶️", BirthdateCalAction::ViewYears { start_year: start_year + 12 }.encode()),
+        InlineKeyboardButton::callback(
+            "◀️ Prev 12",
+            BirthdateCalAction::ViewYears {
+                start_year: start_year - 12,
+            }
+            .encode(),
+        ),
+        InlineKeyboardButton::callback(
+            "Next 12 ▶️",
+            BirthdateCalAction::ViewYears {
+                start_year: start_year + 12,
+            }
+            .encode(),
+        ),
     ]);
 
     InlineKeyboardMarkup::new(rows)
@@ -225,7 +255,10 @@ pub fn build_month_picker(year: i32) -> InlineKeyboardMarkup {
 
     // Back to year picker
     let start_year = year - (year % 12);
-    rows.push(vec![InlineKeyboardButton::callback("◀️ Change Year", BirthdateCalAction::ViewYears { start_year }.encode())]);
+    rows.push(vec![InlineKeyboardButton::callback(
+        "◀️ Change Year",
+        BirthdateCalAction::ViewYears { start_year }.encode(),
+    )]);
 
     InlineKeyboardMarkup::new(rows)
 }
@@ -367,13 +400,19 @@ pub fn build_location_picker() -> InlineKeyboardMarkup {
     for chunk in cities.chunks(2) {
         let mut row = Vec::new();
         for city in chunk {
-            row.push(InlineKeyboardButton::callback(city.name, LocationAction::SelectCity(city.name.to_string()).encode()));
+            row.push(InlineKeyboardButton::callback(
+                city.name,
+                LocationAction::SelectCity(city.name.to_string()).encode(),
+            ));
         }
         rows.push(row);
     }
 
     // Skip/Other button
-    rows.push(vec![InlineKeyboardButton::callback("⏩ Skip / Default (120°E)", LocationAction::Skip.encode())]);
+    rows.push(vec![InlineKeyboardButton::callback(
+        "⏩ Skip / Default (120°E)",
+        LocationAction::Skip.encode(),
+    )]);
 
     InlineKeyboardMarkup::new(rows)
 }
@@ -439,7 +478,10 @@ where
         let mut row = Vec::new();
         for col_idx in 0..4 {
             let h = row_idx * 4 + col_idx;
-            row.push(InlineKeyboardButton::callback(format!("{:02}:00", h), encode_hour(h)));
+            row.push(InlineKeyboardButton::callback(
+                format!("{:02}:00", h),
+                encode_hour(h),
+            ));
         }
         rows.push(row);
     }
@@ -447,7 +489,11 @@ where
     InlineKeyboardMarkup::new(rows)
 }
 
-pub fn build_minute_picker<F1, F2>(hour: u32, encode_min: F1, encode_back: F2) -> InlineKeyboardMarkup
+pub fn build_minute_picker<F1, F2>(
+    hour: u32,
+    encode_min: F1,
+    encode_back: F2,
+) -> InlineKeyboardMarkup
 where
     F1: Fn(u32, u32) -> String,
     F2: Fn() -> String,
@@ -460,12 +506,18 @@ where
             rows.push(Vec::new());
         }
         if let Some(row) = rows.last_mut() {
-            row.push(InlineKeyboardButton::callback(format!("{:02}", m), encode_min(hour, m)));
+            row.push(InlineKeyboardButton::callback(
+                format!("{:02}", m),
+                encode_min(hour, m),
+            ));
         }
     }
 
     // Add a back button
-    rows.push(vec![InlineKeyboardButton::callback("◀️ Back to Hour", encode_back())]);
+    rows.push(vec![InlineKeyboardButton::callback(
+        "◀️ Back to Hour",
+        encode_back(),
+    )]);
 
     InlineKeyboardMarkup::new(rows)
 }
@@ -481,8 +533,16 @@ fn build_calendar_inner(year: i32, month: u32, prefix: &str) -> InlineKeyboardMa
     // Header row: ◀️ Month Year ▶️
     let header_text = format!("{} {}", MONTH_NAME[(month - 1) as usize], year);
 
-    let (prev_year, prev_month) = if month == 1 { (year - 1, 12u32) } else { (year, month - 1) };
-    let (next_year, next_month) = if month == 12 { (year + 1, 1u32) } else { (year, month + 1) };
+    let (prev_year, prev_month) = if month == 1 {
+        (year - 1, 12u32)
+    } else {
+        (year, month - 1)
+    };
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1u32)
+    } else {
+        (year, month + 1)
+    };
 
     let ignore_cb = format!("{}:ignore", prefix);
     let prev_cb = format!("{}:prev:{}:{}", prefix, prev_year, prev_month);
@@ -495,7 +555,12 @@ fn build_calendar_inner(year: i32, month: u32, prefix: &str) -> InlineKeyboardMa
     ]);
 
     // Day-of-week header
-    rows.push(DAY_HEADERS.iter().map(|&d| InlineKeyboardButton::callback(d, ignore_cb.clone())).collect());
+    rows.push(
+        DAY_HEADERS
+            .iter()
+            .map(|&d| InlineKeyboardButton::callback(d, ignore_cb.clone()))
+            .collect(),
+    );
 
     // Calendar grid
     let first_day = match NaiveDate::from_ymd_opt(year, month, 1) {
@@ -550,7 +615,10 @@ fn days_in_month(year: i32, month: u32) -> u32 {
     } else {
         NaiveDate::from_ymd_opt(year, month + 1, 1)
     };
-    next_month_first.and_then(|d| d.pred_opt()).map(|d| d.day()).unwrap_or(30) // Safe fallback for edge cases
+    next_month_first
+        .and_then(|d| d.pred_opt())
+        .map(|d| d.day())
+        .unwrap_or(30) // Safe fallback for edge cases
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -590,7 +658,12 @@ pub fn build_model_picker() -> InlineKeyboardMarkup {
     use crate::models::common::LlmModel;
     let rows: Vec<Vec<InlineKeyboardButton>> = LlmModel::ALL
         .iter()
-        .map(|model| vec![InlineKeyboardButton::callback(model.as_str(), ModelAction::Select(*model as u8).encode())])
+        .map(|model| {
+            vec![InlineKeyboardButton::callback(
+                model.as_str(),
+                ModelAction::Select(*model as u8).encode(),
+            )]
+        })
         .collect();
     InlineKeyboardMarkup::new(rows)
 }
@@ -614,7 +687,13 @@ impl PickCalendarAction {
     pub fn encode(&self) -> String {
         match self {
             PickCalendarAction::SelectDate(date) => {
-                format!("{}:sel:{}:{}:{}", PCAL_PREFIX, date.year(), date.month(), date.day())
+                format!(
+                    "{}:sel:{}:{}:{}",
+                    PCAL_PREFIX,
+                    date.year(),
+                    date.month(),
+                    date.day()
+                )
             }
             PickCalendarAction::PrevMonth { year, month } => {
                 format!("{}:prev:{}:{}", PCAL_PREFIX, year, month)
@@ -715,13 +794,19 @@ pub fn build_activity_picker() -> InlineKeyboardMarkup {
     for chunk in activities.chunks(2) {
         let mut row = Vec::new();
         for activity in chunk {
-            row.push(InlineKeyboardButton::callback(activity.to_string(), PickActivityAction::Select(activity.to_string()).encode()));
+            row.push(InlineKeyboardButton::callback(
+                activity.to_string(),
+                PickActivityAction::Select(activity.to_string()).encode(),
+            ));
         }
         rows.push(row);
     }
 
     // Add Other button
-    rows.push(vec![InlineKeyboardButton::callback("📝 Other (Type freely)", PickActivityAction::Other.encode())]);
+    rows.push(vec![InlineKeyboardButton::callback(
+        "📝 Other (Type freely)",
+        PickActivityAction::Other.encode(),
+    )]);
 
     InlineKeyboardMarkup::new(rows)
 }
@@ -783,7 +868,10 @@ pub fn build_schedule_picker() -> InlineKeyboardMarkup {
     let mut markup = build_hour_picker(|h| ScheduleAction::SelectHour(h).encode());
     markup
         .inline_keyboard
-        .push(vec![InlineKeyboardButton::callback("🚫 Disable Daily Schedule", ScheduleAction::Disable.encode())]);
+        .push(vec![InlineKeyboardButton::callback(
+            "🚫 Disable Daily Schedule",
+            ScheduleAction::Disable.encode(),
+        )]);
     markup
 }
 

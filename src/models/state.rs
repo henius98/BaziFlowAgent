@@ -79,16 +79,34 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(http_client: reqwest::Client, db_pool: sqlx::SqlitePool, config: Arc<AppConfig>) -> Self {
-        let r2_bucket = if let (Some(account_id), Some(access_key), Some(secret_key), Some(bucket_name)) =
-            (&config.r2_account_id, &config.r2_access_key_id, &config.r2_secret_access_key, &config.r2_bucket_name)
-        {
-            let creds = s3::creds::Credentials::new(Some(access_key), Some(secret_key), None, None, None).expect("Failed to create R2 credentials");
+    pub fn new(
+        http_client: reqwest::Client,
+        db_pool: sqlx::SqlitePool,
+        config: Arc<AppConfig>,
+    ) -> Self {
+        let r2_bucket = if let (
+            Some(account_id),
+            Some(access_key),
+            Some(secret_key),
+            Some(bucket_name),
+        ) = (
+            &config.r2_account_id,
+            &config.r2_access_key_id,
+            &config.r2_secret_access_key,
+            &config.r2_bucket_name,
+        ) {
+            let creds =
+                s3::creds::Credentials::new(Some(access_key), Some(secret_key), None, None, None)
+                    .expect("Failed to create R2 credentials");
             let region = s3::region::Region::Custom {
                 region: "auto".to_owned(),
                 endpoint: format!("https://{}.r2.cloudflarestorage.com", account_id),
             };
-            Some(s3::Bucket::new(bucket_name, region, creds).expect("Failed to initialize R2 bucket client").with_path_style())
+            Some(
+                s3::Bucket::new(bucket_name, region, creds)
+                    .expect("Failed to initialize R2 bucket client")
+                    .with_path_style(),
+            )
         } else {
             None
         };

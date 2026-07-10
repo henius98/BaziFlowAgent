@@ -24,15 +24,25 @@ pub fn get_username(user: &teloxide::types::User) -> String {
 ///
 /// If the final text exceeds 4096 chars, the first message is trimmed and overflow
 /// is sent as separate messages.
-pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, mut receiver: tokio::sync::mpsc::Receiver<String>) -> String {
+pub async fn stream_to_telegram(
+    bot: &Bot,
+    chat_id: ChatId,
+    initial_text: &str,
+    mut receiver: tokio::sync::mpsc::Receiver<String>,
+) -> String {
     let mut accumulated = String::new();
     let edit_interval = std::time::Duration::from_millis(1000);
     // Allow the first chunk to be flushed immediately
-    let mut last_edit = std::time::Instant::now().checked_sub(edit_interval).unwrap_or_else(std::time::Instant::now);
+    let mut last_edit = std::time::Instant::now()
+        .checked_sub(edit_interval)
+        .unwrap_or_else(std::time::Instant::now);
     let mut pending = false;
 
     // Generate a unique draft ID for this streaming session
-    let draft_id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as i64;
+    let draft_id = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros() as i64;
     let client = reqwest::Client::new();
     let token = bot.token();
 
@@ -73,7 +83,9 @@ pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, 
 
     // Finalize: send actual message to persist the ephemeral draft
     if accumulated.is_empty() {
-        let _ = bot.send_message(chat_id, "⚠️ No content received from LLM.").await;
+        let _ = bot
+            .send_message(chat_id, "⚠️ No content received from LLM.")
+            .await;
     } else if accumulated.len() <= 4096 {
         let _ = bot.send_message(chat_id, &accumulated).await;
     } else {
@@ -88,7 +100,14 @@ pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, 
 }
 
 /// Send a throttled draft edit using the sendMessageDraft API.
-async fn flush_draft(client: &reqwest::Client, token: &str, chat_id: ChatId, draft_id: i64, text: &str, is_initial: bool) {
+async fn flush_draft(
+    client: &reqwest::Client,
+    token: &str,
+    chat_id: ChatId,
+    draft_id: i64,
+    text: &str,
+    is_initial: bool,
+) {
     let display = if text.is_empty() && !is_initial {
         "Thinking...".to_string()
     } else if text.len() <= 4000 {

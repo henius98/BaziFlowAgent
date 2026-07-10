@@ -1,7 +1,9 @@
 //! Service to fetch and format traditional Chinese Almanac (Huangli) data.
 use crate::models::{AppResult, LlmResponse, LogErrorExt};
 use crate::services::paipan::bazi_utils::get_empty_death;
-use async_openai::types::{chat::ChatCompletionRequestSystemMessageArgs, chat::ChatCompletionRequestUserMessageArgs};
+use async_openai::types::{
+    chat::ChatCompletionRequestSystemMessageArgs, chat::ChatCompletionRequestUserMessageArgs,
+};
 use reqwest::Client;
 use serde_json::Value;
 use tracing::{debug, info};
@@ -47,10 +49,18 @@ pub async fn analysis_date_fortune(req: DateFortuneRequest<'_>) -> AppResult<Llm
     );
 
     debug!("Full User Prompt:\n{}", user_content);
-    let user_message = ChatCompletionRequestUserMessageArgs::default().content(user_content).build()?;
+    let user_message = ChatCompletionRequestUserMessageArgs::default()
+        .content(user_content)
+        .build()?;
 
-    let model_name = req.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
-    let mut params = crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()]);
+    let model_name = req
+        .llm_model
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_else(|| state.config.llm_model_name.clone());
+    let mut params = crate::services::llm::LlmRequestParams::new(
+        model_name.clone(),
+        vec![system_message.into(), user_message.into()],
+    );
     params.temperature = Some(0.2);
     params.top_p = Some(0.75);
 
@@ -58,12 +68,21 @@ pub async fn analysis_date_fortune(req: DateFortuneRequest<'_>) -> AppResult<Llm
     params.user_id = req.user_id;
     params.request_type = req.request_type;
 
-    info!("Sending request to LLM (Model: {}, stream: {})...", model_name, stream);
+    info!(
+        "Sending request to LLM (Model: {}, stream: {})...",
+        model_name, stream
+    );
     crate::services::llm::call_llm(&state.db_pool, &state.config.llm_client_config, params).await
 }
 
-pub async fn fetch_and_format_almanac(client: &Client, target_date: &str) -> crate::models::AppResult<String> {
-    let api_url = format!("https://www.mingdecode.com/api/almanac?date={}", target_date);
+pub async fn fetch_and_format_almanac(
+    client: &Client,
+    target_date: &str,
+) -> crate::models::AppResult<String> {
+    let api_url = format!(
+        "https://www.mingdecode.com/api/almanac?date={}",
+        target_date
+    );
 
     let response = client.get(&api_url).send().await?.error_for_status()?;
 
@@ -73,7 +92,10 @@ pub async fn fetch_and_format_almanac(client: &Client, target_date: &str) -> cra
     match serde_json::from_str::<AlmanacResponse>(&text_response) {
         Ok(data) => Ok(format_almanac_data(&data)),
         Err(e) => {
-            tracing::warn!("Failed to deserialize almanac data into struct, error: {}. Falling back to generic text formatting.", e);
+            tracing::warn!(
+                "Failed to deserialize almanac data into struct, error: {}. Falling back to generic text formatting.",
+                e
+            );
             // Fallback: Just parse as generic Value and print
             let raw: Value = serde_json::from_str(&text_response)?;
             Ok(format!("{:#?}", raw))
@@ -242,8 +264,16 @@ fn format_almanac_data(data: &AlmanacResponse) -> String {
     if let Some(gan_zhi) = &data.gan_zhi
         && let Some(day_gz) = &gan_zhi.day
     {
-        let stem = day_gz.chars().next().map(|c| c.to_string()).unwrap_or_default();
-        let branch = day_gz.chars().nth(1).map(|c| c.to_string()).unwrap_or_default();
+        let stem = day_gz
+            .chars()
+            .next()
+            .map(|c| c.to_string())
+            .unwrap_or_default();
+        let branch = day_gz
+            .chars()
+            .nth(1)
+            .map(|c| c.to_string())
+            .unwrap_or_default();
         if !stem.is_empty() && !branch.is_empty() {
             let kw = get_empty_death(&stem, &branch);
             parts.push(format!("空亡:\n  {}", kw));
@@ -324,8 +354,10 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
     let state = crate::models::get_state();
 
     // Parse dates
-    let start = chrono::NaiveDate::parse_from_str(req.start_date, "%Y-%m-%d").log_err_msg("Invalid start date")?;
-    let end = chrono::NaiveDate::parse_from_str(req.end_date, "%Y-%m-%d").log_err_msg("Invalid end date")?;
+    let start = chrono::NaiveDate::parse_from_str(req.start_date, "%Y-%m-%d")
+        .log_err_msg("Invalid start date")?;
+    let end = chrono::NaiveDate::parse_from_str(req.end_date, "%Y-%m-%d")
+        .log_err_msg("Invalid end date")?;
 
     let mut current = start;
     let mut dates = Vec::new();
@@ -342,10 +374,17 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
 
     if dates.len() > 15 {
         // Fallback protection
-        return Ok(LlmResponse::Full("⚠️ 选定的日期范围过大。为保证推算精度，最多允许选择 14 天的范围。请重新选择。".to_string()));
+        return Ok(LlmResponse::Full(
+            "⚠️ 选定的日期范围过大。为保证推算精度，最多允许选择 14 天的范围。请重新选择。"
+                .to_string(),
+        ));
     }
 
-    tracing::info!("Fetching almanac data for {} dates for activity: {}", dates.len(), req.activity);
+    tracing::info!(
+        "Fetching almanac data for {} dates for activity: {}",
+        dates.len(),
+        req.activity
+    );
 
     // Fetch almanac for all dates concurrently
     let mut fetch_futures = Vec::new();
@@ -392,16 +431,28 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
     );
 
     tracing::debug!("Date Selection Full User Prompt:\n{}", user_content);
-    let user_message = ChatCompletionRequestUserMessageArgs::default().content(user_content).build()?;
+    let user_message = ChatCompletionRequestUserMessageArgs::default()
+        .content(user_content)
+        .build()?;
 
-    let model_name = req.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
-    let mut params = crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()]);
+    let model_name = req
+        .llm_model
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_else(|| state.config.llm_model_name.clone());
+    let mut params = crate::services::llm::LlmRequestParams::new(
+        model_name.clone(),
+        vec![system_message.into(), user_message.into()],
+    );
     params.temperature = Some(0.2); // Low temperature for factual analysis
     params.top_p = Some(0.75);
     params.stream = Some(stream);
     params.user_id = req.user_id;
     params.request_type = req.request_type;
 
-    tracing::info!("Sending request to LLM for Date Selection (Model: {}, stream: {})...", model_name, stream);
+    tracing::info!(
+        "Sending request to LLM for Date Selection (Model: {}, stream: {})...",
+        model_name,
+        stream
+    );
     crate::services::llm::call_llm(&state.db_pool, &state.config.llm_client_config, params).await
 }

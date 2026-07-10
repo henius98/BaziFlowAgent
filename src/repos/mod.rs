@@ -20,16 +20,24 @@ fn generate_time_id() -> i64 {
 pub async fn init_db(db_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let options = SqliteConnectOptions::from_str(db_url)?.create_if_missing(true);
 
-    let pool = SqlitePoolOptions::new().max_connections(5).connect_with(options).await?;
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect_with(options)
+        .await?;
 
     // Automatically apply any pending migrations
     // If we hit a VersionMismatch, it usually means the DB state and the filesystem are out of sync.
     // We handle this by dropping the metadata table (safe since our SQL uses IF NOT EXISTS).
     if let Err(e) = sqlx::migrate!("./migrations").run(&pool).await {
-        error!("Initial migration failed: {}. Attempting metadata reset...", e);
+        error!(
+            "Initial migration failed: {}. Attempting metadata reset...",
+            e
+        );
 
         // Attempt to Drop the migrations table to force a resync
-        let _ = sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations").execute(&pool).await;
+        let _ = sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations")
+            .execute(&pool)
+            .await;
 
         // Retry migration
         sqlx::migrate!("./migrations").run(&pool).await?;
@@ -41,7 +49,14 @@ pub async fn init_db(db_url: &str) -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
-pub async fn upsert_user_bazi(pool: &SqlitePool, user_id: u64, username: Option<&str>, bazi_four_pillars: &str, gender: u8, birth_datetime: &str) {
+pub async fn upsert_user_bazi(
+    pool: &SqlitePool,
+    user_id: u64,
+    username: Option<&str>,
+    bazi_four_pillars: &str,
+    gender: u8,
+    birth_datetime: &str,
+) {
     let result = sqlx::query(
         r#"
         INSERT INTO users (user_id, username, bazi_four_pillars, gender, birth_datetime)
@@ -91,7 +106,13 @@ pub struct UserProfileData {
     pub schedule: Option<String>,
 }
 
-type UserProfileRow = (Option<String>, Option<String>, Option<String>, Option<u8>, Option<String>);
+type UserProfileRow = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<u8>,
+    Option<String>,
+);
 
 pub async fn get_user_profile(pool: &SqlitePool, user_id: u64) -> UserProfileData {
     let row: Option<UserProfileRow> = sqlx::query_as(r#"SELECT json(bazi_four_pillars), bazi_analysis, bazi_summary, llm_model, schedule FROM users WHERE user_id = ?1"#)
@@ -131,7 +152,9 @@ pub async fn get_all_scheduled_users(pool: &SqlitePool) -> Vec<(u64, String)> {
             Vec::new()
         });
 
-    rows.into_iter().map(|(user_id, schedule)| (user_id as u64, schedule)).collect()
+    rows.into_iter()
+        .map(|(user_id, schedule)| (user_id as u64, schedule))
+        .collect()
 }
 
 pub struct LlmLogParams<'a> {
@@ -206,7 +229,11 @@ pub async fn save_user_bazi_summary(pool: &SqlitePool, user_id: u64, summary: &s
     }
 }
 
-pub async fn update_user_schedule(pool: &SqlitePool, user_id: u64, schedule: Option<&str>) -> crate::models::error::AppResult<()> {
+pub async fn update_user_schedule(
+    pool: &SqlitePool,
+    user_id: u64,
+    schedule: Option<&str>,
+) -> crate::models::error::AppResult<()> {
     let result = sqlx::query(
         r#"
         UPDATE users SET schedule = ?2
@@ -285,12 +312,14 @@ pub async fn get_user_id_by_api_key(pool: &SqlitePool, raw_key: &str) -> Option<
 
 /// Get API key display info (prefix + created_at) for a user.
 pub async fn get_api_key_info(pool: &SqlitePool, user_id: u64) -> Option<(String, String)> {
-    sqlx::query_as::<_, (String, String)>("SELECT key_prefix, created_at FROM api_keys WHERE user_id = ?1")
-        .bind(user_id as i64)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
+    sqlx::query_as::<_, (String, String)>(
+        "SELECT key_prefix, created_at FROM api_keys WHERE user_id = ?1",
+    )
+    .bind(user_id as i64)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Get the username for a user_id from the users table.

@@ -35,7 +35,7 @@ fn stream_to_sse(
 ) -> impl Stream<Item = Result<Event, std::convert::Infallible>> {
     async_stream::stream! {
         while let Some(chunk) = rx.recv().await {
-            yield Ok(Event::default().data(serde_json::json!({"type": "chunk", "content": chunk}).to_string()));
+            yield Ok(Event::default().event("chunk").data(chunk));
         }
         yield Ok(Event::default().data("[DONE]"));
     }
@@ -60,7 +60,10 @@ pub async fn create_profile(
 
     // Validate inputs
     if req.gender > 1 {
-        return api_error(StatusCode::BAD_REQUEST, "gender must be 0 (female) or 1 (male)");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "gender must be 0 (female) or 1 (male)",
+        );
     }
     if req.birth_hour > 23 {
         return api_error(StatusCode::BAD_REQUEST, "birth_hour must be 0-23");
@@ -69,7 +72,10 @@ pub async fn create_profile(
         return api_error(StatusCode::BAD_REQUEST, "birth_minute must be 0-59");
     }
     if chrono::NaiveDate::parse_from_str(&req.birth_date, "%Y-%m-%d").is_err() {
-        return api_error(StatusCode::BAD_REQUEST, "birth_date must be YYYY-MM-DD format");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "birth_date must be YYYY-MM-DD format",
+        );
     }
 
     let username = repos::get_username_by_user_id(&state.db_pool, user_id)
@@ -98,53 +104,61 @@ pub async fn create_profile(
     };
 
     // Build and save HTML chart
-    services::bazi_service::build_and_save_bazi_html(&state, user_id, &username, &structured_data).await;
+    services::bazi_service::build_and_save_bazi_html(&state, user_id, &username, &structured_data)
+        .await;
 
     let chart_url = services::bazi_service::get_bazi_chart_url(&state, user_id)
         .await
-        .unwrap_or_else(|_| format!("{}/bazi_{}.html", state.config.base_url.trim_end_matches('/'), user_id));
+        .unwrap_or_else(|_| {
+            format!(
+                "{}/bazi_{}.html",
+                state.config.base_url.trim_end_matches('/'),
+                user_id
+            )
+        });
 
     let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
     let llm_model = user_profile.llm_model;
 
     if is_stream {
         // SSE streaming mode
-        match services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model).await {
+        match services::bazi_service::core_bazi_analysis(
+            &state,
+            user_id,
+            &structured_data,
+            llm_model,
+        )
+        .await
+        {
             Ok(receiver) => {
                 let chart_url_clone = chart_url.clone();
                 let sse_stream = async_stream::stream! {
                     // First event: chart URL
-                    yield Ok::<_, std::convert::Infallible>(Event::default().data(
-                        serde_json::json!({"type": "chart_url", "content": chart_url_clone}).to_string()
-                    ));
+                    yield Ok::<_, std::convert::Infallible>(Event::default().event("chart_url").data(&chart_url_clone));
 
                     // Stream analysis chunks
                     let mut rx = receiver;
                     let mut full_text = String::new();
                     while let Some(chunk) = rx.recv().await {
                         full_text.push_str(&chunk);
-                        yield Ok(Event::default().data(
-                            serde_json::json!({"type": "analysis_chunk", "content": chunk}).to_string()
-                        ));
-                    }
-
-                    // Save analysis to DB
-                    if !full_text.is_empty() {
-                        let state = models::get_state();
-                        repos::save_user_bazi_analysis(&state.db_pool, user_id, &full_text).await;
-
-                        // Generate summary
-                        if let Ok(summary) = services::bazi_service::generate_bazi_summary(
-                            &state, user_id, &full_text, llm_model,
-                        ).await {
-                            repos::save_user_bazi_summary(&state.db_pool, user_id, &summary).await;
-                            yield Ok(Event::default().data(
-                                serde_json::json!({"type": "summary", "content": summary}).to_string()
-                            ));
-                        }
+                        yield Ok(Event::default().event("analysis_chunk").data(&chunk));
                     }
 
                     yield Ok(Event::default().data("[DONE]"));
+
+                    // Save analysis to DB and generate summary in background
+                    if !full_text.is_empty() {
+                        let state = models::get_state();
+                        tokio::spawn(async move {
+                            repos::save_user_bazi_analysis(&state.db_pool, user_id, &full_text).await;
+
+                            if let Ok(summary) = services::bazi_service::generate_bazi_summary(
+                                &state, user_id, &full_text, llm_model,
+                            ).await {
+                                repos::save_user_bazi_summary(&state.db_pool, user_id, &summary).await;
+                            }
+                        });
+                    }
                 };
                 return Sse::new(sse_stream).into_response();
             }
@@ -159,7 +173,14 @@ pub async fn create_profile(
     }
 
     // Non-streaming mode: collect full response
-    let analysis = match services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model).await {
+    let analysis = match services::bazi_service::core_bazi_analysis(
+        &state,
+        user_id,
+        &structured_data,
+        llm_model,
+    )
+    .await
+    {
         Ok(receiver) => collect_stream(receiver).await,
         Err(e) => {
             error!("API: Failed to generate bazi analysis: {}", e);
@@ -176,7 +197,9 @@ pub async fn create_profile(
 
     // Generate summary
     let summary = if !analysis.is_empty() {
-        match services::bazi_service::generate_bazi_summary(&state, user_id, &analysis, llm_model).await {
+        match services::bazi_service::generate_bazi_summary(&state, user_id, &analysis, llm_model)
+            .await
+        {
             Ok(s) => {
                 repos::save_user_bazi_summary(&state.db_pool, user_id, &s).await;
                 Some(s)
@@ -226,7 +249,9 @@ pub async fn get_profile(auth: AuthUser) -> Response {
         None => (None, None, None, None),
     };
 
-    let chart_url = services::bazi_service::get_bazi_chart_url(&state, user_id).await.ok();
+    let chart_url = services::bazi_service::get_bazi_chart_url(&state, user_id)
+        .await
+        .ok();
 
     let llm_model_str = user_profile.llm_model.map(|m| m.as_str().to_string());
 
@@ -276,16 +301,17 @@ pub async fn date_fortune(
         );
     };
 
-    let almanac_data = match services::almanac::fetch_and_format_almanac(&state.http_client, &req.date).await {
-        Ok(data) => data,
-        Err(e) => {
-            error!("API: Failed to fetch almanac: {}", e);
-            return api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to fetch almanac data: {}", e),
-            );
-        }
-    };
+    let almanac_data =
+        match services::almanac::fetch_and_format_almanac(&state.http_client, &req.date).await {
+            Ok(data) => data,
+            Err(e) => {
+                error!("API: Failed to fetch almanac: {}", e);
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to fetch almanac data: {}", e),
+                );
+            }
+        };
 
     let bazi_summary = user_profile
         .bazi_summary
@@ -305,16 +331,12 @@ pub async fn date_fortune(
     .await
     {
         Ok(models::LlmResponse::Stream(receiver)) if is_stream => {
-            let almanac_clone = almanac_data.clone();
+            let almanac_clone = serde_json::to_string(&almanac_data).unwrap_or_default();
             let sse_stream = async_stream::stream! {
-                yield Ok::<_, std::convert::Infallible>(Event::default().data(
-                    serde_json::json!({"type": "almanac", "content": almanac_clone}).to_string()
-                ));
+                yield Ok::<_, std::convert::Infallible>(Event::default().event("almanac").data(almanac_clone));
                 let mut rx = receiver;
                 while let Some(chunk) = rx.recv().await {
-                    yield Ok(Event::default().data(
-                        serde_json::json!({"type": "analysis_chunk", "content": chunk}).to_string()
-                    ));
+                    yield Ok(Event::default().event("analysis_chunk").data(chunk));
                 }
                 yield Ok(Event::default().data("[DONE]"));
             };
@@ -325,7 +347,10 @@ pub async fn date_fortune(
             analysis,
         }))
         .into_response(),
-        Ok(_) => api_error(StatusCode::INTERNAL_SERVER_ERROR, "Unexpected response type from LLM"),
+        Ok(_) => api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Unexpected response type from LLM",
+        ),
         Err(e) => {
             error!("API: Date fortune error: {}", e);
             api_error(
@@ -350,10 +375,16 @@ pub async fn pick_date(
 
     // Validate dates
     if chrono::NaiveDate::parse_from_str(&req.start_date, "%Y-%m-%d").is_err() {
-        return api_error(StatusCode::BAD_REQUEST, "start_date must be YYYY-MM-DD format");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "start_date must be YYYY-MM-DD format",
+        );
     }
     if chrono::NaiveDate::parse_from_str(&req.end_date, "%Y-%m-%d").is_err() {
-        return api_error(StatusCode::BAD_REQUEST, "end_date must be YYYY-MM-DD format");
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "end_date must be YYYY-MM-DD format",
+        );
     }
     if req.activity.trim().is_empty() {
         return api_error(StatusCode::BAD_REQUEST, "activity must not be empty");
@@ -391,9 +422,16 @@ pub async fn pick_date(
     })
     .await
     {
-        Ok(models::LlmResponse::Stream(receiver)) if is_stream => Sse::new(stream_to_sse(receiver)).into_response(),
-        Ok(models::LlmResponse::Full(analysis)) => Json(ApiResponse::ok(PickData { analysis })).into_response(),
-        Ok(_) => api_error(StatusCode::INTERNAL_SERVER_ERROR, "Unexpected response type from LLM"),
+        Ok(models::LlmResponse::Stream(receiver)) if is_stream => {
+            Sse::new(stream_to_sse(receiver)).into_response()
+        }
+        Ok(models::LlmResponse::Full(analysis)) => {
+            Json(ApiResponse::ok(PickData { analysis })).into_response()
+        }
+        Ok(_) => api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Unexpected response type from LLM",
+        ),
         Err(e) => {
             error!("API: Pick date error: {}", e);
             api_error(
@@ -417,7 +455,7 @@ pub async fn update_model(auth: AuthUser, Json(req): Json<UpdateModelRequest>) -
             return api_error(
                 StatusCode::BAD_REQUEST,
                 format!("Invalid model ID: {}. Valid: 0, 1, 2", req.model),
-            )
+            );
         }
     };
 
@@ -456,9 +494,14 @@ pub async fn update_schedule(auth: AuthUser, Json(req): Json<UpdateScheduleReque
         None => None,
     };
 
-    if let Err(e) = repos::update_user_schedule(&state.db_pool, user_id, schedule_val.as_deref()).await {
+    if let Err(e) =
+        repos::update_user_schedule(&state.db_pool, user_id, schedule_val.as_deref()).await
+    {
         error!("API: Failed to update schedule: {}", e);
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to update schedule");
+        return api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to update schedule",
+        );
     }
 
     // Note: Schedule runtime updates require the bot instance, which is not available here.
@@ -471,7 +514,11 @@ pub async fn update_schedule(auth: AuthUser, Json(req): Json<UpdateScheduleReque
 // ─────────────────────────────────────────────
 // POST /api/v1/chat
 // ─────────────────────────────────────────────
-pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<ChatRequest>) -> Response {
+pub async fn chat(
+    auth: AuthUser,
+    query: Query<StreamQuery>,
+    Json(req): Json<ChatRequest>,
+) -> Response {
     let state = models::get_state();
     let user_id = auth.user_id;
     let is_stream = query.stream.unwrap_or(false);
@@ -491,32 +538,38 @@ pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<Cha
     // Push user message to context
     {
         let mut ctx = state.user_contexts.entry(user_id).or_default();
-        ctx.push_message(format!("User: {}", req.message), state.config.max_context_messages);
+        ctx.push_message(
+            format!("User: {}", req.message),
+            state.config.max_context_messages,
+        );
         ctx.last_active = chrono::Utc::now();
     }
 
     let system_prompt_text = include_str!("../../prompts/FollowUpAssistant.md");
-    let system_msg = match async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default()
-        .content(system_prompt_text)
-        .build()
-    {
-        Ok(m) => m,
-        Err(e) => {
-            error!("API: Failed to build system message: {}", e);
-            return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to build prompt");
-        }
-    };
+    let system_msg =
+        match async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default()
+            .content(system_prompt_text)
+            .build()
+        {
+            Ok(m) => m,
+            Err(e) => {
+                error!("API: Failed to build system message: {}", e);
+                return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to build prompt");
+            }
+        };
 
-    let mut messages: Vec<async_openai::types::chat::ChatCompletionRequestMessage> = vec![system_msg.into()];
+    let mut messages: Vec<async_openai::types::chat::ChatCompletionRequestMessage> =
+        vec![system_msg.into()];
 
     // Build conversation history from context
     {
         if let Some(ctx) = state.user_contexts.get(&user_id) {
             for m in &ctx.messages {
                 if let Some(stripped) = m.strip_prefix("User: ") {
-                    if let Ok(msg) = async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default()
-                        .content(stripped)
-                        .build()
+                    if let Ok(msg) =
+                        async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default()
+                            .content(stripped)
+                            .build()
                     {
                         messages.push(msg.into());
                     }
@@ -527,9 +580,10 @@ pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<Cha
                     {
                         messages.push(msg.into());
                     }
-                } else if let Ok(msg) = async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default()
-                    .content(m.as_str())
-                    .build()
+                } else if let Ok(msg) =
+                    async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default()
+                        .content(m.as_str())
+                        .build()
                 {
                     messages.push(msg.into());
                 }
@@ -552,7 +606,7 @@ pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<Cha
         Ok(models::LlmResponse::Stream(mut receiver)) if is_stream => {
             let (tx, rx) = tokio::sync::mpsc::channel::<String>(100);
             let state_clone = state.clone();
-            
+
             tokio::spawn(async move {
                 let mut full_reply = String::new();
                 while let Some(chunk) = receiver.recv().await {
@@ -561,19 +615,25 @@ pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<Cha
                         break;
                     }
                 }
-                
+
                 // Save assistant response to context after stream completes
                 let mut ctx = state_clone.user_contexts.entry(user_id).or_default();
-                ctx.push_message(format!("Assistant: {}", full_reply), state_clone.config.max_context_messages);
+                ctx.push_message(
+                    format!("Assistant: {}", full_reply),
+                    state_clone.config.max_context_messages,
+                );
             });
-            
+
             Sse::new(stream_to_sse(rx)).into_response()
-        },
+        }
         Ok(models::LlmResponse::Full(reply)) => {
             // Save assistant response to context
             {
                 let mut ctx = state.user_contexts.entry(user_id).or_default();
-                ctx.push_message(format!("Assistant: {}", reply), state.config.max_context_messages);
+                ctx.push_message(
+                    format!("Assistant: {}", reply),
+                    state.config.max_context_messages,
+                );
             }
             Json(ApiResponse::ok(ChatData { reply })).into_response()
         }
@@ -582,7 +642,10 @@ pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<Cha
             let reply = collect_stream(receiver).await;
             {
                 let mut ctx = state.user_contexts.entry(user_id).or_default();
-                ctx.push_message(format!("Assistant: {}", reply), state.config.max_context_messages);
+                ctx.push_message(
+                    format!("Assistant: {}", reply),
+                    state.config.max_context_messages,
+                );
             }
             Json(ApiResponse::ok(ChatData { reply })).into_response()
         }

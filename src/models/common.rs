@@ -51,8 +51,12 @@ pub const COMMON_CITIES: &[City] = &[
 
 // Bazi records
 pub const STEMS: [&str; 10] = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
-pub const BRANCHES: [&str; 12] = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
-pub const STATES: [&str; 12] = ["长生", "沐浴", "冠带", "临官", "帝旺", "衰", "病", "死", "墓", "绝", "胎", "养"];
+pub const BRANCHES: [&str; 12] = [
+    "子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥",
+];
+pub const STATES: [&str; 12] = [
+    "长生", "沐浴", "冠带", "临官", "帝旺", "衰", "病", "死", "墓", "绝", "胎", "养",
+];
 
 /// Five Element (五行) type for the overcoming/destroying (克) cycle
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -68,20 +72,30 @@ impl WuXing {
     pub fn destroys(self, target: WuXing) -> bool {
         matches!(
             (self, target),
-            (Self::Wood, Self::Earth) | (Self::Earth, Self::Water) | (Self::Water, Self::Fire) | (Self::Fire, Self::Metal) | (Self::Metal, Self::Wood)
+            (Self::Wood, Self::Earth)
+                | (Self::Earth, Self::Water)
+                | (Self::Water, Self::Fire)
+                | (Self::Fire, Self::Metal)
+                | (Self::Metal, Self::Wood)
         )
     }
     /// Generating cycle (生): Wood→Fire→Earth→Metal→Water→Wood
     pub fn generates(self, target: WuXing) -> bool {
         matches!(
             (self, target),
-            (Self::Wood, Self::Fire) | (Self::Fire, Self::Earth) | (Self::Earth, Self::Metal) | (Self::Metal, Self::Water) | (Self::Water, Self::Wood)
+            (Self::Wood, Self::Fire)
+                | (Self::Fire, Self::Earth)
+                | (Self::Earth, Self::Metal)
+                | (Self::Metal, Self::Water)
+                | (Self::Water, Self::Wood)
         )
     }
 }
 
 // Calender
-pub const MONTH_NAME: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+pub const MONTH_NAME: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 pub const DAY_HEADERS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /// LLM response: either a complete string or a streaming channel.

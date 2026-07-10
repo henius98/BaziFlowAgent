@@ -3,7 +3,9 @@ use chrono::{NaiveDate, Timelike};
 
 #[test]
 fn test_malacca_conversion() {
-    let dt = NaiveDate::from_ymd_opt(1998, 10, 8).and_then(|d| d.and_hms_opt(7, 21, 0)).expect("test constant must be valid");
+    let dt = NaiveDate::from_ymd_opt(1998, 10, 8)
+        .and_then(|d| d.and_hms_opt(7, 21, 0))
+        .expect("test constant must be valid");
     let sun_time = calculate_true_solar_time(dt, &"Malacca".to_string(), 120.0);
 
     // Expected: ~06:22

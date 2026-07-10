@@ -1,7 +1,10 @@
 //! Shared utility functions for local calculated bazi.
 
 use crate::models::common::{BRANCHES, STATES, STEMS, WuXing};
-use crate::services::paipan::models::{AdditionalInfo, BasePillarData, BasicInfo, DaYunData, ElementStates, LiuNian, LuckInfo, PillarData, RawBaziChart, Relations, StructuredBazi};
+use crate::services::paipan::models::{
+    AdditionalInfo, BasePillarData, BasicInfo, DaYunData, ElementStates, LiuNian, LuckInfo,
+    PillarData, RawBaziChart, Relations, StructuredBazi,
+};
 use chrono::Datelike;
 
 // ─── Structured data assembly ────────────────────────────────
@@ -41,7 +44,10 @@ pub fn map_bazi_data(params: MapBaziParams<'_>) -> StructuredBazi {
         pillars.push(PillarData {
             name: name.to_string(),
             base: BasePillarData {
-                stem_and_stars: vec![(stem.to_string(), chart.ss.get(i).cloned().unwrap_or_default())],
+                stem_and_stars: vec![(
+                    stem.to_string(),
+                    chart.ss.get(i).cloned().unwrap_or_default(),
+                )],
                 branch: branch.to_string(),
                 hidden_stems_and_stars: {
                     let cg = chart.cg.get(i).cloned().unwrap_or_default();
@@ -66,7 +72,11 @@ pub fn map_bazi_data(params: MapBaziParams<'_>) -> StructuredBazi {
         .map(|(i, (gz_str, shensha))| {
             let start_year = birth_year + (chart.qiyunsui as i32) + (i as i32) * 10 - 1;
             let is_current_dayun = i == *luck_index;
-            let relation = if is_current_dayun { extract_relations(&chart.dy_gz_relations) } else { None };
+            let relation = if is_current_dayun {
+                extract_relations(&chart.dy_gz_relations)
+            } else {
+                None
+            };
 
             DaYunData {
                 is_current_dayun,
@@ -100,7 +110,12 @@ pub fn map_bazi_data(params: MapBaziParams<'_>) -> StructuredBazi {
 
     StructuredBazi {
         info: BasicInfo {
-            gender: if gender == 1 { "男,乾造" } else { "女,坤造" }.to_string(),
+            gender: if gender == 1 {
+                "男,乾造"
+            } else {
+                "女,坤造"
+            }
+            .to_string(),
             lunisolar_date: chart.bz.lunisolar_date.clone(),
             solar_date: solar_dt_str,
             birth_location: location.unwrap_or_else(|| "未知".to_string()),
@@ -115,7 +130,10 @@ pub fn map_bazi_data(params: MapBaziParams<'_>) -> StructuredBazi {
         luck_info: LuckInfo {
             start_age: chart.qiyunsui.to_string(),
             transition_time: chart.jiaoyun.clone(),
-            start_ages: format!("出生后{}年{}月{}天{}时起运", &chart.qiyunarr[0], &chart.qiyunarr[1], &chart.qiyunarr[2], &chart.qiyunarr[3]),
+            start_ages: format!(
+                "出生后{}年{}月{}天{}时起运",
+                &chart.qiyunarr[0], &chart.qiyunarr[1], &chart.qiyunarr[2], &chart.qiyunarr[3]
+            ),
         },
         dayun,
         liunian: arrange_liunian(chart, lunisolar_year, ln_gz),
@@ -132,7 +150,10 @@ pub fn fetch_liunian() -> (i32, String) {
     }
     let stem_idx = (year.rem_euclid(10) + 6) % 10;
     let branch_idx = (year.rem_euclid(12) + 8) % 12;
-    let gz = format!("{}{}", STEMS[stem_idx as usize], BRANCHES[branch_idx as usize]);
+    let gz = format!(
+        "{}{}",
+        STEMS[stem_idx as usize], BRANCHES[branch_idx as usize]
+    );
     (year, gz)
 }
 
@@ -147,12 +168,23 @@ fn extract_relations(relations: &Option<Vec<Vec<String>>>) -> Option<Relations> 
     fn clean_relations(v: &[String]) -> Vec<String> {
         v.iter()
             .filter(|s| !s.is_empty())
-            .map(|s| s.split(',').next().map(|first| first.to_string()).unwrap_or_else(|| s.clone()))
+            .map(|s| {
+                s.split(',')
+                    .next()
+                    .map(|first| first.to_string())
+                    .unwrap_or_else(|| s.clone())
+            })
             .collect()
     }
     relations.as_ref().map(|rel| Relations {
-        stem_relations: rel.first().map(|v| clean_relations(v)).filter(|v| !v.is_empty()),
-        branch_relations: rel.get(1).map(|v| clean_relations(v)).filter(|v| !v.is_empty()),
+        stem_relations: rel
+            .first()
+            .map(|v| clean_relations(v))
+            .filter(|v| !v.is_empty()),
+        branch_relations: rel
+            .get(1)
+            .map(|v| clean_relations(v))
+            .filter(|v| !v.is_empty()),
     })
 }
 
@@ -178,7 +210,10 @@ pub fn calculate_gz_info(gz: &str, day_master: &str, shensha: Vec<String>) -> Ba
     BasePillarData {
         stem_and_stars: vec![(stem.clone(), get_ten_god(day_master, &stem).to_string())],
         branch: branch.clone(),
-        hidden_stems_and_stars: get_hidden_stems(&branch).iter().map(|&s| (s.to_string(), get_ten_god(day_master, s).to_string())).collect(),
+        hidden_stems_and_stars: get_hidden_stems(&branch)
+            .iter()
+            .map(|&s| (s.to_string(), get_ten_god(day_master, s).to_string()))
+            .collect(),
         star_luck: get_star_luck(day_master, &branch).to_string(),
         self_sitting: get_star_luck(&stem, &branch).to_string(),
         empty_death: get_empty_death(&stem, &branch),
