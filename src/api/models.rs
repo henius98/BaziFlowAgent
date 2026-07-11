@@ -125,3 +125,23 @@ pub struct ScheduleData {
 pub struct ChatData {
     pub reply: String,
 }
+
+// ─────────────────────────────────────────────
+// WebSocket types
+// ─────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum ClientMessage {
+    Generate { date: String },
+    Stop,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ServerMessage {
+    Almanac { data: serde_json::Value },
+    Chunk { data: String },
+    Done,
+    Error { message: String },
+}
