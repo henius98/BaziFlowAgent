@@ -191,8 +191,22 @@ async fn test_all_api_endpoints() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // ==========================================
-    // 6. POST /date-fortune
+    // 6. GET /date-fortune (WebSocket Upgrade)
     // ==========================================
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app_ws = app.clone();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app_ws).await;
+    });
+
+    let ws_url = format!("ws://{}/api/v1/date-fortune", addr);
+    let mut request = tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(ws_url).unwrap();
+    request.headers_mut().insert(
+        header::AUTHORIZATION,
+        header::HeaderValue::from_str(&format!("Bearer {}", api_key)).unwrap(),
+    );
+
     let _m6 = server.mock("GET", mockito::Matcher::Regex(r"^/getHuangli\.php.*".to_string()))
         .with_status(200)
         .with_body(r#"{"y":"2023","m":"10","d":"10","nongli":"八月廿六","suici":["癸卯年","壬戌月","辛酉日"],"yi":["祈福"],"ji":["出行"],"jsyq":["天恩"],"xsyq":["死神"],"wuxing":"石榴木","chong":"兔","sha":"东","jsyq_desc":["..."],"xsyq_desc":["..."],"pengzujiji":["辛不合酱","酉不会客"],"caishen":"正东","xishen":"西南","fushen":"西南","js_list":[{"time":"0:00-0:59","dz":"子","jx":"凶"}],"sc_list":[{"time":"0:00-0:59","dz":"子","sc":"...","cx":"..."}]}"#)
@@ -201,22 +215,34 @@ async fn test_all_api_endpoints() {
     let m7 = server.mock("POST", "/chat/completions")
         .match_body(mockito::Matcher::Regex(r#"(?s).*【目标预测日期】.*"#.to_string()))
         .with_status(200)
-        .with_body(r#"{"id":"1","object":"chat.completion","created":1694268190,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"Mocked Fortune"},"finish_reason":"stop"}]}"#)
+        .with_header("content-type", "text/event-stream")
+        .with_body("data: {\"id\":\"chatcmpl-123\",\"object\":\"chat.completion.chunk\",\"created\":1694268190,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Mocked Fortune WS\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n")
         .expect(1)
         .create_async().await;
 
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/date-fortune")
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(header::AUTHORIZATION, format!("Bearer {}", api_key))
-        .body(Body::from(
-            serde_json::json!({"date": "2023-10-10"}).to_string(),
-        ))
-        .unwrap();
+    let (mut ws_stream, response) = tokio_tungstenite::connect_async(request).await.expect("Failed to connect WS");
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
 
-    let response = app.clone().oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    ws_stream.send(Message::Text(serde_json::json!({
+        "action": "generate",
+        "date": "2023-10-10"
+    }).to_string().into())).await.unwrap();
+
+    // Read almanac
+    let almanac_msg = ws_stream.next().await.unwrap().unwrap();
+    let almanac_text = almanac_msg.to_text().unwrap();
+    assert!(almanac_text.contains("almanac"));
+
+    // Read full chunk response
+    let chunk_msg = ws_stream.next().await.unwrap().unwrap();
+    let chunk_text = chunk_msg.to_text().unwrap();
+    assert!(chunk_text.contains("chunk"));
+
+    // We can just close it now
+    ws_stream.close(None).await.unwrap();
     m7.assert_async().await;
 
     // ==========================================

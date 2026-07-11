@@ -86,3 +86,4 @@ panic = "abort"
 
 [dev-dependencies]
 mockito = "1.0"
+tokio-tungstenite = "0.29.0"
