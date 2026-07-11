@@ -1,13 +1,13 @@
 use axum::{
     Json,
-    extract::Query,
+    extract::{Query, ws::{WebSocket, WebSocketUpgrade, Message}},
     http::StatusCode,
     response::{
         IntoResponse, Response,
         sse::{Event, Sse},
     },
 };
-use futures::stream::Stream;
+use futures::{stream::Stream, StreamExt};
 use serde::Deserialize;
 use tracing::error;
 
@@ -276,16 +276,27 @@ pub async fn get_profile(auth: AuthUser) -> Response {
 // ─────────────────────────────────────────────
 pub async fn date_fortune(
     auth: AuthUser,
-    query: Query<StreamQuery>,
-    Json(req): Json<DateFortuneRequest>,
+    ws: WebSocketUpgrade,
 ) -> Response {
-    let state = models::get_state();
-    let user_id = auth.user_id;
-    let is_stream = query.stream.unwrap_or(false);
+    ws.on_upgrade(move |socket| handle_socket(socket, auth.user_id))
+}
 
-    if chrono::NaiveDate::parse_from_str(&req.date, "%Y-%m-%d").is_err() {
-        return api_error(StatusCode::BAD_REQUEST, "date must be YYYY-MM-DD format");
-    }
+async fn handle_socket(mut socket: WebSocket, user_id: u64) {
+    let state = models::get_state();
+
+    // 1. Wait for Generate message
+    let req_date = match socket.next().await {
+        Some(Ok(Message::Text(text))) => {
+            match serde_json::from_str::<ClientMessage>(&text) {
+                Ok(ClientMessage::Generate { date }) => date,
+                _ => {
+                    let _ = socket.send(Message::Text(serde_json::to_string(&ServerMessage::Error { message: "Expected Generate action".into() }).unwrap().into())).await;
+                    return;
+                }
+            }
+        }
+        _ => return,
+    };
 
     let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
     let bazi_four_pillars = user_profile
@@ -295,68 +306,73 @@ pub async fn date_fortune(
         .map(|b| b.to_string());
 
     let Some(bazi_four_pillars) = bazi_four_pillars.as_deref() else {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            "No Bazi profile found. Create one first via POST /api/v1/profile.",
-        );
+        let _ = socket.send(Message::Text(serde_json::to_string(&ServerMessage::Error { message: "No Bazi profile found".into() }).unwrap().into())).await;
+        return;
     };
 
-    let almanac_data =
-        match services::almanac::fetch_and_format_almanac(&state.http_client, &req.date).await {
-            Ok(data) => data,
-            Err(e) => {
-                error!("API: Failed to fetch almanac: {}", e);
-                return api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to fetch almanac data: {}", e),
-                );
-            }
-        };
+    let almanac_data = match services::almanac::fetch_and_format_almanac(&state.http_client, &req_date).await {
+        Ok(data) => data,
+        Err(e) => {
+            let _ = socket.send(Message::Text(serde_json::to_string(&ServerMessage::Error { message: e.to_string() }).unwrap().into())).await;
+            return;
+        }
+    };
+
+    // Send almanac data
+    let almanac_val = serde_json::to_value(&almanac_data).unwrap_or_default();
+    let _ = socket.send(Message::Text(serde_json::to_string(&ServerMessage::Almanac { data: almanac_val }).unwrap().into())).await;
 
     let bazi_summary = user_profile
         .bazi_summary
         .as_deref()
         .unwrap_or_else(|| user_profile.bazi_analysis.as_deref().unwrap_or_default());
 
-    match services::almanac::analysis_date_fortune(services::almanac::DateFortuneRequest {
-        target_date: &req.date,
+    let llm_result = services::almanac::analysis_date_fortune(services::almanac::DateFortuneRequest {
+        target_date: &req_date,
         almanac_data: &almanac_data,
         bazi_four_pillars,
         bazi_summary,
-        stream: is_stream,
+        stream: true,
         llm_model: user_profile.llm_model,
         user_id: Some(user_id as i64),
         request_type: Some("api_date_fortune".to_string()),
-    })
-    .await
-    {
-        Ok(models::LlmResponse::Stream(receiver)) if is_stream => {
-            let almanac_clone = serde_json::to_string(&almanac_data).unwrap_or_default();
-            let sse_stream = async_stream::stream! {
-                yield Ok::<_, std::convert::Infallible>(Event::default().event("almanac").data(almanac_clone));
-                let mut rx = receiver;
-                while let Some(chunk) = rx.recv().await {
-                    yield Ok(Event::default().event("analysis_chunk").data(chunk));
+    }).await;
+
+    match llm_result {
+        Ok(models::LlmResponse::Stream(mut receiver)) => {
+            loop {
+                tokio::select! {
+                    msg = socket.next() => {
+                        match msg {
+                            Some(Ok(Message::Text(text))) => {
+                                if let Ok(ClientMessage::Stop) = serde_json::from_str::<ClientMessage>(&text) {
+                                    // Drop receiver by breaking the loop
+                                    break;
+                                }
+                            }
+                            Some(Err(_)) | None => {
+                                // Connection closed
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    chunk = receiver.recv() => {
+                        match chunk {
+                            Some(c) => {
+                                let _ = socket.send(Message::Text(serde_json::to_string(&ServerMessage::Chunk { data: c }).unwrap().into())).await;
+                            }
+                            None => {
+                                let _ = socket.send(Message::Text(serde_json::to_string(&ServerMessage::Done).unwrap().into())).await;
+                                break;
+                            }
+                        }
+                    }
                 }
-                yield Ok(Event::default().data("[DONE]"));
-            };
-            Sse::new(sse_stream).into_response()
+            }
         }
-        Ok(models::LlmResponse::Full(analysis)) => Json(ApiResponse::ok(FortuneData {
-            almanac: almanac_data,
-            analysis,
-        }))
-        .into_response(),
-        Ok(_) => api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Unexpected response type from LLM",
-        ),
-        Err(e) => {
-            error!("API: Date fortune error: {}", e);
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to generate fortune analysis: {}", e),
-            )
+        _ => {
+            let _ = socket.send(Message::Text(serde_json::to_string(&ServerMessage::Error { message: "Expected stream".into() }).unwrap().into())).await;
         }
     }
 }

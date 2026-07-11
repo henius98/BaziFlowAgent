@@ -15,7 +15,7 @@ pub fn api_router() -> Router {
             "/api/v1/profile",
             get(handlers::get_profile).post(handlers::create_profile),
         )
-        .route("/api/v1/date-fortune", post(handlers::date_fortune))
+        .route("/api/v1/date-fortune", get(handlers::date_fortune))
         .route("/api/v1/pick-date", post(handlers::pick_date))
         .route("/api/v1/model", put(handlers::update_model))
         .route("/api/v1/schedule", put(handlers::update_schedule))
