@@ -28,6 +28,7 @@ fn chart_parsing_before_after() {
 #[ignore = "loopback WebSocket load test; no external services contacted"]
 async fn websocket_load() {
   let pool = repos::init_db("sqlite::memory:").await.unwrap();
+  let database = repos::Database::Sqlite(pool.clone());
   let mut config = test_helpers::test_config("http://127.0.0.1:1".into());
   config.runtime.max_connections = 1200;
   let config = Arc::new(config);
@@ -45,7 +46,7 @@ async fn websocket_load() {
     let mut credentials = Vec::new();
     for id in offset + 1..=offset + count {
       sqlx::query("INSERT INTO users(user_id) VALUES(?)").bind(id).execute(&pool).await.unwrap();
-      credentials.push(repos::create_api_key(&pool, id as u64).await.unwrap());
+      credentials.push(repos::create_api_key(&database, id as u64).await.unwrap());
     }
     offset += count;
     let start = Instant::now();

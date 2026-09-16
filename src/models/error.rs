@@ -12,6 +12,9 @@ pub enum AppError {
   #[error("Database Error: {0}")]
   Db(#[from] sqlx::Error),
 
+  #[error("D1 Database Error: {0}")]
+  D1(String),
+
   #[error("OpenAI API Error: {0}")]
   OpenAI(#[from] async_openai::error::OpenAIError),
 

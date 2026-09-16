@@ -41,11 +41,12 @@ async fn request(socket: &mut Socket, id: &str, action: Value) -> Value {
 #[tokio::test]
 async fn integration_boundary_lifecycle_and_authorization() {
   let pool = repos::init_db("sqlite::memory:").await.unwrap();
+  let database = repos::Database::Sqlite(pool.clone());
   for user in 1..=4 {
     sqlx::query("INSERT INTO users(user_id) VALUES(?)").bind(user).execute(&pool).await.unwrap();
   }
-  let key = repos::create_api_key(&pool, 1).await.unwrap();
-  let key2 = repos::create_api_key(&pool, 2).await.unwrap();
+  let key = repos::create_api_key(&database, 1).await.unwrap();
+  let key2 = repos::create_api_key(&database, 2).await.unwrap();
   let mut config = test_helpers::test_config("http://127.0.0.1:1".into());
   config.runtime.max_connections = 4;
   config.runtime.idle_seconds = 3;
@@ -101,7 +102,7 @@ async fn integration_boundary_lifecycle_and_authorization() {
   assert!(matches!(tokio_tungstenite::connect_async(third).await, Err(tokio_tungstenite::tungstenite::Error::Http(response)) if response.status() == StatusCode::TOO_MANY_REQUESTS));
   second.close(None).await.unwrap();
 
-  let _rotated = repos::create_api_key(&pool, 1).await.unwrap();
+  let _rotated = repos::create_api_key(&database, 1).await.unwrap();
   a.send(Message::Text(json!({"version":1,"id":"revoked","action":{"name":"get_state"}}).to_string().into())).await.unwrap();
   tokio::time::timeout(Duration::from_secs(5), async {
     loop {
@@ -136,7 +137,7 @@ async fn integration_boundary_lifecycle_and_authorization() {
   })
   .await
   .unwrap();
-  let key3 = repos::create_api_key(&pool, 3).await.unwrap();
+  let key3 = repos::create_api_key(&database, 3).await.unwrap();
   let mut idle = connect(&url, &key3).await;
   tokio::time::sleep(Duration::from_secs(4)).await;
   tokio::time::timeout(Duration::from_secs(2), async {
@@ -155,7 +156,7 @@ async fn integration_boundary_lifecycle_and_authorization() {
   .unwrap();
 
   let _ = idle.flush().await;
-  let key4 = repos::create_api_key(&pool, 4).await.unwrap();
+  let key4 = repos::create_api_key(&database, 4).await.unwrap();
   let mut final_socket = connect(&url, &key4).await;
   state.runtime.shutdown.cancel();
   tokio::time::timeout(Duration::from_secs(5), async {

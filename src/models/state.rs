@@ -81,7 +81,7 @@ pub struct AppState {
   pub runtime: Arc<crate::models::runtime::Runtime>,
   pub events: Arc<crate::models::events::EventHub>,
   pub http_client: reqwest::Client,
-  pub db_pool: sqlx::SqlitePool,
+  pub db_pool: crate::repos::Database,
   /// Dedicated, disposable SQLite store for recent chat turns.
   pub chat_cache_pool: sqlx::SqlitePool,
   /// Non-blocking, batched writer for the chat cache.
@@ -104,19 +104,22 @@ pub struct AppState {
 impl AppState {
   pub fn new(
     http_client: reqwest::Client,
-    db_pool: sqlx::SqlitePool,
+    db_pool: impl Into<crate::repos::Database>,
     chat_cache_pool: sqlx::SqlitePool,
     chat_cache_writer: crate::repos::chat_history_cache::ChatHistoryWriter,
     config: Arc<AppConfig>,
   ) -> crate::models::error::AppResult<Self> {
-    let r2_bucket =
-      if let (Some(account_id), Some(access_key), Some(secret_key), Some(bucket_name)) = (&config.r2_account_id, &config.r2_access_key_id, &config.r2_secret_access_key, &config.r2_bucket_name) {
-        let creds = s3::creds::Credentials::new(Some(access_key), Some(secret_key), None, None, None)?;
-        let region = s3::region::Region::Custom { region: "auto".to_owned(), endpoint: format!("https://{}.r2.cloudflarestorage.com", account_id) };
-        Some(s3::Bucket::new(bucket_name, region, creds)?.with_path_style())
-      } else {
-        None
-      };
+    let db_pool = db_pool.into();
+    let r2_bucket = if let Some(d1_config) = &config.d1
+      && let (Some(account_id), Some(access_key), Some(secret_key), Some(bucket_name)) =
+        (&d1_config.r2_account_id, &d1_config.r2_access_key_id, &d1_config.r2_secret_access_key, &d1_config.r2_bucket_name)
+    {
+      let creds = s3::creds::Credentials::new(Some(access_key), Some(secret_key), None, None, None)?;
+      let region = s3::region::Region::Custom { region: "auto".to_owned(), endpoint: format!("https://{}.r2.cloudflarestorage.com", account_id) };
+      Some(s3::Bucket::new(bucket_name, region, creds)?.with_path_style())
+    } else {
+      None
+    };
 
     let runtime = Arc::new(crate::models::runtime::Runtime::new(&config.runtime));
     let llm_service = Arc::new(crate::services::llm::DefaultLlmService { runtime: runtime.clone(), pool: db_pool.clone(), config: config.llm_client_config.clone() });

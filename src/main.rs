@@ -23,10 +23,6 @@ async fn main() -> anyhow::Result<()> {
   let (bot, telegram_worker) = teloxide::adaptors::Throttle::new(Bot::new(&config.telegram_bot_token), Default::default());
   let telegram_worker = tokio::spawn(telegram_worker);
 
-  // Initialize database
-  let db_pool = repos::init_db(&config.database_url).await.context("Failed to initialize database")?;
-  let chat_cache = repos::chat_history_cache::init_chat_history_cache(&config.chat_cache_database_url, config.chat_cache_max_messages).await.context("Failed to initialize chat history cache")?;
-
   // Set a custom User-Agent since some webhooks/Cloudflare block default bot UAs
   let http_client = reqwest::Client::builder()
     .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -34,6 +30,10 @@ async fn main() -> anyhow::Result<()> {
     .timeout(std::time::Duration::from_secs(30))
     .build()
     .context("Failed to build HTTP client")?;
+
+  // Initialize database
+  let db_pool = repos::init_database(&config.database_url, config.d1.as_ref(), http_client.clone()).await.context("Failed to initialize database")?;
+  let chat_cache = repos::chat_history_cache::init_chat_history_cache(&config.chat_cache_database_url, config.chat_cache_max_messages).await.context("Failed to initialize chat history cache")?;
 
   // Shared state
   let state = Arc::new(AppState::new(http_client, db_pool, chat_cache.pool, chat_cache.writer, config.clone())?);

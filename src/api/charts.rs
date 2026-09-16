@@ -13,8 +13,7 @@ pub async fn chart(Path(token): Path<String>) -> Response {
   let Ok(_permit) = state.runtime.requests.clone().try_acquire_owned() else {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
   };
-  let user = sqlx::query_scalar::<_, i64>("SELECT user_id FROM users WHERE chart_token = ?1").bind(token).fetch_optional(&state.db_pool).await;
-  let Ok(Some(user)) = user else {
+  let Some(user) = crate::repos::get_user_id_by_chart_token(&state.db_pool, &token).await else {
     return StatusCode::NOT_FOUND.into_response();
   };
   let Ok(html) = tokio::fs::read(format!("public/bazi_{user}.html")).await else {

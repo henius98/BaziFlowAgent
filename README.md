@@ -20,6 +20,7 @@ A high-performance Telegram Bot built in **Rust** 🦀 that provides professiona
 - **Real-Time WebSocket Integration**: Provides a robust WebSocket API (`/api/v1/date-fortune`) allowing third-party web and mobile clients to receive streaming LLM fortune-telling responses instantly.
 - **Robust Concurrency**: Leverages `tokio` and `DashMap` for memory-safe, lock-free concurrency to maintain isolated user contexts.
 - **Cloudflare R2 Integration**: Optionally offloads generated HTML charts to Cloudflare R2 object storage, generating short-lived presigned URLs for secure and efficient delivery.
+- **Cloudflare D1 Integration**: Optionally stores durable profiles, schedules, API keys, chart capabilities, and LLM logs in D1, with automatic local SQLite fallback.
 - **Strict Rust Quality Standards**: Enforces Microsoft Pragmatic Guidelines, Zero `.unwrap()` error handling architectures, and memory-safe Clean Architecture patterns.
 
 ## 🏗️ Architecture Stack
@@ -29,6 +30,7 @@ A high-performance Telegram Bot built in **Rust** 🦀 that provides professiona
 - **Requests Engine**: `reqwest` + `serde_json`
 - **Task Scheduling**: `tokio-cron-scheduler`
 - **Memory Storage**: InMemory `DashMap` (Self-cleaning stale sessions automatically)
+- **Durable Storage**: Cloudflare D1 when configured, otherwise local SQLite; recent chat history remains in a separate local SQLite cache
 - **Object Storage**: Cloudflare R2 (`rust-s3`) for hosting dynamic HTML charts
 - **API Server**: Minimal `axum` router with `tower-http` (CORS, Tracing) and WebSockets for external orchestration.
 
@@ -70,7 +72,8 @@ BaziFlowAgent/
 │   │   ├── processing_guard.rs   # RAII user processing guard
 │   │   └── state.rs              # AppState struct
 │   ├── repos/
-│   │   └── mod.rs                # SQLite DB layer
+│   │   ├── mod.rs                # Durable database abstraction and queries
+│   │   └── d1.rs                 # Cloudflare D1 REST backend and migrations
 │   └── services/
 │       ├── mod.rs                # Module declarations
 │       ├── almanac.rs            # MingDecode API + Kong Wang calc
@@ -111,6 +114,8 @@ We provide a template for all required environment variables, including database
    cp .env.example .env
    ```
 2. Open `.env` and fill in your secrets (e.g., `TELEGRAM_BOT_TOKEN`, `LLM_API_KEY`).
+
+To use Cloudflare D1 for durable application data, set `D1_DATABASE_ID`, `D1_ACCOUNT_ID`, and `D1_API_TOKEN`. The token needs D1 Read and D1 Write permissions. When `D1_DATABASE_ID` is empty or absent, the application uses `DATABASE_URL` (default: `sqlite://baziflow_agent.db`). The local chat-history cache continues to use `CHAT_CACHE_DATABASE_URL` in either mode.
 
 ### 3. Build & Run locally
 

@@ -11,6 +11,7 @@ pub fn test_config(mock_url: String) -> AppConfig {
     llm_client_config: baziflow_agent::services::llm::LlmClientConfig { api_key: "test".into(), api_base: mock_url, timeout_seconds: 30, http_client: None },
     llm_model_name: "gpt-4o".into(),
     database_url: "sqlite::memory:".into(),
+    d1: None,
     chat_cache_database_url: "sqlite::memory:".into(),
     chat_cache_max_messages: 40,
     user_contexts_expiration_minutes: 60,
@@ -22,10 +23,6 @@ pub fn test_config(mock_url: String) -> AppConfig {
     base_url: "http://localhost".into(),
     log_level: "info".into(),
     cors_allowed_origin: "*".into(),
-    r2_account_id: None,
-    r2_access_key_id: None,
-    r2_secret_access_key: None,
-    r2_bucket_name: None,
   }
 }
 

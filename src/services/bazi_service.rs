@@ -51,7 +51,7 @@ pub async fn prepare_bazi_data(state: &std::sync::Arc<crate::models::AppState>, 
 pub async fn build_and_save_bazi_html(state: &std::sync::Arc<crate::models::AppState>, user_id: u64, username: &str, structured_data: &paipan::StructuredBazi) {
   use rand::Rng;
   let token = hex::encode(rand::rng().random::<[u8; 32]>());
-  if sqlx::query("UPDATE users SET chart_token = ?2 WHERE user_id = ?1").bind(user_id as i64).bind(&token).execute(&state.db_pool).await.is_err() {
+  if repos::set_chart_token(&state.db_pool, user_id, &token).await.is_err() {
     error!("Failed to rotate chart capability");
     return;
   }
@@ -77,7 +77,7 @@ pub async fn get_bazi_chart_url(state: &std::sync::Arc<crate::models::AppState>,
     // Presign URL valid for 24 hours (86400 seconds)
     bucket.presign_get(&filename, 86400, None).await.map_err(|e| crate::models::error::AppError::Message(format!("Failed to generate presigned URL: {}", e)))
   } else {
-    let token: Option<String> = sqlx::query_scalar("SELECT chart_token FROM users WHERE user_id = ?1").bind(user_id as i64).fetch_optional(&state.db_pool).await?.flatten();
+    let token = repos::get_chart_token(&state.db_pool, user_id).await?;
     let token = token.ok_or_else(|| crate::models::AppError::Message("Chart unavailable; regenerate the profile".into()))?;
     Ok(format!("{}/charts/{}", state.config.base_url.trim_end_matches('/'), token))
   }

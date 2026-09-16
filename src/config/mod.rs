@@ -2,6 +2,18 @@ use std::env;
 pub mod runtime;
 pub use runtime::RuntimeConfig;
 
+#[derive(Clone)]
+pub struct D1Config {
+  pub account_id: String,
+  pub database_id: String,
+  pub api_token: String,
+  // Cloudflare R2 options
+  pub r2_account_id: Option<String>,
+  pub r2_access_key_id: Option<String>,
+  pub r2_secret_access_key: Option<String>,
+  pub r2_bucket_name: Option<String>,
+}
+
 /// Application configuration structure loaded from environment variables.
 pub struct AppConfig {
   pub runtime: RuntimeConfig,
@@ -10,6 +22,8 @@ pub struct AppConfig {
   pub llm_client_config: crate::services::llm::LlmClientConfig,
   pub llm_model_name: String,
   pub database_url: String,
+  /// Cloudflare D1 durable database. When absent, `database_url` is used.
+  pub d1: Option<D1Config>,
   /// Separate SQLite database used for short-lived chat history.
   pub chat_cache_database_url: String,
   /// Maximum cached turns retained per user. Defaults to four prompt windows.
@@ -23,12 +37,6 @@ pub struct AppConfig {
   pub log_level: String,
   pub app_timezone: chrono_tz::Tz,
   pub cors_allowed_origin: String,
-
-  // Cloudflare R2 Options
-  pub r2_account_id: Option<String>,
-  pub r2_access_key_id: Option<String>,
-  pub r2_secret_access_key: Option<String>,
-  pub r2_bucket_name: Option<String>,
 }
 
 impl AppConfig {
@@ -54,7 +62,20 @@ impl AppConfig {
     llm_client_config.init_http_client().context("Failed to build LLM HTTP client")?;
     let llm_model_name = env::var("LLM_MODEL_NAME").context("LLM_MODEL_NAME must be set in .env")?;
 
-    let database_url = env::var("DATABASE_URL").context("DATABASE_URL must be set in .env")?;
+    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://baziflow_agent.db".to_string());
+    let d1_database_id = env::var("D1_DATABASE_ID").ok().filter(|value| !value.trim().is_empty());
+    let d1 = match d1_database_id {
+      Some(database_id) => Some(D1Config {
+        account_id: required_d1_env("D1_ACCOUNT_ID")?,
+        database_id: database_id.trim().to_owned(),
+        api_token: required_d1_env("D1_API_TOKEN")?,
+        r2_account_id: optional_env("R2_ACCOUNT_ID"),
+        r2_access_key_id: optional_env("R2_ACCESS_KEY_ID"),
+        r2_secret_access_key: optional_env("R2_SECRET_ACCESS_KEY"),
+        r2_bucket_name: optional_env("R2_BUCKET_NAME"),
+      }),
+      None => None,
+    };
     let chat_cache_database_url = env::var("CHAT_CACHE_DATABASE_URL").unwrap_or_else(|_| "sqlite://baziflow_chat_cache.db".to_string());
 
     let user_contexts_expiration_minutes = env::var("USER_CONTEXTS_EXPIRATION_MINUTES")
@@ -96,12 +117,6 @@ impl AppConfig {
     anyhow::ensure!(chat_cache_max_messages <= 1000, "CHAT_CACHE_MAX_MESSAGES must not exceed 1000");
     anyhow::ensure!(llm_client_config.timeout_seconds > 0 && llm_client_config.timeout_seconds <= 600, "LLM_TIMEOUT_SECONDS must be 1..600");
 
-    // Treat empty/whitespace-only values the same as missing — fallback to local storage
-    let r2_account_id = env::var("R2_ACCOUNT_ID").ok().filter(|v| !v.trim().is_empty());
-    let r2_access_key_id = env::var("R2_ACCESS_KEY_ID").ok().filter(|v| !v.trim().is_empty());
-    let r2_secret_access_key = env::var("R2_SECRET_ACCESS_KEY").ok().filter(|v| !v.trim().is_empty());
-    let r2_bucket_name = env::var("R2_BUCKET_NAME").ok().filter(|v| !v.trim().is_empty());
-
     Ok(Self {
       runtime: RuntimeConfig::from_env()?,
       upstreams: Upstreams::default(),
@@ -109,6 +124,7 @@ impl AppConfig {
       llm_client_config,
       llm_model_name,
       database_url,
+      d1,
       chat_cache_database_url,
       chat_cache_max_messages,
       user_contexts_expiration_minutes,
@@ -120,12 +136,19 @@ impl AppConfig {
       log_level,
       app_timezone,
       cors_allowed_origin,
-      r2_account_id,
-      r2_access_key_id,
-      r2_secret_access_key,
-      r2_bucket_name,
     })
   }
+}
+
+fn required_d1_env(name: &str) -> anyhow::Result<String> {
+  let value = env::var(name).map_err(|_| anyhow::anyhow!("{name} must be set when D1_DATABASE_ID is configured"))?;
+  anyhow::ensure!(!value.trim().is_empty(), "{name} must not be empty when D1_DATABASE_ID is configured");
+  Ok(value.trim().to_owned())
+}
+
+/// Treat empty or whitespace-only values as unset.
+fn optional_env(name: &str) -> Option<String> {
+  env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
 impl std::fmt::Debug for AppConfig {

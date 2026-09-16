@@ -5,7 +5,6 @@ use async_openai::{
   types::chat::{ChatCompletionRequestMessage, ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools, CreateChatCompletionRequest, CreateChatCompletionRequestArgs, ResponseFormat},
 };
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
 use tracing::{debug, error, info};
 
 /// Configuration for the LLM client (credentials and endpoint)
@@ -248,7 +247,7 @@ pub trait LlmService: Send + Sync + std::fmt::Debug {
 #[derive(Debug, Clone)]
 pub struct DefaultLlmService {
   pub runtime: std::sync::Arc<crate::models::runtime::Runtime>,
-  pub pool: sqlx::SqlitePool,
+  pub pool: crate::repos::Database,
   pub config: LlmClientConfig,
 }
 
@@ -261,7 +260,7 @@ impl LlmService for DefaultLlmService {
 /// Provides a general LLM call service using the specified configuration and parameters.
 /// Logs request metadata with bounded tasks; private prompts and responses are redacted.
 /// Depending on `params.stream`, returns either a full response string or a streaming receiver.
-pub async fn call_llm(pool: &SqlitePool, config: &LlmClientConfig, params: LlmRequestParams, runtime: &crate::models::runtime::Runtime) -> AppResult<crate::models::LlmResponse> {
+pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, params: LlmRequestParams, runtime: &crate::models::runtime::Runtime) -> AppResult<crate::models::LlmResponse> {
   let permit = runtime.llm.clone().try_acquire_owned().map_err(|_| anyhow::anyhow!("LLM capacity exhausted"))?;
   let is_stream = params.stream.unwrap_or(false);
   info!("Initializing LLM client for model: {} (streaming: {})", params.model, is_stream);

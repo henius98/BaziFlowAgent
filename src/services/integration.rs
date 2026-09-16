@@ -10,12 +10,8 @@ pub struct Snapshot {
 }
 
 pub async fn snapshot(state: &AppState, owner: u64) -> AppResult<Snapshot> {
-  let row = sqlx::query_as::<_, (bool, Option<u8>, Option<String>)>("SELECT bazi_four_pillars IS NOT NULL, llm_model, schedule FROM users WHERE user_id = ?1")
-    .bind(owner as i64)
-    .fetch_optional(&state.db_pool)
-    .await?;
-  let (has_profile, model, schedule) = row.unwrap_or((false, None, None));
-  Ok(Snapshot { has_profile, model, schedule })
+  let data = crate::repos::get_user_snapshot(&state.db_pool, owner).await?;
+  Ok(Snapshot { has_profile: data.has_profile, model: data.model, schedule: data.schedule })
 }
 
 /// Setting a value is naturally idempotent across retries and reconnects.

@@ -17,7 +17,8 @@ async fn setup_test_app() -> (axum::Router, ServerGuard, Arc<AppState>, String) 
   let user_id = 1;
   sqlx::query("INSERT INTO users (user_id) VALUES (1)").execute(&pool).await.unwrap();
 
-  let api_key = repos::create_api_key(&pool, user_id).await.unwrap();
+  let database = repos::Database::Sqlite(pool.clone());
+  let api_key = repos::create_api_key(&database, user_id).await.unwrap();
 
   let server = mockito::Server::new_async().await;
   let mock_url = server.url();

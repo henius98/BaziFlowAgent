@@ -56,13 +56,6 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthUser {
 
 impl AuthUser {
   pub async fn is_current(&self, state: &crate::models::AppState) -> bool {
-    matches!(
-      tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        sqlx::query_scalar::<_, i64>("SELECT user_id FROM api_keys WHERE key_hash = ?1 AND user_id = ?2").bind(&self.key_hash).bind(self.user_id as i64).fetch_optional(&state.db_pool)
-      )
-      .await,
-      Ok(Ok(Some(_)))
-    )
+    matches!(tokio::time::timeout(std::time::Duration::from_secs(5), repos::is_api_key_current(&state.db_pool, &self.key_hash, self.user_id)).await, Ok(true))
   }
 }
