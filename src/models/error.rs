@@ -3,53 +3,62 @@ use tracing::error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("HTTP Error: {0}")]
-    Http(#[from] reqwest::Error),
+  #[error("HTTP Error: {0}")]
+  Http(#[from] reqwest::Error),
 
-    #[error("JSON Error: {0}")]
-    Json(#[from] serde_json::Error),
+  #[error("JSON Error: {0}")]
+  Json(#[from] serde_json::Error),
 
-    #[error("Database Error: {0}")]
-    Db(#[from] sqlx::Error),
+  #[error("Database Error: {0}")]
+  Db(#[from] sqlx::Error),
 
-    #[error("OpenAI API Error: {0}")]
-    OpenAI(#[from] async_openai::error::OpenAIError),
+  #[error("OpenAI API Error: {0}")]
+  OpenAI(#[from] async_openai::error::OpenAIError),
 
-    #[error("System Error: {0}")]
-    System(#[from] anyhow::Error),
+  #[error("System Error: {0}")]
+  System(#[from] anyhow::Error),
 
-    #[error("Telegram Error: {0}")]
-    Telegram(#[from] teloxide::RequestError),
+  #[error("Telegram Error: {0}")]
+  Telegram(#[from] teloxide::RequestError),
 
-    #[error("Parse Error: {0}")]
-    Parse(#[from] chrono::ParseError),
+  #[error("Parse Error: {0}")]
+  Parse(#[from] chrono::ParseError),
 
-    #[error("Application Error: {0}")]
-    Message(String),
+  #[error("IO Error: {0}")]
+  Io(#[from] std::io::Error),
+
+  #[error("S3 Error: {0}")]
+  S3(#[from] s3::error::S3Error),
+
+  #[error("Credentials Error: {0}")]
+  Credentials(#[from] s3::creds::error::CredentialsError),
+
+  #[error("Application Error: {0}")]
+  Message(String),
 }
 
 impl From<&str> for AppError {
-    fn from(msg: &str) -> Self {
-        AppError::Message(msg.to_string())
-    }
+  fn from(msg: &str) -> Self {
+    AppError::Message(msg.to_string())
+  }
 }
 
 pub type AppResult<T> = Result<T, AppError>;
 
 /// Helper extension trait to log and map specific Results quickly
 pub trait LogErrorExt<T> {
-    fn log_err_msg(self, context_msg: &str) -> AppResult<T>;
+  fn log_err_msg(self, context_msg: &str) -> AppResult<T>;
 }
 
 impl<T, E> LogErrorExt<T> for Result<T, E>
 where
-    E: Into<AppError>,
+  E: Into<AppError>,
 {
-    fn log_err_msg(self, context_msg: &str) -> AppResult<T> {
-        self.map_err(|e| {
-            let app_err: AppError = e.into();
-            error!("{}: {}", context_msg, app_err);
-            app_err
-        })
-    }
+  fn log_err_msg(self, context_msg: &str) -> AppResult<T> {
+    self.map_err(|e| {
+      let app_err: AppError = e.into();
+      error!("{}: {}", context_msg, app_err);
+      app_err
+    })
+  }
 }

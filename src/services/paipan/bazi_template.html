@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Bazi Flow Chart - {{NAME}}</title>
     <meta property="og:title" content="八字命盘 (Bazi Chart) - {{NAME}}" />
     <meta property="og:description" content="Click to view detailed Bazi chart and interactions." />
@@ -11,28 +11,28 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
       media="print"
       onload="this.media='all'"
     />
     <style>
       :root {
-        --bg-gradient: radial-gradient(circle at top left, #1e293b, #0f172a);
-        --card-bg: rgba(30, 41, 59, 0.7);
-        --card-border: rgba(255, 255, 255, 0.1);
-        --glass-blur: blur(12px);
+        --bg-body: #f5f6fa;
+        --card-bg: #ffffff;
+        --border-color: #eeeeee;
+        --divider-color: #e0e0e0;
 
-        /* Element Colors */
-        --wood: #4ade80;
-        --fire: #f87171;
-        --earth: #fbbf24;
-        --metal: #cbd5e1;
-        --water: #60a5fa;
-
-        --text-primary: #f8fafc;
-        --text-secondary: #94a3b8;
-        --accent: #8b5cf6;
+        /* Element Colors - Reference Style */
+        --wood: #43a047;
+        --fire: #e53935;
+        --earth: #d84315;
+        --metal: #f57c00;
+        --water: #1e88e5;
+        
+        --text-main: #333333;
+        --text-muted: #888888;
+        --text-light: #bbbbbb;
       }
 
       * {
@@ -42,190 +42,164 @@
       }
 
       body {
-        font-family: "Inter", "Noto Sans SC", sans-serif;
-        background: var(--bg-gradient);
-        color: var(--text-primary);
+        font-family: "Inter", "Noto Sans SC", -apple-system, sans-serif;
+        background: var(--bg-body);
+        color: var(--text-main);
         min-height: 100vh;
         display: flex;
         justify-content: center;
-        align-items: center;
-        padding: 2rem;
+        align-items: flex-start;
+        padding: 0;
       }
 
       .container {
         width: 100%;
-        max-width: 1100px;
+        max-width: 800px;
         background: var(--card-bg);
-        backdrop-filter: var(--glass-blur);
-        border: 1px solid var(--card-border);
-        border-radius: 1.5rem;
-        padding: 2.5rem;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
       }
 
+      /* Header styling */
       .header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 2rem;
-        border-bottom: 1px solid var(--card-border);
-        padding-bottom: 1.5rem;
+        padding: 1.2rem 1rem;
+        background: #111111; /* Top black bar from ref */
+        color: #fff;
       }
-
       .title-section {
         display: flex;
         align-items: center;
-        gap: 1rem;
+        gap: 0.5rem;
       }
-      .logo-icon {
-        width: 52px;
-        height: 52px;
-        background: linear-gradient(135deg, var(--accent), #d946ef);
-        border-radius: 14px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-size: 1.6rem;
-        color: white;
-        box-shadow: 0 0 25px rgba(139, 92, 246, 0.4);
-      }
-
       .case-name {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #fff;
-        display: flex;
-        align-items: baseline;
-        gap: 0.75rem;
-      }
-
-      .gender-suffix {
-        font-size: 1.1rem;
-        color: var(--earth);
+        font-size: 1.2rem;
         font-weight: 500;
+        color: #fff;
       }
-
+      .gender-suffix {
+        font-size: 0.9rem;
+        color: var(--metal); /* Gold */
+        font-weight: 400;
+      }
       .date-info {
         text-align: right;
-        font-size: 1rem;
-        line-height: 1.8;
+        font-size: 0.8rem;
+        line-height: 1.5;
+        color: #cccccc;
       }
       .date-row {
-        color: var(--text-secondary);
+        margin-bottom: 0.2rem;
       }
       .date-value {
-        color: var(--earth);
-        font-weight: 500;
-        margin-left: 0.5rem;
+        color: #ffffff;
+        margin-left: 0.3rem;
       }
 
-      /* Chart Grid Layout */
+      /* Chart Grid */
       .chart-grid {
         display: grid;
-        grid-template-columns: 100px repeat(6, 1fr);
-        gap: 0;
-        border: 1px solid var(--card-border);
-        border-radius: 0.75rem;
-        overflow: hidden;
-        background: rgba(15, 23, 42, 0.3);
+        grid-template-columns: 1fr repeat(6, 1.3fr);
+        width: 100%;
+        background: var(--card-bg);
       }
 
       .grid-cell {
-        padding: 1rem 0.5rem;
-        border-bottom: 1px solid var(--card-border);
-        border-right: 1px solid var(--card-border);
+        padding: 0.5rem 0.1rem;
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: center;
         text-align: center;
+        border-bottom: 1px solid var(--border-color);
       }
 
-      .grid-cell:nth-child(7n) {
-        border-right: none;
-      }
-      .grid-cell.label-cell {
-        background: rgba(0, 0, 0, 0.2);
-        color: var(--text-secondary);
-        font-size: 0.9rem;
-        font-weight: 500;
-        border-right: 1px solid var(--card-border);
+      /* First column labels */
+      .grid-cell:nth-child(7n + 1) {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        font-weight: 400;
+        background: #fafafa;
+        border-right: 1px solid var(--border-color);
       }
 
+      /* Vertical divider for Luck Pillar */
       .luck-sep {
-        border-right: 2px solid var(--card-border);
+        border-right: 1px solid var(--divider-color);
       }
 
-      /* Row Specific Styles */
+      /* Rows */
       .row-ten-god {
-        font-weight: 600;
-        font-size: 1.1rem;
-        min-height: 3rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--text-main);
       }
+
       .row-gan-zhi {
-        font-size: 3rem;
-        font-weight: 800;
-        line-height: 1;
-        padding: 1.5rem 0;
+        font-size: 1.5rem;
+        font-weight: 600;
+        line-height: 1.1;
+        padding: 0.6rem 0;
       }
+
+      /* Hidden Stems */
       .row-hidden {
-        font-size: 0.85rem;
-        min-height: 6rem;
-        gap: 0.4rem;
-      }
-      .row-extra {
-        font-size: 0.9rem;
-        gap: 0.5rem;
-        color: var(--text-secondary);
-      }
-      .row-shensha {
-        font-size: 0.9rem;
-        color: var(--earth);
-        gap: 0.4rem;
-        min-height: 8rem;
+        padding: 0.6rem 0.1rem;
+        gap: 0.3rem;
+        align-items: center;
       }
 
       .hidden-item {
         display: flex;
-        align-items: center;
-        gap: 0.4rem;
+        align-items: baseline;
+        gap: 0.15rem;
       }
+
+      .hidden-stem {
+        font-size: 0.95rem;
+        font-weight: 500;
+      }
+
       .hidden-god {
-        color: var(--text-secondary);
+        font-size: 0.65rem;
+        color: var(--text-muted);
+      }
+
+      /* Extra attributes (star luck, etc) */
+      .row-extra {
         font-size: 0.75rem;
+        color: var(--text-main);
+        padding: 0.6rem 0.1rem;
+      }
+
+      /* Shensha */
+      .row-shensha {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        line-height: 1.4;
+        padding: 0.6rem 0.1rem;
+        justify-content: flex-start;
       }
 
       /* Colors */
-      .color-wood {
-        color: var(--wood);
-      }
-      .color-fire {
-        color: var(--fire);
-      }
-      .color-earth {
-        color: var(--earth);
-      }
-      .color-metal {
-        color: var(--metal);
-      }
-      .color-water {
-        color: var(--water);
-      }
-      .color-any {
-        color: var(--text-primary);
-      }
+      .color-wood { color: var(--wood); }
+      .color-fire { color: var(--fire); }
+      .color-earth { color: var(--earth); }
+      .color-metal { color: var(--metal); }
+      .color-water { color: var(--water); }
+      .color-any { color: var(--text-main); }
 
+      /* Interactions footer */
       .interactions-footer {
-        margin-top: 2rem;
-        background: rgba(15, 23, 42, 0.5);
-        border-radius: 1.25rem;
-        padding: 1.75rem;
-        border: 1px solid var(--card-border);
+        padding: 1.5rem;
+        background: #fafafa;
+        border-top: 1px solid var(--divider-color);
       }
 
       .interaction-row {
-        margin-bottom: 1rem;
-        font-size: 1rem;
+        margin-bottom: 0.8rem;
+        font-size: 0.85rem;
         display: flex;
         align-items: baseline;
       }
@@ -233,23 +207,37 @@
         margin-bottom: 0;
       }
       .interaction-label {
-        color: var(--earth);
-        font-weight: 600;
-        margin-right: 1.5rem;
-        min-width: 100px;
+        color: var(--text-muted);
+        font-weight: 500;
+        margin-right: 1rem;
+        min-width: 60px;
       }
       .interaction-content {
-        color: var(--text-secondary);
-        line-height: 1.6;
+        color: var(--text-main);
+        line-height: 1.5;
       }
-
-      @media (max-width: 900px) {
-        .chart-grid {
-          grid-template-columns: 80px repeat(6, 1fr);
+      
+      @media (min-width: 768px) {
+        .container {
+           margin-top: 2rem;
+           margin-bottom: 2rem;
+           border-radius: 8px;
+           overflow: hidden;
+           border: 1px solid var(--border-color);
+        }
+        .header {
+           padding: 1.5rem 2rem;
         }
         .row-gan-zhi {
           font-size: 2rem;
         }
+        .grid-cell {
+          padding: 1rem 0.5rem;
+        }
+        .hidden-stem { font-size: 1.2rem; }
+        .hidden-god { font-size: 0.8rem; }
+        .row-ten-god { font-size: 1rem; }
+        .row-extra { font-size: 0.9rem; }
       }
     </style>
     <script>
@@ -277,17 +265,16 @@
     <div class="container">
       <div class="header">
         <div class="title-section">
-          <div class="logo-icon">命</div>
           <div class="case-name">
-            {{NAME}} <span class="gender-suffix">({{GENDER_SUFFIX}})</span>
+            {{NAME}} <span class="gender-suffix">{{GENDER_SUFFIX}}</span>
           </div>
         </div>
         <div class="date-info">
           <div class="date-row">
-            阴历 : <span class="date-value">{{lunisolar_date}}</span>
+            阴历 <span class="date-value">{{lunisolar_date}}</span>
           </div>
           <div class="date-row">
-            阳历 : <span class="date-value">{{SOLAR_DATE}}</span>
+            阳历 <span class="date-value">{{SOLAR_DATE}}</span>
           </div>
         </div>
       </div>
@@ -379,15 +366,15 @@
         <div class="grid-cell row-extra">{{HOUR_NAYIN}}</div>
 
         <!-- Row: Symbolic Stars -->
-        <div class="grid-cell label-cell">神煞</div>
-        <div class="grid-cell row-shensha">{{YEAR_SHENSHA_CURRENT}}</div>
-        <div class="grid-cell row-shensha luck-sep">
+        <div class="grid-cell label-cell" style="border-bottom: none;">神煞</div>
+        <div class="grid-cell row-shensha" style="border-bottom: none;">{{YEAR_SHENSHA_CURRENT}}</div>
+        <div class="grid-cell row-shensha luck-sep" style="border-bottom: none;">
           {{LUCK_SHENSHA_CURRENT}}
         </div>
-        <div class="grid-cell row-shensha">{{YEAR_SHENSHA}}</div>
-        <div class="grid-cell row-shensha">{{MONTH_SHENSHA}}</div>
-        <div class="grid-cell row-shensha">{{DAY_SHENSHA}}</div>
-        <div class="grid-cell row-shensha">{{HOUR_SHENSHA}}</div>
+        <div class="grid-cell row-shensha" style="border-bottom: none;">{{YEAR_SHENSHA}}</div>
+        <div class="grid-cell row-shensha" style="border-bottom: none;">{{MONTH_SHENSHA}}</div>
+        <div class="grid-cell row-shensha" style="border-bottom: none;">{{DAY_SHENSHA}}</div>
+        <div class="grid-cell row-shensha" style="border-bottom: none;">{{HOUR_SHENSHA}}</div>
       </div>
 
       <div class="interactions-footer">

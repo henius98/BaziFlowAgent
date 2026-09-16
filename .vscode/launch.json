@@ -1,33 +1,27 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Debug BaziFlow (Manual)",
-            "type": "lldb",
-            "request": "launch",
-            "cargo": {
-                "args": [
-                    "run",
-                    "--bin=baziflow-agent"
-                ]
-            },
-            "args": [],
-            "stopOnEntry": false,
-            "preLaunchTask": "Sync bashrc to env",
-            "sourceMap": {
-                "/var/home": "/home"
-            }
-        },
-        {
-            "name": "Debug unit tests in executable 'baziflow-agent'",
-            "type": "lldb",
-            "request": "launch",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--bin=baziflow-agent"
-                ]
-            }
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug BaziFlow (Manual)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["run", "--bin=baziflow-agent"],
+      },
+      "args": [],
+      "stopOnEntry": false,
+      "preLaunchTask": "Sync bashrc to env",
+      "sourceMap": {
+        "/var/home": "/home",
+      },
+    },
+    {
+      "name": "Debug unit tests in executable 'baziflow-agent'",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["test", "--bin=baziflow-agent"],
+      },
+    },
+  ],
 }

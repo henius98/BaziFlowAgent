@@ -1,0 +1,37 @@
+meta {
+  name: Date fortune
+  type: ws
+  seq: 2
+}
+
+ws {
+  url: {{ws_url}}/api/v1/date-fortune
+  body: ws
+  auth: inherit
+}
+
+body:ws {
+  name: Generate
+  type: json
+  selected: true
+  content: '''
+    {"action":"generate","date":"{{date}}"}
+  '''
+}
+
+body:ws {
+  name: Stop
+  type: json
+  selected: false
+  content: '''
+    {"action":"stop"}
+  '''
+}
+
+docs {
+  Requires an existing Bazi profile. Connect and send Generate first.
+  Receives almanac, chunk, done or error messages. Date uses YYYY-MM-DD.
+  To cancel, send Stop on the SAME connection while generation is streaming.
+  Reconnect to generate another reading; this endpoint handles one reading per connection.
+  Omit Origin; authentication uses the inherited Bearer header.
+}

@@ -1,0 +1,26 @@
+meta {
+  name: Disable schedule
+  type: http
+  seq: 6
+}
+
+put {
+  url: {{base_url}}/api/v1/schedule
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "time": null
+  }
+}
+
+docs {
+  Disables the owner daily Telegram schedule.
+}

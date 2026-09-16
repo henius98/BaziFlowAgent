@@ -1,0 +1,32 @@
+meta {
+  name: Create profile
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/api/v1/profile
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "gender": {{gender}},
+    "birth_date": "{{birth_date}}",
+    "birth_hour": {{birth_hour}},
+    "birth_minute": {{birth_minute}},
+    "location": "{{location}}"
+  }
+}
+
+docs {
+  Creates or replaces the owner profile, clears old chat history and generates analysis and a chart.
+  Gender: 0 female, 1 male. Birth date: YYYY-MM-DD. Hour: 0-23; minute: 0-59.
+  For unknown birth time, omit both birth_hour and birth_minute or set both to null. Location is optional.
+}

@@ -1,122 +1,148 @@
 use std::env;
+pub mod runtime;
+pub use runtime::RuntimeConfig;
 
 /// Application configuration structure loaded from environment variables.
-#[derive(Debug)]
 pub struct AppConfig {
-    pub telegram_bot_token: String,
-    pub llm_client_config: crate::services::llm::LlmClientConfig,
-    pub llm_model_name: String,
-    pub database_url: String,
-    pub user_contexts_expiration_minutes: i64,
-    pub context_cleanup_cron: String,
-    pub log_cleanup_cron: String,
-    pub log_retention_days: u64,
-    pub max_context_messages: usize,
-    pub base_url: String,
-    pub log_level: String,
-    pub app_timezone: chrono_tz::Tz,
+  pub runtime: RuntimeConfig,
+  pub upstreams: Upstreams,
+  pub telegram_bot_token: String,
+  pub llm_client_config: crate::services::llm::LlmClientConfig,
+  pub llm_model_name: String,
+  pub database_url: String,
+  /// Separate SQLite database used for short-lived chat history.
+  pub chat_cache_database_url: String,
+  /// Maximum cached turns retained per user. Defaults to four prompt windows.
+  pub chat_cache_max_messages: usize,
+  pub user_contexts_expiration_minutes: i64,
+  pub context_cleanup_cron: String,
+  pub log_cleanup_cron: String,
+  pub log_retention_days: u64,
+  pub max_context_messages: usize,
+  pub base_url: String,
+  pub log_level: String,
+  pub app_timezone: chrono_tz::Tz,
+  pub cors_allowed_origin: String,
 
-    // Cloudflare R2 Options
-    pub r2_account_id: Option<String>,
-    pub r2_access_key_id: Option<String>,
-    pub r2_secret_access_key: Option<String>,
-    pub r2_bucket_name: Option<String>,
+  // Cloudflare R2 Options
+  pub r2_account_id: Option<String>,
+  pub r2_access_key_id: Option<String>,
+  pub r2_secret_access_key: Option<String>,
+  pub r2_bucket_name: Option<String>,
 }
 
 impl AppConfig {
-    /// Load settings from environment variables and `.env` file.
-    pub fn from_env() -> anyhow::Result<Self> {
-        use anyhow::Context;
-        // Load .env file
-        dotenvy::dotenv().ok();
+  /// Load settings from environment variables and `.env` file.
+  pub fn from_env() -> anyhow::Result<Self> {
+    use anyhow::Context;
+    // Load .env file
+    dotenvy::dotenv().ok();
 
-        let telegram_bot_token = env::var("TELEGRAM_BOT_TOKEN")
-            .context("TELEGRAM_BOT_TOKEN must be set in .env")
-            .and_then(|t| {
-                if t.trim().is_empty() {
-                    anyhow::bail!(
-                        "TELEGRAM_BOT_TOKEN is invalid or contains the default placeholder"
-                    );
-                }
-                Ok(t)
-            })?;
+    let telegram_bot_token = env::var("TELEGRAM_BOT_TOKEN").context("TELEGRAM_BOT_TOKEN must be set in .env").and_then(|t| {
+      if t.trim().is_empty() {
+        anyhow::bail!("TELEGRAM_BOT_TOKEN is invalid or contains the default placeholder");
+      }
+      Ok(t)
+    })?;
 
-        let mut llm_client_config = crate::services::llm::LlmClientConfig {
-            api_key: env::var("LLM_API_KEY").context("LLM_API_KEY must be set in .env")?,
-            api_base: env::var("LLM_API_BASE").context("LLM_API_BASE must be set in .env")?,
-            timeout_seconds: env::var("LLM_TIMEOUT_SECONDS")
-                .unwrap_or_else(|_| "60".to_string())
-                .trim()
-                .parse::<u64>()
-                .context("LLM_TIMEOUT_SECONDS must be a valid u64")?,
-            http_client: None,
-        };
-        llm_client_config
-            .init_http_client()
-            .context("Failed to build LLM HTTP client")?;
-        let llm_model_name =
-            env::var("LLM_MODEL_NAME").context("LLM_MODEL_NAME must be set in .env")?;
+    let mut llm_client_config = crate::services::llm::LlmClientConfig {
+      api_key: env::var("LLM_API_KEY").context("LLM_API_KEY must be set in .env")?,
+      api_base: env::var("LLM_API_BASE").context("LLM_API_BASE must be set in .env")?,
+      timeout_seconds: env::var("LLM_TIMEOUT_SECONDS").unwrap_or_else(|_| "60".to_string()).trim().parse::<u64>().context("LLM_TIMEOUT_SECONDS must be a valid u64")?,
+      http_client: None,
+    };
+    llm_client_config.init_http_client().context("Failed to build LLM HTTP client")?;
+    let llm_model_name = env::var("LLM_MODEL_NAME").context("LLM_MODEL_NAME must be set in .env")?;
 
-        let database_url = env::var("DATABASE_URL").context("DATABASE_URL must be set in .env")?;
+    let database_url = env::var("DATABASE_URL").context("DATABASE_URL must be set in .env")?;
+    let chat_cache_database_url = env::var("CHAT_CACHE_DATABASE_URL").unwrap_or_else(|_| "sqlite://baziflow_chat_cache.db".to_string());
 
-        let user_contexts_expiration_minutes = env::var("USER_CONTEXTS_EXPIRATION_MINUTES")
-            .context("USER_CONTEXTS_EXPIRATION_MINUTES must be set in .env")?
-            .trim()
-            .parse::<i64>()
-            .context("USER_CONTEXTS_EXPIRATION_MINUTES must be a valid i64")?;
+    let user_contexts_expiration_minutes = env::var("USER_CONTEXTS_EXPIRATION_MINUTES")
+      .context("USER_CONTEXTS_EXPIRATION_MINUTES must be set in .env")?
+      .trim()
+      .parse::<i64>()
+      .context("USER_CONTEXTS_EXPIRATION_MINUTES must be a valid i64")?;
 
-        let context_cleanup_cron =
-            env::var("CONTEXT_CLEANUP_CRON").context("CONTEXT_CLEANUP_CRON must be set in .env")?;
-        let log_cleanup_cron =
-            env::var("LOG_CLEANUP_CRON").context("LOG_CLEANUP_CRON must be set in .env")?;
-        let log_retention_days = env::var("LOG_RETENTION_DAYS")
-            .context("LOG_RETENTION_DAYS must be set in .env")?
-            .trim()
-            .parse::<u64>()
-            .context("LOG_RETENTION_DAYS must be a valid u64")?;
+    let context_cleanup_cron = env::var("CONTEXT_CLEANUP_CRON").context("CONTEXT_CLEANUP_CRON must be set in .env")?;
+    let log_cleanup_cron = env::var("LOG_CLEANUP_CRON").context("LOG_CLEANUP_CRON must be set in .env")?;
+    let log_retention_days = env::var("LOG_RETENTION_DAYS").context("LOG_RETENTION_DAYS must be set in .env")?.trim().parse::<u64>().context("LOG_RETENTION_DAYS must be a valid u64")?;
 
-        let max_context_messages = env::var("MAX_CONTEXT_MESSAGES")
-            .context("MAX_CONTEXT_MESSAGES must be set in .env")?
-            .trim()
-            .parse::<usize>()
-            .context("MAX_CONTEXT_MESSAGES must be a valid usize")?;
-
-        let base_url = env::var("BASE_URL").context("BASE_URL must be set in .env")?;
-
-        let log_level = env::var("LOG_LEVEL").context("LOG_LEVEL must be set in .env")?;
-
-        let app_timezone_str = env::var("APP_TIMEZONE").unwrap_or_else(|_| "UTC".to_string());
-        let app_timezone = if app_timezone_str.trim().is_empty() {
-            "UTC".parse::<chrono_tz::Tz>().unwrap()
-        } else {
-            app_timezone_str
-                .trim()
-                .parse::<chrono_tz::Tz>()
-                .map_err(|e| anyhow::anyhow!("Invalid APP_TIMEZONE: {}", e))?
-        };
-
-        let r2_account_id = env::var("R2_ACCOUNT_ID").ok();
-        let r2_access_key_id = env::var("R2_ACCESS_KEY_ID").ok();
-        let r2_secret_access_key = env::var("R2_SECRET_ACCESS_KEY").ok();
-        let r2_bucket_name = env::var("R2_BUCKET_NAME").ok();
-
-        Ok(Self {
-            telegram_bot_token,
-            llm_client_config,
-            llm_model_name,
-            database_url,
-            user_contexts_expiration_minutes,
-            context_cleanup_cron,
-            log_cleanup_cron,
-            log_retention_days,
-            max_context_messages,
-            base_url,
-            log_level,
-            app_timezone,
-            r2_account_id,
-            r2_access_key_id,
-            r2_secret_access_key,
-            r2_bucket_name,
-        })
+    let max_context_messages = env::var("MAX_CONTEXT_MESSAGES").context("MAX_CONTEXT_MESSAGES must be set in .env")?.trim().parse::<usize>().context("MAX_CONTEXT_MESSAGES must be a valid usize")?;
+    let chat_cache_max_messages =
+      env::var("CHAT_CACHE_MAX_MESSAGES").unwrap_or_else(|_| max_context_messages.saturating_mul(4).to_string()).trim().parse::<usize>().context("CHAT_CACHE_MAX_MESSAGES must be a valid usize")?;
+    if chat_cache_max_messages == 0 {
+      anyhow::bail!("CHAT_CACHE_MAX_MESSAGES must be greater than zero");
     }
+
+    let base_url = env::var("BASE_URL").context("BASE_URL must be set in .env")?;
+
+    let log_level = env::var("LOG_LEVEL").context("LOG_LEVEL must be set in .env")?;
+
+    let app_timezone_str = env::var("APP_TIMEZONE").unwrap_or_else(|_| "UTC".to_string());
+    let app_timezone = if app_timezone_str.trim().is_empty() {
+      "UTC".parse::<chrono_tz::Tz>().unwrap_or(chrono_tz::UTC)
+    } else {
+      app_timezone_str.trim().parse::<chrono_tz::Tz>().map_err(|e| anyhow::anyhow!("Invalid APP_TIMEZONE: {}", e))?
+    };
+
+    let cors_allowed_origin = env::var("CORS_ALLOWED_ORIGIN").unwrap_or_else(|_| "*".to_string());
+    if cors_allowed_origin != "*" {
+      for origin in cors_allowed_origin.split(',') {
+        origin.trim().trim_end_matches('/').parse::<axum::http::HeaderValue>().context("Invalid CORS_ALLOWED_ORIGIN")?;
+      }
+    }
+    anyhow::ensure!(user_contexts_expiration_minutes > 0, "USER_CONTEXTS_EXPIRATION_MINUTES must be positive");
+    anyhow::ensure!(max_context_messages > 0 && max_context_messages <= 100, "MAX_CONTEXT_MESSAGES must be 1..100");
+    anyhow::ensure!(chat_cache_max_messages <= 1000, "CHAT_CACHE_MAX_MESSAGES must not exceed 1000");
+    anyhow::ensure!(llm_client_config.timeout_seconds > 0 && llm_client_config.timeout_seconds <= 600, "LLM_TIMEOUT_SECONDS must be 1..600");
+
+    // Treat empty/whitespace-only values the same as missing — fallback to local storage
+    let r2_account_id = env::var("R2_ACCOUNT_ID").ok().filter(|v| !v.trim().is_empty());
+    let r2_access_key_id = env::var("R2_ACCESS_KEY_ID").ok().filter(|v| !v.trim().is_empty());
+    let r2_secret_access_key = env::var("R2_SECRET_ACCESS_KEY").ok().filter(|v| !v.trim().is_empty());
+    let r2_bucket_name = env::var("R2_BUCKET_NAME").ok().filter(|v| !v.trim().is_empty());
+
+    Ok(Self {
+      runtime: RuntimeConfig::from_env()?,
+      upstreams: Upstreams::default(),
+      telegram_bot_token,
+      llm_client_config,
+      llm_model_name,
+      database_url,
+      chat_cache_database_url,
+      chat_cache_max_messages,
+      user_contexts_expiration_minutes,
+      context_cleanup_cron,
+      log_cleanup_cron,
+      log_retention_days,
+      max_context_messages,
+      base_url,
+      log_level,
+      app_timezone,
+      cors_allowed_origin,
+      r2_account_id,
+      r2_access_key_id,
+      r2_secret_access_key,
+      r2_bucket_name,
+    })
+  }
+}
+
+impl std::fmt::Debug for AppConfig {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("AppConfig").field("runtime", &self.runtime).finish_non_exhaustive()
+  }
+}
+
+/// Trusted service endpoints, injected by tests; never controlled by API callers.
+#[derive(Debug, Clone)]
+pub struct Upstreams {
+  pub chart_base: String,
+  pub supplement_base: String,
+  pub almanac: String,
+}
+impl Default for Upstreams {
+  fn default() -> Self {
+    Self { chart_base: "https://bzapi4.iwzbz.com".into(), supplement_base: "https://bzapi2.iwzbz.com".into(), almanac: "https://www.mingdecode.com/api/almanac".into() }
+  }
 }

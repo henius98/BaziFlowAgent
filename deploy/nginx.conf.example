@@ -1,0 +1,40 @@
+# Include inside nginx's http context after replacing the hostname and certificates.
+limit_conn_zone $binary_remote_addr zone=baziflow_connections:10m;
+limit_req_zone $binary_remote_addr zone=baziflow_handshakes:10m rate=10r/s;
+map $http_upgrade $baziflow_connection {
+    default upgrade;
+    '' close;
+}
+server {
+    listen 443 ssl;
+    server_name bazi.example.com;
+    ssl_certificate /etc/letsencrypt/live/bazi.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/bazi.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 16k;
+    client_header_timeout 10s;
+    client_body_timeout 10s;
+    send_timeout 15s;
+    limit_conn baziflow_connections 20;
+    limit_req zone=baziflow_handshakes burst=40 nodelay;
+    # Avoid recording user-supplied credentials or private chart capabilities in URLs.
+    access_log off;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $baziflow_connection;
+        proxy_set_header Host $host;
+        proxy_buffering off;
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 15s;
+        proxy_read_timeout 90s;
+    }
+    location /charts/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 30s;
+    }
+    location / { return 404; }
+}

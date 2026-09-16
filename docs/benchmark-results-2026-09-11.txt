@@ -1,0 +1,39 @@
+Recorded local release benchmark output, 2026-09-11
+Rust 1.98.1; x86_64; 16 visible CPUs; load harness uses 4 Tokio workers.
+RSS includes both server and clients. This is not a production capacity test.
+
+baziflow-benchmarks-tuned.log
+test chart_parsing_before_after ... parse run=0 iterations=20000 before_us=219181 after_us=96214
+parse run=1 iterations=20000 before_us=199891 after_us=97104
+parse run=2 iterations=20000 before_us=202275 after_us=98478
+parse run=3 iterations=20000 before_us=201443 after_us=97062
+parse run=4 iterations=20000 before_us=202643 after_us=95329
+test websocket_load ... ws clients=1 requests=20 connect_ms=0 throughput_rps=8698.1 p50_us=73 p95_us=334 p99_us=334 rss=VmRSS:	   15692 kB
+ws clients=10 requests=200 connect_ms=1 throughput_rps=4385.8 p50_us=178 p95_us=40149 p99_us=41085 rss=VmRSS:	   17048 kB
+ws clients=100 requests=2000 connect_ms=30 throughput_rps=20470.5 p50_us=2729 p95_us=33969 p99_us=41909 rss=VmRSS:	   20868 kB
+ws clients=1000 requests=20000 connect_ms=103 throughput_rps=29501.4 p50_us=30653 p95_us=46975 p99_us=62570 rss=VmRSS:	   52608 kB
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.63s
+
+baziflow-benchmarks-final-1.log
+test chart_parsing_before_after ... parse run=0 iterations=20000 before_us=199796 after_us=95318
+parse run=1 iterations=20000 before_us=198524 after_us=95966
+parse run=2 iterations=20000 before_us=196698 after_us=94330
+parse run=3 iterations=20000 before_us=194891 after_us=95648
+parse run=4 iterations=20000 before_us=195957 after_us=95293
+test websocket_load ... ws clients=1 requests=20 connect_ms=0 throughput_rps=7687.6 p50_us=111 p95_us=430 p99_us=430 rss=VmRSS:	   15816 kB
+ws clients=10 requests=200 connect_ms=1 throughput_rps=3950.9 p50_us=315 p95_us=834 p99_us=43444 rss=VmRSS:	   17244 kB
+ws clients=100 requests=2000 connect_ms=22 throughput_rps=22439.7 p50_us=2136 p95_us=30499 p99_us=41934 rss=VmRSS:	   20908 kB
+ws clients=1000 requests=20000 connect_ms=83 throughput_rps=33185.8 p50_us=24966 p95_us=48637 p99_us=68141 rss=VmRSS:	   45648 kB
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.48s
+
+baziflow-benchmarks-final-2.log
+test chart_parsing_before_after ... parse run=0 iterations=20000 before_us=195252 after_us=95949
+parse run=1 iterations=20000 before_us=196829 after_us=96753
+parse run=2 iterations=20000 before_us=194928 after_us=95874
+parse run=3 iterations=20000 before_us=194853 after_us=96262
+parse run=4 iterations=20000 before_us=192614 after_us=94363
+test websocket_load ... ws clients=1 requests=20 connect_ms=0 throughput_rps=8467.6 p50_us=119 p95_us=186 p99_us=186 rss=VmRSS:	   15780 kB
+ws clients=10 requests=200 connect_ms=2 throughput_rps=3560.7 p50_us=354 p95_us=41689 p99_us=47117 rss=VmRSS:	   16948 kB
+ws clients=100 requests=2000 connect_ms=38 throughput_rps=21867.9 p50_us=2100 p95_us=30130 p99_us=39663 rss=VmRSS:	   21108 kB
+ws clients=1000 requests=20000 connect_ms=88 throughput_rps=34067.9 p50_us=24445 p95_us=47205 p99_us=66555 rss=VmRSS:	   45580 kB
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.48s

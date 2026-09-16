@@ -1,0 +1,56 @@
+meta {
+  name: Integration gateway
+  type: ws
+  seq: 1
+}
+
+ws {
+  url: {{ws_url}}/api/v1/ws
+  body: ws
+  auth: inherit
+}
+
+body:ws {
+  name: Get state
+  type: json
+  selected: true
+  content: '''
+    {"version":1,"id":"state-1","action":{"name":"get_state"}}
+  '''
+}
+
+body:ws {
+  name: Set model
+  type: json
+  selected: false
+  content: '''
+    {"version":1,"id":"model-1","action":{"name":"set_model","model":{{model}}}}
+  '''
+}
+
+body:ws {
+  name: Subscribe to profile updates
+  type: json
+  selected: false
+  content: '''
+    {"version":1,"id":"subscribe-1","action":{"name":"subscribe","event":"profile.updated"}}
+  '''
+}
+
+body:ws {
+  name: Unsubscribe
+  type: json
+  selected: false
+  content: '''
+    {"version":1,"id":"unsubscribe-1","action":{"name":"unsubscribe"}}
+  '''
+}
+
+docs {
+  Connect, then select and send messages on the same connection. Use distinct request IDs to correlate replies.
+  Subscribe before causing a profile/model change; events apply only to future updates.
+  Set model changes the saved preference. Unsubscribe removes this connection subscription.
+  Omit Origin; authentication uses the inherited Bearer header, never query parameters.
+  The client must answer native Ping frames with Pong. Disconnect when finished.
+  See docs/websocket-integration.md for response envelopes, limits and reconnect behavior.
+}

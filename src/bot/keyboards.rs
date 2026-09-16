@@ -2,93 +2,141 @@ use crate::models::common::{DAY_HEADERS, MONTH_NAME};
 use chrono::{Datelike, NaiveDate};
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
+pub trait ParseCallback: Sized {
+  fn encode(&self) -> String;
+  fn decode(data: &str) -> Option<Self>;
+}
+
+pub enum AppCallback {
+  Calendar(CalendarAction),
+  BirthdateCal(BirthdateCalAction),
+  Gender(GenderAction),
+  NewBaziWarning(NewBaziWarningAction),
+  Location(LocationAction),
+  Time(TimeAction),
+  Model(ModelAction),
+  PickCalendar(PickCalendarAction),
+  PickActivity(PickActivityAction),
+  Schedule(ScheduleAction),
+  ApiKeyRegenerate,
+}
+
+impl AppCallback {
+  pub fn decode(data: &str) -> Option<Self> {
+    if let Some(a) = CalendarAction::decode(data) {
+      return Some(Self::Calendar(a));
+    }
+    if let Some(a) = BirthdateCalAction::decode(data) {
+      return Some(Self::BirthdateCal(a));
+    }
+    if let Some(a) = GenderAction::decode(data) {
+      return Some(Self::Gender(a));
+    }
+    if let Some(a) = NewBaziWarningAction::decode(data) {
+      return Some(Self::NewBaziWarning(a));
+    }
+    if let Some(a) = LocationAction::decode(data) {
+      return Some(Self::Location(a));
+    }
+    if let Some(a) = TimeAction::decode(data) {
+      return Some(Self::Time(a));
+    }
+    if let Some(a) = ModelAction::decode(data) {
+      return Some(Self::Model(a));
+    }
+    if let Some(a) = PickCalendarAction::decode(data) {
+      return Some(Self::PickCalendar(a));
+    }
+    if let Some(a) = PickActivityAction::decode(data) {
+      return Some(Self::PickActivity(a));
+    }
+    if let Some(a) = ScheduleAction::decode(data) {
+      return Some(Self::Schedule(a));
+    }
+    if data == "apikey:regen" {
+      return Some(Self::ApiKeyRegenerate);
+    }
+    None
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Date Fortune calendar (/Date command)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Callback data prefix for Date Fortune calendar actions
-const CALENDER_PREFIX: &str = "cal";
+const CALENDAR_PREFIX: &str = "cal";
 
 /// Calendar action types encoded in callback data
 #[derive(Debug, Clone)]
 pub enum CalendarAction {
-    /// User selected a specific date
-    SelectDate(NaiveDate),
-    /// Navigate to previous month
-    PrevMonth { year: i32, month: u32 },
-    /// Navigate to next month
-    NextMonth { year: i32, month: u32 },
-    /// Select today
-    Today,
-    /// Select tomorrow
-    Tomorrow,
+  /// User selected a specific date
+  SelectDate(NaiveDate),
+  /// Navigate to previous month
+  PrevMonth { year: i32, month: u32 },
+  /// Navigate to next month
+  NextMonth { year: i32, month: u32 },
+  /// Select today
+  Today,
+  /// Select tomorrow
+  Tomorrow,
 }
 
 impl CalendarAction {
-    /// Encode action into callback data string
-    #[allow(dead_code)]
-    pub fn encode(&self) -> String {
-        match self {
-            CalendarAction::SelectDate(date) => {
-                format!(
-                    "{}:sel:{}:{}:{}",
-                    CALENDER_PREFIX,
-                    date.year(),
-                    date.month(),
-                    date.day()
-                )
-            }
-            CalendarAction::PrevMonth { year, month } => {
-                format!("{}:prev:{}:{}", CALENDER_PREFIX, year, month)
-            }
-            CalendarAction::NextMonth { year, month } => {
-                format!("{}:next:{}:{}", CALENDER_PREFIX, year, month)
-            }
-            CalendarAction::Today => format!("{}:today", CALENDER_PREFIX),
-            CalendarAction::Tomorrow => format!("{}:tomorrow", CALENDER_PREFIX),
-        }
+  /// Encode action into callback data string
+  #[allow(dead_code)]
+  pub fn encode(&self) -> String {
+    match self {
+      CalendarAction::SelectDate(date) => {
+        format!("{}:sel:{}:{}:{}", CALENDAR_PREFIX, date.year(), date.month(), date.day())
+      }
+      CalendarAction::PrevMonth { year, month } => {
+        format!("{}:prev:{}:{}", CALENDAR_PREFIX, year, month)
+      }
+      CalendarAction::NextMonth { year, month } => {
+        format!("{}:next:{}:{}", CALENDAR_PREFIX, year, month)
+      }
+      CalendarAction::Today => format!("{}:today", CALENDAR_PREFIX),
+      CalendarAction::Tomorrow => format!("{}:tomorrow", CALENDAR_PREFIX),
+    }
+  }
+
+  /// Decode callback data string into CalendarAction
+  pub fn decode(data: &str) -> Option<CalendarAction> {
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.is_empty() || parts[0] != CALENDAR_PREFIX {
+      return None;
     }
 
-    /// Decode callback data string into CalendarAction
-    pub fn decode(data: &str) -> Option<CalendarAction> {
-        let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != CALENDER_PREFIX {
-            return None;
-        }
-
-        match parts.get(1).copied() {
-            Some("sel") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                let month: u32 = parts.get(3)?.parse().ok()?;
-                let day: u32 = parts.get(4)?.parse().ok()?;
-                let date = NaiveDate::from_ymd_opt(year, month, day)?;
-                Some(CalendarAction::SelectDate(date))
-            }
-            Some("prev") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                let month: u32 = parts.get(3)?.parse().ok()?;
-                Some(CalendarAction::PrevMonth { year, month })
-            }
-            Some("next") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                let month: u32 = parts.get(3)?.parse().ok()?;
-                Some(CalendarAction::NextMonth { year, month })
-            }
-            Some("today") => Some(CalendarAction::Today),
-            Some("tomorrow") => Some(CalendarAction::Tomorrow),
-            _ => None,
-        }
+    match parts.get(1).copied() {
+      Some("sel") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        let month: u32 = parts.get(3)?.parse().ok()?;
+        let day: u32 = parts.get(4)?.parse().ok()?;
+        let date = NaiveDate::from_ymd_opt(year, month, day)?;
+        Some(CalendarAction::SelectDate(date))
+      }
+      Some("prev") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        let month: u32 = parts.get(3)?.parse().ok()?;
+        Some(CalendarAction::PrevMonth { year, month })
+      }
+      Some("next") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        let month: u32 = parts.get(3)?.parse().ok()?;
+        Some(CalendarAction::NextMonth { year, month })
+      }
+      Some("today") => Some(CalendarAction::Today),
+      Some("tomorrow") => Some(CalendarAction::Tomorrow),
+      _ => None,
     }
+  }
 }
 
 /// Check if callback data is a Date Fortune calendar action
-pub fn is_calendar_callback(data: &str) -> bool {
-    data.starts_with(CALENDER_PREFIX) && !data.starts_with("bdcal")
-}
-
 /// Build an inline keyboard calendar for the given year and month (Date Fortune)
 pub fn build_calendar(year: i32, month: u32) -> InlineKeyboardMarkup {
-    build_calendar_inner(year, month, CALENDER_PREFIX)
+  build_calendar_inner(year, month, CALENDAR_PREFIX)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,171 +144,137 @@ pub fn build_calendar(year: i32, month: u32) -> InlineKeyboardMarkup {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Callback data prefix for birthdate picker calendar
-const BDCALENDER_PREFIX: &str = "bdcal";
+const BDCALENDAR_PREFIX: &str = "bdcal";
 
 /// Birthdate calendar action types
 #[derive(Debug, Clone)]
 pub enum BirthdateCalAction {
-    ViewYears { start_year: i32 },
-    SelectYear(i32),
-    SelectMonth { year: i32, month: u32 },
-    SelectDate(NaiveDate),
-    PrevMonth { year: i32, month: u32 },
-    NextMonth { year: i32, month: u32 },
+  ViewYears { start_year: i32 },
+  SelectYear(i32),
+  SelectMonth { year: i32, month: u32 },
+  SelectDate(NaiveDate),
+  PrevMonth { year: i32, month: u32 },
+  NextMonth { year: i32, month: u32 },
 }
 
 impl BirthdateCalAction {
-    #[allow(dead_code)]
-    pub fn encode(&self) -> String {
-        match self {
-            BirthdateCalAction::ViewYears { start_year } => {
-                format!("{}:vy:{}", BDCALENDER_PREFIX, start_year)
-            }
-            BirthdateCalAction::SelectYear(year) => format!("{}:sy:{}", BDCALENDER_PREFIX, year),
-            BirthdateCalAction::SelectMonth { year, month } => {
-                format!("{}:sm:{}:{}", BDCALENDER_PREFIX, year, month)
-            }
-            BirthdateCalAction::SelectDate(date) => {
-                format!(
-                    "{}:sel:{}:{}:{}",
-                    BDCALENDER_PREFIX,
-                    date.year(),
-                    date.month(),
-                    date.day()
-                )
-            }
-            BirthdateCalAction::PrevMonth { year, month } => {
-                format!("{}:prev:{}:{}", BDCALENDER_PREFIX, year, month)
-            }
-            BirthdateCalAction::NextMonth { year, month } => {
-                format!("{}:next:{}:{}", BDCALENDER_PREFIX, year, month)
-            }
-        }
+  #[allow(dead_code)]
+  pub fn encode(&self) -> String {
+    match self {
+      BirthdateCalAction::ViewYears { start_year } => {
+        format!("{}:vy:{}", BDCALENDAR_PREFIX, start_year)
+      }
+      BirthdateCalAction::SelectYear(year) => format!("{}:sy:{}", BDCALENDAR_PREFIX, year),
+      BirthdateCalAction::SelectMonth { year, month } => {
+        format!("{}:sm:{}:{}", BDCALENDAR_PREFIX, year, month)
+      }
+      BirthdateCalAction::SelectDate(date) => {
+        format!("{}:sel:{}:{}:{}", BDCALENDAR_PREFIX, date.year(), date.month(), date.day())
+      }
+      BirthdateCalAction::PrevMonth { year, month } => {
+        format!("{}:prev:{}:{}", BDCALENDAR_PREFIX, year, month)
+      }
+      BirthdateCalAction::NextMonth { year, month } => {
+        format!("{}:next:{}:{}", BDCALENDAR_PREFIX, year, month)
+      }
+    }
+  }
+
+  pub fn decode(data: &str) -> Option<BirthdateCalAction> {
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.is_empty() || parts[0] != BDCALENDAR_PREFIX {
+      return None;
     }
 
-    pub fn decode(data: &str) -> Option<BirthdateCalAction> {
-        let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != BDCALENDER_PREFIX {
-            return None;
-        }
-
-        match parts.get(1).copied() {
-            Some("vy") => {
-                let start_year: i32 = parts.get(2)?.parse().ok()?;
-                Some(BirthdateCalAction::ViewYears { start_year })
-            }
-            Some("sy") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                Some(BirthdateCalAction::SelectYear(year))
-            }
-            Some("sm") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                let month: u32 = parts.get(3)?.parse().ok()?;
-                Some(BirthdateCalAction::SelectMonth { year, month })
-            }
-            Some("sel") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                let month: u32 = parts.get(3)?.parse().ok()?;
-                let day: u32 = parts.get(4)?.parse().ok()?;
-                let date = NaiveDate::from_ymd_opt(year, month, day)?;
-                Some(BirthdateCalAction::SelectDate(date))
-            }
-            Some("prev") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                let month: u32 = parts.get(3)?.parse().ok()?;
-                Some(BirthdateCalAction::PrevMonth { year, month })
-            }
-            Some("next") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                let month: u32 = parts.get(3)?.parse().ok()?;
-                Some(BirthdateCalAction::NextMonth { year, month })
-            }
-            _ => None,
-        }
+    match parts.get(1).copied() {
+      Some("vy") => {
+        let start_year: i32 = parts.get(2)?.parse().ok()?;
+        Some(BirthdateCalAction::ViewYears { start_year })
+      }
+      Some("sy") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        Some(BirthdateCalAction::SelectYear(year))
+      }
+      Some("sm") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        let month: u32 = parts.get(3)?.parse().ok()?;
+        Some(BirthdateCalAction::SelectMonth { year, month })
+      }
+      Some("sel") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        let month: u32 = parts.get(3)?.parse().ok()?;
+        let day: u32 = parts.get(4)?.parse().ok()?;
+        let date = NaiveDate::from_ymd_opt(year, month, day)?;
+        Some(BirthdateCalAction::SelectDate(date))
+      }
+      Some("prev") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        let month: u32 = parts.get(3)?.parse().ok()?;
+        Some(BirthdateCalAction::PrevMonth { year, month })
+      }
+      Some("next") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        let month: u32 = parts.get(3)?.parse().ok()?;
+        Some(BirthdateCalAction::NextMonth { year, month })
+      }
+      _ => None,
     }
+  }
 }
 
 /// Check if callback data is a birthdate calendar action
-pub fn is_birthdate_cal_callback(data: &str) -> bool {
-    data.starts_with(BDCALENDER_PREFIX)
-}
-
 /// Build an inline keyboard calendar for birthdate selection (/new command)
 pub fn build_birthdate_calendar(year: i32, month: u32) -> InlineKeyboardMarkup {
-    // Birthdate calendar uses bdcal prefix
-    let mut markup = build_calendar_inner(year, month, BDCALENDER_PREFIX);
+  // Birthdate calendar uses bdcal prefix
+  let mut markup = build_calendar_inner(year, month, BDCALENDAR_PREFIX);
 
-    // Add a Back to Month button
-    let back_row = vec![InlineKeyboardButton::callback(
-        "◀️ Change Month",
-        BirthdateCalAction::SelectYear(year).encode(),
-    )];
-    markup.inline_keyboard.push(back_row);
-    markup
+  // Add a Back to Month button
+  let back_row = vec![InlineKeyboardButton::callback("◀️ Change Month", BirthdateCalAction::SelectYear(year).encode())];
+  markup.inline_keyboard.push(back_row);
+  markup
 }
 
 pub fn build_year_picker(start_year: i32) -> InlineKeyboardMarkup {
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+  let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
-    // Grid of 12 years (3x4)
-    for row_start in (0..12).step_by(3) {
-        let mut row = Vec::new();
-        for offset in 0..3 {
-            let y = start_year + row_start + offset;
-            row.push(InlineKeyboardButton::callback(
-                y.to_string(),
-                BirthdateCalAction::SelectYear(y).encode(),
-            ));
-        }
-        rows.push(row);
+  // Grid of 12 years (3x4)
+  for row_start in (0..12).step_by(3) {
+    let mut row = Vec::new();
+    for offset in 0..3 {
+      let y = start_year + row_start + offset;
+      row.push(InlineKeyboardButton::callback(y.to_string(), BirthdateCalAction::SelectYear(y).encode()));
     }
+    rows.push(row);
+  }
 
-    // Nav row
-    rows.push(vec![
-        InlineKeyboardButton::callback(
-            "◀️ Prev 12",
-            BirthdateCalAction::ViewYears {
-                start_year: start_year - 12,
-            }
-            .encode(),
-        ),
-        InlineKeyboardButton::callback(
-            "Next 12 ▶️",
-            BirthdateCalAction::ViewYears {
-                start_year: start_year + 12,
-            }
-            .encode(),
-        ),
-    ]);
+  // Nav row
+  rows.push(vec![
+    InlineKeyboardButton::callback("◀️ Prev 12", BirthdateCalAction::ViewYears { start_year: start_year - 12 }.encode()),
+    InlineKeyboardButton::callback("Next 12 ▶️", BirthdateCalAction::ViewYears { start_year: start_year + 12 }.encode()),
+  ]);
 
-    InlineKeyboardMarkup::new(rows)
+  InlineKeyboardMarkup::new(rows)
 }
 
 pub fn build_month_picker(year: i32) -> InlineKeyboardMarkup {
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+  let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
-    // Grid of 12 months (3x4)
-    for row_start in (0..12).step_by(3) {
-        let mut row = Vec::new();
-        for offset in 0..3 {
-            let m_idx = row_start + offset;
-            let m_num = (m_idx + 1) as u32;
-            row.push(InlineKeyboardButton::callback(
-                MONTH_NAME[m_idx as usize].to_string(),
-                BirthdateCalAction::SelectMonth { year, month: m_num }.encode(),
-            ));
-        }
-        rows.push(row);
+  // Grid of 12 months (3x4)
+  for row_start in (0..12).step_by(3) {
+    let mut row = Vec::new();
+    for offset in 0..3 {
+      let m_idx = row_start + offset;
+      let m_num = (m_idx + 1) as u32;
+      row.push(InlineKeyboardButton::callback(MONTH_NAME[m_idx as usize].to_string(), BirthdateCalAction::SelectMonth { year, month: m_num }.encode()));
     }
+    rows.push(row);
+  }
 
-    // Back to year picker
-    let start_year = year - (year % 12);
-    rows.push(vec![InlineKeyboardButton::callback(
-        "◀️ Change Year",
-        BirthdateCalAction::ViewYears { start_year }.encode(),
-    )]);
+  // Back to year picker
+  let start_year = year - (year % 12);
+  rows.push(vec![InlineKeyboardButton::callback("◀️ Change Year", BirthdateCalAction::ViewYears { start_year }.encode())]);
 
-    InlineKeyboardMarkup::new(rows)
+  InlineKeyboardMarkup::new(rows)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -272,82 +286,68 @@ const NEW_BAZI_WARN_PREFIX: &str = "newbazi";
 
 #[derive(Debug, Clone)]
 pub enum NewBaziWarningAction {
-    Continue,
-    Cancel,
+  Continue,
+  Cancel,
 }
 
 impl NewBaziWarningAction {
-    pub fn encode(&self) -> String {
-        match self {
-            NewBaziWarningAction::Continue => format!("{}:cont", NEW_BAZI_WARN_PREFIX),
-            NewBaziWarningAction::Cancel => format!("{}:cancel", NEW_BAZI_WARN_PREFIX),
-        }
+  pub fn encode(&self) -> String {
+    match self {
+      NewBaziWarningAction::Continue => format!("{}:cont", NEW_BAZI_WARN_PREFIX),
+      NewBaziWarningAction::Cancel => format!("{}:cancel", NEW_BAZI_WARN_PREFIX),
+    }
+  }
+
+  pub fn decode(data: &str) -> Option<NewBaziWarningAction> {
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.is_empty() || parts[0] != NEW_BAZI_WARN_PREFIX {
+      return None;
     }
 
-    pub fn decode(data: &str) -> Option<NewBaziWarningAction> {
-        let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != NEW_BAZI_WARN_PREFIX {
-            return None;
-        }
-
-        match parts.get(1).copied() {
-            Some("cont") => Some(NewBaziWarningAction::Continue),
-            Some("cancel") => Some(NewBaziWarningAction::Cancel),
-            _ => None,
-        }
+    match parts.get(1).copied() {
+      Some("cont") => Some(NewBaziWarningAction::Continue),
+      Some("cancel") => Some(NewBaziWarningAction::Cancel),
+      _ => None,
     }
-}
-
-pub fn is_new_bazi_warning_callback(data: &str) -> bool {
-    data.starts_with(NEW_BAZI_WARN_PREFIX)
+  }
 }
 
 pub fn build_new_bazi_warning() -> InlineKeyboardMarkup {
-    let rows = vec![vec![
-        InlineKeyboardButton::callback("✅ Continue", NewBaziWarningAction::Continue.encode()),
-        InlineKeyboardButton::callback("❌ Cancel", NewBaziWarningAction::Cancel.encode()),
-    ]];
-    InlineKeyboardMarkup::new(rows)
+  let rows = vec![vec![InlineKeyboardButton::callback("✅ Continue", NewBaziWarningAction::Continue.encode()), InlineKeyboardButton::callback("❌ Cancel", NewBaziWarningAction::Cancel.encode())]];
+  InlineKeyboardMarkup::new(rows)
 }
 
 #[derive(Debug, Clone)]
 pub enum GenderAction {
-    SelectMale,
-    SelectFemale,
+  SelectMale,
+  SelectFemale,
 }
 
 impl GenderAction {
-    pub fn encode(&self) -> String {
-        match self {
-            GenderAction::SelectMale => format!("{}:m", BDGEN_PREFIX),
-            GenderAction::SelectFemale => format!("{}:f", BDGEN_PREFIX),
-        }
+  pub fn encode(&self) -> String {
+    match self {
+      GenderAction::SelectMale => format!("{}:m", BDGEN_PREFIX),
+      GenderAction::SelectFemale => format!("{}:f", BDGEN_PREFIX),
+    }
+  }
+
+  pub fn decode(data: &str) -> Option<GenderAction> {
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.is_empty() || parts[0] != BDGEN_PREFIX {
+      return None;
     }
 
-    pub fn decode(data: &str) -> Option<GenderAction> {
-        let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != BDGEN_PREFIX {
-            return None;
-        }
-
-        match parts.get(1).copied() {
-            Some("m") => Some(GenderAction::SelectMale),
-            Some("f") => Some(GenderAction::SelectFemale),
-            _ => None,
-        }
+    match parts.get(1).copied() {
+      Some("m") => Some(GenderAction::SelectMale),
+      Some("f") => Some(GenderAction::SelectFemale),
+      _ => None,
     }
-}
-
-pub fn is_gender_picker_callback(data: &str) -> bool {
-    data.starts_with(BDGEN_PREFIX)
+  }
 }
 
 pub fn build_gender_picker() -> InlineKeyboardMarkup {
-    let rows = vec![vec![
-        InlineKeyboardButton::callback("🧑 Male", GenderAction::SelectMale.encode()),
-        InlineKeyboardButton::callback("👩 Female", GenderAction::SelectFemale.encode()),
-    ]];
-    InlineKeyboardMarkup::new(rows)
+  let rows = vec![vec![InlineKeyboardButton::callback("🧑 Male", GenderAction::SelectMale.encode()), InlineKeyboardButton::callback("👩 Female", GenderAction::SelectFemale.encode())]];
+  InlineKeyboardMarkup::new(rows)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -358,63 +358,53 @@ const BDLOC_PREFIX: &str = "bdloc";
 
 #[derive(Debug, Clone)]
 pub enum LocationAction {
-    SelectCity(String),
-    Skip,
+  SelectCity(String),
+  Skip,
 }
 
 impl LocationAction {
-    pub fn encode(&self) -> String {
-        match self {
-            LocationAction::SelectCity(name) => format!("{}:sc:{}", BDLOC_PREFIX, name),
-            LocationAction::Skip => format!("{}:skip", BDLOC_PREFIX),
-        }
+  pub fn encode(&self) -> String {
+    match self {
+      LocationAction::SelectCity(name) => format!("{}:sc:{}", BDLOC_PREFIX, name),
+      LocationAction::Skip => format!("{}:skip", BDLOC_PREFIX),
+    }
+  }
+
+  pub fn decode(data: &str) -> Option<LocationAction> {
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.is_empty() || parts[0] != BDLOC_PREFIX {
+      return None;
     }
 
-    pub fn decode(data: &str) -> Option<LocationAction> {
-        let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != BDLOC_PREFIX {
-            return None;
-        }
-
-        match parts.get(1).copied() {
-            Some("sc") => {
-                let name = parts.get(2)?.to_string();
-                Some(LocationAction::SelectCity(name))
-            }
-            Some("skip") => Some(LocationAction::Skip),
-            _ => None,
-        }
+    match parts.get(1).copied() {
+      Some("sc") => {
+        let name = parts.get(2)?.to_string();
+        Some(LocationAction::SelectCity(name))
+      }
+      Some("skip") => Some(LocationAction::Skip),
+      _ => None,
     }
-}
-
-pub fn is_location_picker_callback(data: &str) -> bool {
-    data.starts_with(BDLOC_PREFIX)
+  }
 }
 
 pub fn build_location_picker() -> InlineKeyboardMarkup {
-    use crate::models::common::COMMON_CITIES;
-    let cities = COMMON_CITIES;
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+  use crate::models::common::COMMON_CITIES;
+  let cities = COMMON_CITIES;
+  let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
-    // 2 cities per row
-    for chunk in cities.chunks(2) {
-        let mut row = Vec::new();
-        for city in chunk {
-            row.push(InlineKeyboardButton::callback(
-                city.name,
-                LocationAction::SelectCity(city.name.to_string()).encode(),
-            ));
-        }
-        rows.push(row);
+  // 2 cities per row
+  for chunk in cities.chunks(2) {
+    let mut row = Vec::new();
+    for city in chunk {
+      row.push(InlineKeyboardButton::callback(city.name, LocationAction::SelectCity(city.name.to_string()).encode()));
     }
+    rows.push(row);
+  }
 
-    // Skip/Other button
-    rows.push(vec![InlineKeyboardButton::callback(
-        "⏩ Skip / Default (120°E)",
-        LocationAction::Skip.encode(),
-    )]);
+  // Optional location: without a city, no longitude correction is applied.
+  rows.push(vec![InlineKeyboardButton::callback("⏩ Skip / Unknown birth location", LocationAction::Skip.encode())]);
 
-    InlineKeyboardMarkup::new(rows)
+  InlineKeyboardMarkup::new(rows)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -425,101 +415,93 @@ const BDTIME_PREFIX: &str = "bdtime";
 
 #[derive(Debug, Clone)]
 pub enum TimeAction {
-    SelectHour(u32),
-    SelectMinute { hour: u32, minute: u32 },
-    BackToHour,
+  SelectHour(u32),
+  SelectMinute { hour: u32, minute: u32 },
+  BackToHour,
+  Skip,
 }
 
 impl TimeAction {
-    pub fn encode(&self) -> String {
-        match self {
-            TimeAction::SelectHour(h) => format!("{}:sh:{}", BDTIME_PREFIX, h),
-            TimeAction::SelectMinute { hour, minute } => {
-                format!("{}:sm:{}:{}", BDTIME_PREFIX, hour, minute)
-            }
-            TimeAction::BackToHour => format!("{}:back_h", BDTIME_PREFIX),
-        }
+  pub fn encode(&self) -> String {
+    match self {
+      TimeAction::SelectHour(h) => format!("{}:sh:{}", BDTIME_PREFIX, h),
+      TimeAction::SelectMinute { hour, minute } => {
+        format!("{}:sm:{}:{}", BDTIME_PREFIX, hour, minute)
+      }
+      TimeAction::BackToHour => format!("{}:back_h", BDTIME_PREFIX),
+      TimeAction::Skip => format!("{}:skip", BDTIME_PREFIX),
+    }
+  }
+
+  pub fn decode(data: &str) -> Option<TimeAction> {
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.is_empty() || parts[0] != BDTIME_PREFIX {
+      return None;
     }
 
-    pub fn decode(data: &str) -> Option<TimeAction> {
-        let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != BDTIME_PREFIX {
-            return None;
-        }
-
-        match parts.get(1).copied() {
-            Some("sh") => {
-                let h: u32 = parts.get(2)?.parse().ok()?;
-                Some(TimeAction::SelectHour(h))
-            }
-            Some("sm") => {
-                let h: u32 = parts.get(2)?.parse().ok()?;
-                let m: u32 = parts.get(3)?.parse().ok()?;
-                Some(TimeAction::SelectMinute { hour: h, minute: m })
-            }
-            Some("back_h") => Some(TimeAction::BackToHour),
-            _ => None,
-        }
+    match parts.get(1).copied() {
+      Some("sh") => {
+        let h: u32 = parts.get(2)?.parse().ok()?;
+        Some(TimeAction::SelectHour(h))
+      }
+      Some("sm") => {
+        let h: u32 = parts.get(2)?.parse().ok()?;
+        let m: u32 = parts.get(3)?.parse().ok()?;
+        Some(TimeAction::SelectMinute { hour: h, minute: m })
+      }
+      Some("back_h") => Some(TimeAction::BackToHour),
+      Some("skip") => Some(TimeAction::Skip),
+      _ => None,
     }
+  }
 }
 
-pub fn is_time_picker_callback(data: &str) -> bool {
-    data.starts_with(BDTIME_PREFIX)
+pub fn build_birth_time_picker() -> InlineKeyboardMarkup {
+  let mut markup = build_hour_picker(|hour| TimeAction::SelectHour(hour).encode());
+  markup.inline_keyboard.push(vec![InlineKeyboardButton::callback("⏩ Skip / Unknown birth time", TimeAction::Skip.encode())]);
+  markup
 }
 
 pub fn build_hour_picker<F>(encode_hour: F) -> InlineKeyboardMarkup
 where
-    F: Fn(u32) -> String,
+  F: Fn(u32) -> String,
 {
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+  let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
-    // 24 hours in 4x6 grid
-    for row_idx in 0..6 {
-        let mut row = Vec::new();
-        for col_idx in 0..4 {
-            let h = row_idx * 4 + col_idx;
-            row.push(InlineKeyboardButton::callback(
-                format!("{:02}:00", h),
-                encode_hour(h),
-            ));
-        }
-        rows.push(row);
+  // 24 hours in 4x6 grid
+  for row_idx in 0..6 {
+    let mut row = Vec::new();
+    for col_idx in 0..4 {
+      let h = row_idx * 4 + col_idx;
+      row.push(InlineKeyboardButton::callback(format!("{:02}:00", h), encode_hour(h)));
     }
+    rows.push(row);
+  }
 
-    InlineKeyboardMarkup::new(rows)
+  InlineKeyboardMarkup::new(rows)
 }
 
-pub fn build_minute_picker<F1, F2>(
-    hour: u32,
-    encode_min: F1,
-    encode_back: F2,
-) -> InlineKeyboardMarkup
+pub fn build_minute_picker<F1, F2>(hour: u32, encode_min: F1, encode_back: F2) -> InlineKeyboardMarkup
 where
-    F1: Fn(u32, u32) -> String,
-    F2: Fn() -> String,
+  F1: Fn(u32, u32) -> String,
+  F2: Fn() -> String,
 {
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+  let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
-    // 60 minutes in an 8-column grid (Telegram's standard row limit)
-    for m in 0..60 {
-        if m % 8 == 0 {
-            rows.push(Vec::new());
-        }
-        if let Some(row) = rows.last_mut() {
-            row.push(InlineKeyboardButton::callback(
-                format!("{:02}", m),
-                encode_min(hour, m),
-            ));
-        }
+  // 60 minutes in an 8-column grid (Telegram's standard row limit)
+  for m in 0..60 {
+    if m % 8 == 0 {
+      rows.push(Vec::new());
     }
+    if let Some(row) = rows.last_mut() {
+      row.push(InlineKeyboardButton::callback(format!("{:02}", m), encode_min(hour, m)));
+    }
+  }
 
-    // Add a back button
-    rows.push(vec![InlineKeyboardButton::callback(
-        "◀️ Back to Hour",
-        encode_back(),
-    )]);
+  // Add a back button
+  rows.push(vec![InlineKeyboardButton::callback("◀️ Back to Hour", encode_back())]);
 
-    InlineKeyboardMarkup::new(rows)
+  InlineKeyboardMarkup::new(rows)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -528,97 +510,70 @@ where
 
 /// Internal calendar builder shared between Date Fortune and birthdate pickers
 fn build_calendar_inner(year: i32, month: u32, prefix: &str) -> InlineKeyboardMarkup {
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+  let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
-    // Header row: ◀️ Month Year ▶️
-    let header_text = format!("{} {}", MONTH_NAME[(month - 1) as usize], year);
+  // Header row: ◀️ Month Year ▶️
+  let header_text = format!("{} {}", MONTH_NAME[(month - 1) as usize], year);
 
-    let (prev_year, prev_month) = if month == 1 {
-        (year - 1, 12u32)
-    } else {
-        (year, month - 1)
-    };
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1u32)
-    } else {
-        (year, month + 1)
-    };
+  let (prev_year, prev_month) = if month == 1 { (year - 1, 12u32) } else { (year, month - 1) };
+  let (next_year, next_month) = if month == 12 { (year + 1, 1u32) } else { (year, month + 1) };
 
-    let ignore_cb = format!("{}:ignore", prefix);
-    let prev_cb = format!("{}:prev:{}:{}", prefix, prev_year, prev_month);
-    let next_cb = format!("{}:next:{}:{}", prefix, next_year, next_month);
+  let ignore_cb = format!("{}:ignore", prefix);
+  let prev_cb = format!("{}:prev:{}:{}", prefix, prev_year, prev_month);
+  let next_cb = format!("{}:next:{}:{}", prefix, next_year, next_month);
 
-    rows.push(vec![
-        InlineKeyboardButton::callback("◀️", prev_cb),
-        InlineKeyboardButton::callback(header_text, ignore_cb.clone()),
-        InlineKeyboardButton::callback("▶️", next_cb),
-    ]);
+  rows.push(vec![InlineKeyboardButton::callback("◀️", prev_cb), InlineKeyboardButton::callback(header_text, ignore_cb.clone()), InlineKeyboardButton::callback("▶️", next_cb)]);
 
-    // Day-of-week header
-    rows.push(
-        DAY_HEADERS
-            .iter()
-            .map(|&d| InlineKeyboardButton::callback(d, ignore_cb.clone()))
-            .collect(),
-    );
+  // Day-of-week header
+  rows.push(DAY_HEADERS.iter().map(|&d| InlineKeyboardButton::callback(d, ignore_cb.clone())).collect());
 
-    // Calendar grid
-    let first_day = match NaiveDate::from_ymd_opt(year, month, 1) {
-        Some(d) => d,
-        None => return InlineKeyboardMarkup::new(rows), // Invalid date, return partial
-    };
-    // Monday = 0, Sunday = 6
-    let start_weekday = first_day.weekday().num_days_from_monday() as usize;
-    let total_days = days_in_month(year, month);
+  // Calendar grid
+  let first_day = match NaiveDate::from_ymd_opt(year, month, 1) {
+    Some(d) => d,
+    None => return InlineKeyboardMarkup::new(rows), // Invalid date, return partial
+  };
+  // Monday = 0, Sunday = 6
+  let start_weekday = first_day.weekday().num_days_from_monday() as usize;
+  let total_days = days_in_month(year, month);
 
-    let mut current_row: Vec<InlineKeyboardButton> = Vec::new();
+  let mut current_row: Vec<InlineKeyboardButton> = Vec::new();
 
-    // Fill empty cells before the first day
-    for _ in 0..start_weekday {
-        current_row.push(InlineKeyboardButton::callback(" ", ignore_cb.clone()));
+  // Fill empty cells before the first day
+  for _ in 0..start_weekday {
+    current_row.push(InlineKeyboardButton::callback(" ", ignore_cb.clone()));
+  }
+
+  for day in 1..=total_days {
+    let sel_cb = format!("{}:sel:{}:{}:{}", prefix, year, month, day);
+    current_row.push(InlineKeyboardButton::callback(day.to_string(), sel_cb));
+
+    if current_row.len() == 7 {
+      rows.push(current_row.clone());
+      current_row.clear();
     }
+  }
 
-    for day in 1..=total_days {
-        let sel_cb = format!("{}:sel:{}:{}:{}", prefix, year, month, day);
-        current_row.push(InlineKeyboardButton::callback(day.to_string(), sel_cb));
-
-        if current_row.len() == 7 {
-            rows.push(current_row.clone());
-            current_row.clear();
-        }
+  // Fill remaining cells in the last row
+  if !current_row.is_empty() {
+    while current_row.len() < 7 {
+      current_row.push(InlineKeyboardButton::callback(" ", ignore_cb.clone()));
     }
+    rows.push(current_row);
+  }
 
-    // Fill remaining cells in the last row
-    if !current_row.is_empty() {
-        while current_row.len() < 7 {
-            current_row.push(InlineKeyboardButton::callback(" ", ignore_cb.clone()));
-        }
-        rows.push(current_row);
-    }
+  // Optional "Today" and "Tomorrow" buttons
+  if prefix == CALENDAR_PREFIX || prefix == PCAL_PREFIX {
+    rows.push(vec![InlineKeyboardButton::callback("📅 Today", format!("{}:today", prefix)), InlineKeyboardButton::callback("🌅 Tomorrow", format!("{}:tomorrow", prefix))]);
+  }
 
-    // Optional "Today" and "Tomorrow" buttons
-    if prefix == CALENDER_PREFIX || prefix == PCAL_PREFIX {
-        rows.push(vec![
-            InlineKeyboardButton::callback("📅 Today", format!("{}:today", prefix)),
-            InlineKeyboardButton::callback("🌅 Tomorrow", format!("{}:tomorrow", prefix)),
-        ]);
-    }
-
-    InlineKeyboardMarkup::new(rows)
+  InlineKeyboardMarkup::new(rows)
 }
 
 /// Get the number of days in a given month
 fn days_in_month(year: i32, month: u32) -> u32 {
-    // Navigate to the first day of the next month, then subtract one day
-    let next_month_first = if month == 12 {
-        NaiveDate::from_ymd_opt(year + 1, 1, 1)
-    } else {
-        NaiveDate::from_ymd_opt(year, month + 1, 1)
-    };
-    next_month_first
-        .and_then(|d| d.pred_opt())
-        .map(|d| d.day())
-        .unwrap_or(30) // Safe fallback for edge cases
+  // Navigate to the first day of the next month, then subtract one day
+  let next_month_first = if month == 12 { NaiveDate::from_ymd_opt(year + 1, 1, 1) } else { NaiveDate::from_ymd_opt(year, month + 1, 1) };
+  next_month_first.and_then(|d| d.pred_opt()).map(|d| d.day()).unwrap_or(30) // Safe fallback for edge cases
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -629,43 +584,31 @@ const MODEL_PREFIX: &str = "model";
 
 #[derive(Debug, Clone)]
 pub enum ModelAction {
-    Select(u8),
+  Select(u8),
 }
 
 impl ModelAction {
-    pub fn encode(&self) -> String {
-        match self {
-            ModelAction::Select(m) => format!("{}:{}", MODEL_PREFIX, m),
-        }
+  pub fn encode(&self) -> String {
+    match self {
+      ModelAction::Select(m) => format!("{}:{}", MODEL_PREFIX, m),
+    }
+  }
+
+  pub fn decode(data: &str) -> Option<ModelAction> {
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.is_empty() || parts[0] != MODEL_PREFIX {
+      return None;
     }
 
-    pub fn decode(data: &str) -> Option<ModelAction> {
-        let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != MODEL_PREFIX {
-            return None;
-        }
-
-        let m: u8 = parts.get(1)?.parse().ok()?;
-        Some(ModelAction::Select(m))
-    }
-}
-
-pub fn is_model_picker_callback(data: &str) -> bool {
-    data.starts_with(MODEL_PREFIX)
+    let m: u8 = parts.get(1)?.parse().ok()?;
+    Some(ModelAction::Select(m))
+  }
 }
 
 pub fn build_model_picker() -> InlineKeyboardMarkup {
-    use crate::models::common::LlmModel;
-    let rows: Vec<Vec<InlineKeyboardButton>> = LlmModel::ALL
-        .iter()
-        .map(|model| {
-            vec![InlineKeyboardButton::callback(
-                model.as_str(),
-                ModelAction::Select(*model as u8).encode(),
-            )]
-        })
-        .collect();
-    InlineKeyboardMarkup::new(rows)
+  use crate::models::common::LlmModel;
+  let rows: Vec<Vec<InlineKeyboardButton>> = LlmModel::ALL.iter().map(|model| vec![InlineKeyboardButton::callback(model.as_str(), ModelAction::Select(*model as u8).encode())]).collect();
+  InlineKeyboardMarkup::new(rows)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -676,73 +619,63 @@ const PCAL_PREFIX: &str = "pcal";
 
 #[derive(Debug, Clone)]
 pub enum PickCalendarAction {
-    SelectDate(NaiveDate),
-    PrevMonth { year: i32, month: u32 },
-    NextMonth { year: i32, month: u32 },
-    Today,
-    Tomorrow,
+  SelectDate(NaiveDate),
+  PrevMonth { year: i32, month: u32 },
+  NextMonth { year: i32, month: u32 },
+  Today,
+  Tomorrow,
 }
 
 impl PickCalendarAction {
-    pub fn encode(&self) -> String {
-        match self {
-            PickCalendarAction::SelectDate(date) => {
-                format!(
-                    "{}:sel:{}:{}:{}",
-                    PCAL_PREFIX,
-                    date.year(),
-                    date.month(),
-                    date.day()
-                )
-            }
-            PickCalendarAction::PrevMonth { year, month } => {
-                format!("{}:prev:{}:{}", PCAL_PREFIX, year, month)
-            }
-            PickCalendarAction::NextMonth { year, month } => {
-                format!("{}:next:{}:{}", PCAL_PREFIX, year, month)
-            }
-            PickCalendarAction::Today => format!("{}:today", PCAL_PREFIX),
-            PickCalendarAction::Tomorrow => format!("{}:tomorrow", PCAL_PREFIX),
-        }
+  pub fn encode(&self) -> String {
+    match self {
+      PickCalendarAction::SelectDate(date) => {
+        format!("{}:sel:{}:{}:{}", PCAL_PREFIX, date.year(), date.month(), date.day())
+      }
+      PickCalendarAction::PrevMonth { year, month } => {
+        format!("{}:prev:{}:{}", PCAL_PREFIX, year, month)
+      }
+      PickCalendarAction::NextMonth { year, month } => {
+        format!("{}:next:{}:{}", PCAL_PREFIX, year, month)
+      }
+      PickCalendarAction::Today => format!("{}:today", PCAL_PREFIX),
+      PickCalendarAction::Tomorrow => format!("{}:tomorrow", PCAL_PREFIX),
+    }
+  }
+
+  pub fn decode(data: &str) -> Option<PickCalendarAction> {
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.is_empty() || parts[0] != PCAL_PREFIX {
+      return None;
     }
 
-    pub fn decode(data: &str) -> Option<PickCalendarAction> {
-        let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != PCAL_PREFIX {
-            return None;
-        }
-
-        match parts.get(1).copied() {
-            Some("sel") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                let month: u32 = parts.get(3)?.parse().ok()?;
-                let day: u32 = parts.get(4)?.parse().ok()?;
-                let date = NaiveDate::from_ymd_opt(year, month, day)?;
-                Some(PickCalendarAction::SelectDate(date))
-            }
-            Some("prev") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                let month: u32 = parts.get(3)?.parse().ok()?;
-                Some(PickCalendarAction::PrevMonth { year, month })
-            }
-            Some("next") => {
-                let year: i32 = parts.get(2)?.parse().ok()?;
-                let month: u32 = parts.get(3)?.parse().ok()?;
-                Some(PickCalendarAction::NextMonth { year, month })
-            }
-            Some("today") => Some(PickCalendarAction::Today),
-            Some("tomorrow") => Some(PickCalendarAction::Tomorrow),
-            _ => None,
-        }
+    match parts.get(1).copied() {
+      Some("sel") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        let month: u32 = parts.get(3)?.parse().ok()?;
+        let day: u32 = parts.get(4)?.parse().ok()?;
+        let date = NaiveDate::from_ymd_opt(year, month, day)?;
+        Some(PickCalendarAction::SelectDate(date))
+      }
+      Some("prev") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        let month: u32 = parts.get(3)?.parse().ok()?;
+        Some(PickCalendarAction::PrevMonth { year, month })
+      }
+      Some("next") => {
+        let year: i32 = parts.get(2)?.parse().ok()?;
+        let month: u32 = parts.get(3)?.parse().ok()?;
+        Some(PickCalendarAction::NextMonth { year, month })
+      }
+      Some("today") => Some(PickCalendarAction::Today),
+      Some("tomorrow") => Some(PickCalendarAction::Tomorrow),
+      _ => None,
     }
-}
-
-pub fn is_pick_calendar_callback(data: &str) -> bool {
-    data.starts_with(PCAL_PREFIX)
+  }
 }
 
 pub fn build_pick_calendar(year: i32, month: u32) -> InlineKeyboardMarkup {
-    build_calendar_inner(year, month, PCAL_PREFIX)
+  build_calendar_inner(year, month, PCAL_PREFIX)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -753,62 +686,52 @@ const PACT_PREFIX: &str = "pact";
 
 #[derive(Debug, Clone)]
 pub enum PickActivityAction {
-    Select(String),
-    Other,
+  Select(String),
+  Other,
 }
 
 impl PickActivityAction {
-    pub fn encode(&self) -> String {
-        match self {
-            PickActivityAction::Select(activity) => format!("{}:s:{}", PACT_PREFIX, activity),
-            PickActivityAction::Other => format!("{}:other", PACT_PREFIX),
-        }
+  pub fn encode(&self) -> String {
+    match self {
+      PickActivityAction::Select(activity) => format!("{}:s:{}", PACT_PREFIX, activity),
+      PickActivityAction::Other => format!("{}:other", PACT_PREFIX),
+    }
+  }
+
+  pub fn decode(data: &str) -> Option<PickActivityAction> {
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.is_empty() || parts[0] != PACT_PREFIX {
+      return None;
     }
 
-    pub fn decode(data: &str) -> Option<PickActivityAction> {
-        let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != PACT_PREFIX {
-            return None;
-        }
-
-        match parts.get(1).copied() {
-            Some("s") => {
-                let activity = parts.get(2)?.to_string();
-                Some(PickActivityAction::Select(activity))
-            }
-            Some("other") => Some(PickActivityAction::Other),
-            _ => None,
-        }
+    match parts.get(1).copied() {
+      Some("s") => {
+        let activity = parts.get(2)?.to_string();
+        Some(PickActivityAction::Select(activity))
+      }
+      Some("other") => Some(PickActivityAction::Other),
+      _ => None,
     }
-}
-
-pub fn is_pick_activity_callback(data: &str) -> bool {
-    data.starts_with(PACT_PREFIX)
+  }
 }
 
 pub fn build_activity_picker() -> InlineKeyboardMarkup {
-    let activities = ["考试", "结婚", "搬家", "开业", "出行", "签约"];
-    let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
+  let activities = ["考试", "结婚", "搬家", "开业", "出行", "签约"];
+  let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
 
-    // 2 activities per row
-    for chunk in activities.chunks(2) {
-        let mut row = Vec::new();
-        for activity in chunk {
-            row.push(InlineKeyboardButton::callback(
-                activity.to_string(),
-                PickActivityAction::Select(activity.to_string()).encode(),
-            ));
-        }
-        rows.push(row);
+  // 2 activities per row
+  for chunk in activities.chunks(2) {
+    let mut row = Vec::new();
+    for activity in chunk {
+      row.push(InlineKeyboardButton::callback(activity.to_string(), PickActivityAction::Select(activity.to_string()).encode()));
     }
+    rows.push(row);
+  }
 
-    // Add Other button
-    rows.push(vec![InlineKeyboardButton::callback(
-        "📝 Other (Type freely)",
-        PickActivityAction::Other.encode(),
-    )]);
+  // Add Other button
+  rows.push(vec![InlineKeyboardButton::callback("📝 Other (Type freely)", PickActivityAction::Other.encode())]);
 
-    InlineKeyboardMarkup::new(rows)
+  InlineKeyboardMarkup::new(rows)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -819,60 +742,51 @@ const SCHEDULE_PREFIX: &str = "schedule_time";
 
 #[derive(Debug, Clone)]
 pub enum ScheduleAction {
-    SelectHour(u32),
-    SelectMinute { hour: u32, minute: u32 },
-    BackToHour,
-    Disable,
+  SelectHour(u32),
+  SelectMinute { hour: u32, minute: u32 },
+  BackToHour,
+  Disable,
 }
 
 impl ScheduleAction {
-    pub fn encode(&self) -> String {
-        match self {
-            ScheduleAction::SelectHour(h) => format!("{}:sh:{}", SCHEDULE_PREFIX, h),
-            ScheduleAction::SelectMinute { hour, minute } => {
-                format!("{}:sm:{}:{}", SCHEDULE_PREFIX, hour, minute)
-            }
-            ScheduleAction::BackToHour => format!("{}:back_h", SCHEDULE_PREFIX),
-            ScheduleAction::Disable => format!("{}:disable", SCHEDULE_PREFIX),
-        }
+  pub fn encode(&self) -> String {
+    match self {
+      ScheduleAction::SelectHour(h) => format!("{}:sh:{}", SCHEDULE_PREFIX, h),
+      ScheduleAction::SelectMinute { hour, minute } => {
+        format!("{}:sm:{}:{}", SCHEDULE_PREFIX, hour, minute)
+      }
+      ScheduleAction::BackToHour => format!("{}:back_h", SCHEDULE_PREFIX),
+      ScheduleAction::Disable => format!("{}:disable", SCHEDULE_PREFIX),
+    }
+  }
+
+  pub fn decode(data: &str) -> Option<ScheduleAction> {
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.is_empty() || parts[0] != SCHEDULE_PREFIX {
+      return None;
     }
 
-    pub fn decode(data: &str) -> Option<ScheduleAction> {
-        let parts: Vec<&str> = data.split(':').collect();
-        if parts.is_empty() || parts[0] != SCHEDULE_PREFIX {
-            return None;
-        }
-
-        match parts.get(1).copied() {
-            Some("sh") => {
-                let h: u32 = parts.get(2)?.parse().ok()?;
-                Some(ScheduleAction::SelectHour(h))
-            }
-            Some("sm") => {
-                let h: u32 = parts.get(2)?.parse().ok()?;
-                let m: u32 = parts.get(3)?.parse().ok()?;
-                Some(ScheduleAction::SelectMinute { hour: h, minute: m })
-            }
-            Some("back_h") => Some(ScheduleAction::BackToHour),
-            Some("disable") => Some(ScheduleAction::Disable),
-            _ => None,
-        }
+    match parts.get(1).copied() {
+      Some("sh") => {
+        let h: u32 = parts.get(2)?.parse().ok()?;
+        Some(ScheduleAction::SelectHour(h))
+      }
+      Some("sm") => {
+        let h: u32 = parts.get(2)?.parse().ok()?;
+        let m: u32 = parts.get(3)?.parse().ok()?;
+        Some(ScheduleAction::SelectMinute { hour: h, minute: m })
+      }
+      Some("back_h") => Some(ScheduleAction::BackToHour),
+      Some("disable") => Some(ScheduleAction::Disable),
+      _ => None,
     }
-}
-
-pub fn is_schedule_picker_callback(data: &str) -> bool {
-    data.starts_with(SCHEDULE_PREFIX)
+  }
 }
 
 pub fn build_schedule_picker() -> InlineKeyboardMarkup {
-    let mut markup = build_hour_picker(|h| ScheduleAction::SelectHour(h).encode());
-    markup
-        .inline_keyboard
-        .push(vec![InlineKeyboardButton::callback(
-            "🚫 Disable Daily Schedule",
-            ScheduleAction::Disable.encode(),
-        )]);
-    markup
+  let mut markup = build_hour_picker(|h| ScheduleAction::SelectHour(h).encode());
+  markup.inline_keyboard.push(vec![InlineKeyboardButton::callback("🚫 Disable Daily Schedule", ScheduleAction::Disable.encode())]);
+  markup
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -881,13 +795,20 @@ pub fn build_schedule_picker() -> InlineKeyboardMarkup {
 
 const APIKEY_PREFIX: &str = "apikey";
 
-pub fn is_apikey_callback(data: &str) -> bool {
-    data.starts_with(APIKEY_PREFIX)
+pub fn build_apikey_regenerate() -> InlineKeyboardMarkup {
+  InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback("🔄 Regenerate Key", format!("{}:regen", APIKEY_PREFIX))]])
 }
 
-pub fn build_apikey_regenerate() -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
-        "🔄 Regenerate Key",
-        format!("{}:regen", APIKEY_PREFIX),
-    )]])
+#[cfg(test)]
+mod tests {
+  use super::{LocationAction, TimeAction};
+
+  #[test]
+  fn optional_birth_input_callbacks_round_trip() {
+    let time_callback = TimeAction::Skip.encode();
+    assert!(matches!(TimeAction::decode(&time_callback), Some(TimeAction::Skip)));
+
+    let location_callback = LocationAction::Skip.encode();
+    assert!(matches!(LocationAction::decode(&location_callback), Some(LocationAction::Skip)));
+  }
 }

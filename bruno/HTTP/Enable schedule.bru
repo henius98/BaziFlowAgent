@@ -1,0 +1,27 @@
+meta {
+  name: Enable schedule
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{base_url}}/api/v1/schedule
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "time": "{{schedule_time}}"
+  }
+}
+
+docs {
+  Sets daily Telegram delivery time in HH:MM, in the configured application timezone (normally Asia/Singapore, UTC+8).
+  Updates the saved schedule and the running scheduler when initialized.
+}

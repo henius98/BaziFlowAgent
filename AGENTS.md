@@ -14,53 +14,60 @@ A high-performance Telegram Bot built in **Rust** providing professional Chinese
 
 ## 🛠 Tech Stack Overview
 
-| Layer         | Library                                 | Purpose                                     |
-| ------------- | --------------------------------------- | ------------------------------------------- |
-| Bot Framework | `teloxide` (macros enabled)             | Telegram Bot API & routing via `dptree`     |
-| Async Runtime | `tokio` (full features)                 | Multi-threaded async reactor                |
-| HTTP Client   | `reqwest`, `async-openai`               | External APIs & OpenAI-compatible LLM calls |
-| Database      | `sqlx` (SQLite, `runtime-tokio-rustls`) | Persist users, sessions, and requests       |
-| Concurrency   | `dashmap`                               | Lock-free in-memory user session state      |
-| Scheduling    | `tokio-cron-scheduler`                  | Daily almanac pulls & session GC            |
-| Time          | `chrono`, `chrono-tz`                   | Timezone-aware date handling (SGT/UTC+8)    |
-| Logging       | `tracing`, `tracing-subscriber`         | Structured async-safe logging               |
-| Serialization | `serde`, `serde_json`                   | JSON parsing for API payloads               |
-| Web Server    | `axum`, `tower-http`                    | Static file serving for Instant View        |
-| Object Storage| `rust-s3`                               | Cloudflare R2 integration for HTML charts   |
+| Layer          | Library                                 | Purpose                                       |
+| -------------- | --------------------------------------- | --------------------------------------------- |
+| Bot Framework  | `teloxide` (macros enabled)             | Telegram Bot API & routing via `dptree`       |
+| Async Runtime  | `tokio` (full features)                 | Multi-threaded async reactor                  |
+| HTTP Client    | `reqwest`, `async-openai`               | External APIs & OpenAI-compatible LLM calls   |
+| Database       | `sqlx` (SQLite, `runtime-tokio-rustls`) | Persist users, sessions, and requests         |
+| Concurrency    | `dashmap`                               | Lock-free in-memory user session state        |
+| Scheduling     | `tokio-cron-scheduler`                  | Daily almanac pulls & session GC              |
+| Time           | `chrono`, `chrono-tz`                   | Timezone-aware date handling (SGT/UTC+8)      |
+| Logging        | `tracing`, `tracing-subscriber`         | Structured async-safe logging                 |
+| Serialization  | `serde`, `serde_json`                   | JSON parsing for API payloads                 |
+| Web Server     | `axum`, `tower-http`, `tungstenite`     | REST API, WebSocket streams, and static files |
+| Object Storage | `rust-s3`                               | Cloudflare R2 integration for HTML charts     |
 
 ---
 
 ## 📂 Source Code Map (`src/`)
 
 ### Entry Point & Infrastructure
+
 - **`lib.rs`**: Library root declaring all public modules for external access or testing.
 - **`main.rs`**: Loads `AppConfig` from env, sets up the SQLite pool, creates the `reqwest` HTTP client, builds `AppState`, registers Telegram handlers via `dptree`, starts the scheduler, and runs the axum static file server.
 - **`logger.rs`**: Initialises `tracing-subscriber` with dual console + file output (daily rotation). Includes `cleanup_old_logs()` for retention.
 - **`scheduler.rs`**: Background cron jobs: (1) dynamic daily fortune readings for users with an active schedule, (2) user context expiration cleanup, (3) log file retention cleanup.
-- **`utils.rs`**: Shared utility functions used by both `bot/` and `scheduler.rs` — `split_message()` for Telegram message chunking and `get_formatted_bazi_four_pillars()` for JSON→prompt conversion.
+- **`utils.rs`**: Shared utility functions used by both `bot/` and `scheduler.rs` — `split_message()` for chunking, `get_formatted_bazi_four_pillars()`, `parse_user_bazi()`, and `build_chat_messages()`.
 
 ### `bot/` — Telegram Bot Handlers & UI
+
 - **`mod.rs`**: Module declarations and `Command` re-export.
 - **`commands.rs`**: `Command` enum (`/new`, `/date`, `/pick`, `/profile`, `/model`, `/schedule`) and `handle_command` handler.
 - **`callbacks.rs`**: `handle_callback` — dispatches all inline keyboard callback queries across 9 namespaces (Date, Birthdate, Gender, Location, Time, Model, Pick Date, Pick Activity, Schedule).
 - **`messages.rs`**: `handle_message` — free-text message handler with conversation context tracking.
 - **`command_actions.rs`**: `perform_bazi_analysis` & `display_user_profile` — Telegram UI orchestration for the `/new` birthdate flow, and user profile management (including schedule settings).
 - **`helpers.rs`**: Bot-specific helpers — `build_history_msg()`, `get_username()`, and LLM token streaming (`stream_to_telegram()`).
-- **`keyboards.rs`**: Dynamic inline Telegram keyboard builders for calendars, year/month/day/hour/minute pickers, gender selector, location picker, model picker, and schedule settings.
+- **`keyboards.rs`**: Defines `AppCallback`/`ParseCallback` trait for routing, and dynamic inline Telegram keyboard builders for calendars, pickers, and settings.
 
 ### `config/` — Configuration
+
 - **`mod.rs`**: `AppConfig` struct — reads and validates all configuration from `.env` via `dotenvy`. Single source of truth for secrets and tunables.
 
 ### `models/` — Domain Types
+
 - **`mod.rs`**: Module declarations and re-exports.
 - **`error.rs`**: `AppError` enum, `AppResult<T>` type alias, and `LogErrorExt` trait for ergonomic error logging.
 - **`state.rs`**: `AppState` struct — shared via `Arc` across all handlers. Holds HTTP client, SQLite pool, config, and `DashMap`-based pending state for the `/new` flow.
+- **`processing_guard.rs`**: RAII guard `ProcessingGuard` for preventing concurrent processing of the same user.
 - **`common.rs`**: Common data types and enums (e.g., `LlmModel` for AI selection).
 
 ### `repos/` — Database Layer
+
 - **`mod.rs`**: SQLite initialization (`init_db`), user CRUD, request logging, and Bazi profile queries.
 
 ### `services/` — Domain Logic (Bot-Framework-Agnostic)
+
 - **`mod.rs`**: Module declarations and re-exports.
 - **`almanac.rs`**: Fetches raw calendar data from MingDecode API, applies a schema filter, recursively translates English JSON keys to Chinese labels, and computes "Kong Wang" (空亡).
 - **`bazi_service.rs`**: Pure business logic orchestrator for Bazi generation (True Solar Time calculation, API fetching, DB persistence, HTML generation & Cloudflare R2 upload with presigned URLs, and LLM prompt construction).
@@ -99,7 +106,7 @@ Third-Party API User
     │
     ▼
 axum Router (HTTP 8080)
-    ├─ /api/v1/profile, /date-fortune, /pick-date, /model, /schedule, /chat
+    ├─ /api/v1/profile, /date-fortune (WebSocket), /pick-date, /model, /schedule, /chat
     │      └─ api::auth::AuthUser (Bearer token middleware)
     │            └─ api::handlers (calls core services:: layer identically to bot commands)
 
@@ -143,34 +150,43 @@ scheduler (background)
 
 7. **Rust Quality & Memory Safety:**
    - Enforce Clean Architecture separation. Minimize `clone()` arbitrarily; restructure lifetimes or use references (`&T`) when possible. Maintain Eval-Driven verification loops for robust feature development.
+
+8. **Project Flow & Sequence Documentation:**
+   - Any change that adds, removes, or changes a request entry point, handler, service, external integration, datastore, scheduler job, streaming protocol, or response path must update `docs/project-flow-sequence.md` in the same change.
+   - Keep the Mermaid sequence diagrams and their explanatory text aligned with the effective code in `src/`, including Telegram, HTTP/WebSocket/SSE, background scheduler, persistence, chart storage, and LLM flows.
+   - When a change introduces a new independent flow, add a focused sequence to that document rather than making an existing sequence misleadingly long or ambiguous.
+   - Validate the updated Mermaid syntax and include the documentation update in the same review/commit as the code change.
+
 ---
 
 ## ⚡ Quick Feature Reference
 
-| Task                  | Where to edit                                               |
-| --------------------- | ----------------------------------------------------------- |
-| Add a bot command     | `bot/commands.rs` `Command` enum + `handle_command` match   |
-| Add callback handling | `bot/callbacks.rs` — new namespace dispatch                 |
-| Modify shared state   | `models/state.rs` `AppState` struct                         |
-| Add a DB table/column | New file in `./migrations/` + `repos/mod.rs`                |
-| Change API parsing    | `services/almanac.rs` `KEEP_SCHEMA` / `KEY_MAP`             |
-| Tweak LLM parameters  | `services/llm.rs` `LlmRequestParams`                        |
-| Add a scheduled job   | `scheduler.rs` — new `Job::new_async(cron, ...)`            |
-| Change configuration  | `config/mod.rs` `AppConfig` + `.env`                        |
-| Add keyboard UI       | `bot/calendar.rs`                                           |
+| Task                  | Where to edit                                             |
+| --------------------- | --------------------------------------------------------- |
+| Add a bot command     | `bot/commands.rs` `Command` enum + `handle_command` match |
+| Add callback handling | `bot/callbacks.rs` — new namespace dispatch               |
+| Modify shared state   | `models/state.rs` `AppState` struct                       |
+| Add a DB table/column | New file in `./migrations/` + `repos/mod.rs`              |
+| Change API parsing    | `services/almanac.rs` `KEEP_SCHEMA` / `KEY_MAP`           |
+| Tweak LLM parameters  | `services/llm.rs` `LlmRequestParams`                      |
+| Add a scheduled job   | `scheduler.rs` — new `Job::new_async(cron, ...)`          |
+| Change configuration  | `config/mod.rs` `AppConfig` + `.env`                      |
+| Add keyboard UI       | `bot/calendar.rs`                                         |
+| Change project flow   | `docs/project-flow-sequence.md`                           |
 
 ---
 
 ## 📄 Important Documentation Files
 
-| File                            | Purpose                                                            |
-| ------------------------------- | ------------------------------------------------------------------ |
-| `README.md`                     | Top-level intro, feature list, env vars, build/run commands        |
+| File                            | Purpose                                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `README.md`                     | Top-level intro, feature list, env vars, build/run commands                                                    |
 | `prompts/`                      | Directory containing all system prompts (e.g. Daily readings, Destiny readings, Summarization, Date selection) |
-| `DEPLOYMENT.md`                 | Raspberry Pi / DietPi ARM cross-compilation & systemd daemon setup |
-| `BaziFlowAgent.service`        | Pre-configured systemd unit file for background deployment         |
-| `Cargo.toml`                    | Canonical dependency list and package metadata                     |
-| `.env` / `.env.example`         | Runtime secrets and configurables (never commit `.env`)            |
+| `DEPLOYMENT.md`                 | Raspberry Pi / DietPi ARM cross-compilation & systemd daemon setup                                             |
+| `BaziFlowAgent.service`         | Pre-configured systemd unit file for background deployment                                                     |
+| `Cargo.toml`                    | Canonical dependency list and package metadata                                                                 |
+| `docs/project-flow-sequence.md` | Version-controlled Mermaid sequence diagrams for project flows                                                 |
+| `.env` / `.env.example`         | Runtime secrets and configurables (never commit `.env`)                                                        |
 
 ---
 
@@ -209,7 +225,8 @@ BaziFlowAgent/
 │   │   ├── mod.rs                # Re-exports
 │   │   ├── common.rs             # Common data types (e.g., LlmModel)
 │   │   ├── error.rs              # AppError, AppResult, LogErrorExt
-│   │   └── state.rs              # AppState struct
+│   │   ├── state.rs              # AppState struct
+│   │   └── processing_guard.rs   # RAII user processing guard
 │   ├── repos/
 │   │   └── mod.rs                # SQLite DB layer
 │   └── services/
@@ -226,6 +243,11 @@ BaziFlowAgent/
 │           ├── models.rs         # Bazi data structures
 │           └── bazi_template.html
 ├── migrations/                   # SQLx migration SQL files
+├── tests/                        # Integration and unit tests
+│   ├── api_tests.rs              # Axum HTTP and WebSocket API tests
+│   ├── bazi_flow_tests.rs        # Core Bazi logic mock tests
+│   ├── solar_time_tests.rs       # Solar time conversion tests
+│   └── test_helpers.rs           # Shared configuration and state builders
 ├── logs/                         # Runtime logs (gitignored)
 └── public/                       # Runtime HTML charts (gitignored)
 ```

@@ -1,0 +1,28 @@
+meta {
+  name: Pick date
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/v1/pick-date
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "start_date": "{{start_date}}",
+    "end_date": "{{end_date}}",
+    "activity": "{{activity}}"
+  }
+}
+
+docs {
+  Requires an existing Bazi profile. Dates use YYYY-MM-DD; activity must not be blank.
+}

@@ -1,0 +1,16 @@
+meta {
+  name: Get profile
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/v1/profile
+  body: none
+  auth: inherit
+}
+
+docs {
+  Returns the authenticated owner profile, model, schedule and chart URL.
+  Returns 404 when no Bazi profile exists. Schedule is the stored cron expression.
+}

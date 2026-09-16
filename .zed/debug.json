@@ -1,0 +1,24 @@
+// Project-local debug tasks
+//
+// For more documentation on how to configure debug tasks,
+// see: https://zed.dev/docs/debugger
+[
+  {
+    "label": "Debug BaziFlow (clean environment)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/target/debug/baziflow-agent",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "sourceLanguages": ["rust"],
+    "env": {
+      "LD_LIBRARY_PATH": "",
+      "LD_PRELOAD": "",
+      "LOG_LEVEL": "debug"
+    },
+    "build": {
+      "command": "env",
+      "args": ["-u", "LD_LIBRARY_PATH", "-u", "LD_PRELOAD", "cargo", "build"]
+    },
+    "args": ["--verbose", "--port", "8080"]
+  }
+]

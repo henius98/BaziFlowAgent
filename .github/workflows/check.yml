@@ -1,0 +1,21 @@
+name: Rust quality checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo check --all-targets --locked
+      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --all-targets --locked
+      - run: cargo build --release --locked

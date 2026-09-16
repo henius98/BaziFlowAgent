@@ -1,0 +1,33 @@
+meta {
+  name: Pick date stream
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/api/v1/pick-date?stream=true
+  body: json
+  auth: inherit
+}
+
+params:query {
+  stream: true
+}
+
+headers {
+  Content-Type: application/json
+  Accept: text/event-stream
+}
+
+body:json {
+  {
+    "start_date": "{{start_date}}",
+    "end_date": "{{end_date}}",
+    "activity": "{{activity}}"
+  }
+}
+
+docs {
+  Requires an existing Bazi profile.
+  Events: chunk, then data: [DONE]. An error event means failure.
+}

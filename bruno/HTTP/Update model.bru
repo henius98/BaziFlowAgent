@@ -1,0 +1,27 @@
+meta {
+  name: Update model
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{base_url}}/api/v1/model
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+  Accept: application/json
+}
+
+body:json {
+  {
+    "model": {{model}}
+  }
+}
+
+docs {
+  Model IDs: 0, 1, 2. The authoritative provider mapping is LlmModel in src/models/common.rs.
+  Persists the owner model preference and publishes profile.updated.
+}

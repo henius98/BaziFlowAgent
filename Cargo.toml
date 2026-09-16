@@ -6,17 +6,19 @@ description = "BaziFlowAgent - A high-performance AI Agent for Bazi analysis and
 
 [dependencies]
 # Telegram Bot Framework
-teloxide = { version = "0.17", features = ["macros", "ctrlc_handler"] }
+teloxide = { version = "0.17", features = ["macros", "ctrlc_handler", "throttle"] }
 
 # Async Runtime
 tokio = { version = "1", features = ["full"] }
+
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # HTTP Client
 reqwest = { version = "0.13", features = ["json", "rustls"] }
 openssl = { version = "0.10", features = ["vendored"] }
 
 # OpenAI API Client
-async-openai = { version = "0.40", features = ["full"] }
+async-openai = { version = "0.40", features = ["chat-completion"] }
 
 # Error Handling
 anyhow = "1.0"
@@ -87,3 +89,8 @@ panic = "abort"
 [dev-dependencies]
 mockito = "1.0"
 tokio-tungstenite = "0.29.0"
+
+[patch.crates-io]
+# Fix the private proc_macro re-export until this transitive dependency is replaced upstream.
+# https://github.com/GnomedDev/proc-macro-error-2/pull/14
+proc-macro-error2 = { git = "https://github.com/GnomedDev/proc-macro-error-2", rev = "53ff94b61c678593158db1a3d50269c6f0de0db7" }

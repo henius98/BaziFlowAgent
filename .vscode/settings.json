@@ -1,3 +1,12 @@
 {
-  "rust-analyzer.checkOnSave": true
+  "rust-analyzer.checkOnSave": true,
+  "sqltools.useNodeRuntime": true,
+  "sqltools.connections": [
+    {
+      "previewLimit": 50,
+      "driver": "SQLite",
+      "database": "${workspaceFolder:BaziFlowAgent}/baziflow_agent.db",
+      "name": "BaziFlowAgent",
+    },
+  ],
 }

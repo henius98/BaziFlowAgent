@@ -1,0 +1,18 @@
+meta {
+  name: Get local chart
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/charts/{{chart_token}}
+  body: none
+  auth: none
+}
+
+docs {
+  Set the secret chart_token to the 64 hexadecimal characters from a returned /charts/<token> URL.
+  No Bearer authentication: the URL token grants access. Regenerating the link invalidates the old token.
+  Returns HTML, or 404 for missing/invalid tokens or files.
+  For an R2 chart_url, open the full presigned URL separately; it is not this application route.
+}

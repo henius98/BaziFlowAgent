@@ -176,3 +176,15 @@ If you modify the code and rebuild:
   ```bash
   LOG_LEVEL=debug ./target/release/baziflow-agent
   ```
+
+## Integration deployment changes
+
+The HTTP listener now defaults to `127.0.0.1:8080`. Terminate HTTPS/WSS at your reverse proxy and forward WebSocket upgrades. Restrict any non-loopback `HTTP_BIND_ADDRESS` to that proxy. Enforce connection/IP limits, header/handshake deadlines, and downstream write timeouts at the proxy; the application's request admission begins after HTTP headers arrive. Keep the proxy WebSocket idle timeout above `WS_IDLE_SECONDS` and disable SSE buffering.
+
+Run database migrations with a backup available. Migration checksum mismatches now stop startup; the application never deletes `_sqlx_migrations` to hide a mismatch. The new migration adds a chart capability column/index. Regenerate local charts to replace old predictable URLs; do not independently serve `public/` from the proxy. Treat chart paths as credentials and exclude them from access logs. Existing chart files are retained.
+
+SIGTERM and Ctrl+C initiate bounded draining. Keep systemd's `TimeoutStopSec` above `SHUTDOWN_SECONDS` (default 30 seconds). Deadline expiry is logged; unfinished work can be lost. Recent chat history remains a disposable cache. Old database logs may still contain prompts and responses from previous versions; apply your retention policy to that historical data. New LLM log bodies are redacted.
+
+The production constraints, owner permissions, reconnect semantics, and configuration defaults are documented in [WebSocket integration](docs/websocket-integration.md).
+
+A reviewable [nginx example](deploy/nginx.conf.example) includes WSS upgrade headers, TLS termination, per-IP handshake/connection limits, SSE settings, and timeouts. Replace its hostname and certificate paths, align its body/time limits with application configuration, and run `nginx -t` on the deployment host before enabling it. This repository change does not deploy the proxy or provision certificates.

@@ -1,0 +1,31 @@
+meta {
+  name: Chat stream
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/v1/chat?stream=true
+  body: json
+  auth: inherit
+}
+
+params:query {
+  stream: true
+}
+
+headers {
+  Content-Type: application/json
+  Accept: text/event-stream
+}
+
+body:json {
+  {
+    "message": "{{message}}"
+  }
+}
+
+docs {
+  Requires an existing Bazi profile. Persists completed replies.
+  Events: chunk, then data: [DONE]. An error event means failure.
+}

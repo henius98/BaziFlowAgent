@@ -1,0 +1,37 @@
+meta {
+  name: Create profile stream
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/api/v1/profile?stream=true
+  body: json
+  auth: inherit
+}
+
+params:query {
+  stream: true
+}
+
+headers {
+  Content-Type: application/json
+  Accept: text/event-stream
+}
+
+body:json {
+  {
+    "gender": {{gender}},
+    "birth_date": "{{birth_date}}",
+    "birth_hour": {{birth_hour}},
+    "birth_minute": {{birth_minute}},
+    "location": "{{location}}"
+  }
+}
+
+docs {
+  Creates or replaces the owner profile, clears old chat history and generates analysis and a chart.
+  Gender: 0 female, 1 male. Birth date: YYYY-MM-DD. Hour: 0-23; minute: 0-59.
+  For unknown birth time, omit both birth_hour and birth_minute or set both to null. Location is optional.
+  Events: chart_url, analysis_chunk, then data: [DONE]. An error event means failure.
+}

@@ -17,6 +17,7 @@ A high-performance Telegram Bot built in **Rust** 🦀 that provides professiona
 - **Daily Almanac API Integration**: Fetches traditional Chinese almanac data (MingDecode API), keeping only essential variables, calculating "Kong Wang" (空亡), and translating keys dynamically.
 - **LLM AI Native**: Automatically structures system prompts (based on Blindman Bazi methodology) alongside chat contexts, injecting calendar selections to a remote LLM for sophisticated CoT (Chain of Thought) analysis, delivered via real-time token streaming to Telegram.
 - **Scheduled Analytics**: Built-in async job scheduler (`tokio-cron-scheduler`) dynamically triggers daily report calculations based on individual user schedules, proactively informing you about tomorrow's astrological landscape. Features customizable schedule settings and enhanced user profile views.
+- **Real-Time WebSocket Integration**: Provides a robust WebSocket API (`/api/v1/date-fortune`) allowing third-party web and mobile clients to receive streaming LLM fortune-telling responses instantly.
 - **Robust Concurrency**: Leverages `tokio` and `DashMap` for memory-safe, lock-free concurrency to maintain isolated user contexts.
 - **Cloudflare R2 Integration**: Optionally offloads generated HTML charts to Cloudflare R2 object storage, generating short-lived presigned URLs for secure and efficient delivery.
 - **Strict Rust Quality Standards**: Enforces Microsoft Pragmatic Guidelines, Zero `.unwrap()` error handling architectures, and memory-safe Clean Architecture patterns.
@@ -29,7 +30,7 @@ A high-performance Telegram Bot built in **Rust** 🦀 that provides professiona
 - **Task Scheduling**: `tokio-cron-scheduler`
 - **Memory Storage**: InMemory `DashMap` (Self-cleaning stale sessions automatically)
 - **Object Storage**: Cloudflare R2 (`rust-s3`) for hosting dynamic HTML charts
-- **API Trigger**: Minimal Axum server for external system orchestration.
+- **API Server**: Minimal `axum` router with `tower-http` (CORS, Tracing) and WebSockets for external orchestration.
 
 ## 📁 Repository Structure
 
@@ -66,6 +67,7 @@ BaziFlowAgent/
 │   │   ├── mod.rs                # Re-exports
 │   │   ├── common.rs             # Common data types (e.g., LlmModel)
 │   │   ├── error.rs              # AppError, AppResult, LogErrorExt
+│   │   ├── processing_guard.rs   # RAII user processing guard
 │   │   └── state.rs              # AppState struct
 │   ├── repos/
 │   │   └── mod.rs                # SQLite DB layer
@@ -83,6 +85,11 @@ BaziFlowAgent/
 │           ├── models.rs         # Bazi data structures
 │           └── bazi_template.html
 ├── migrations/                   # SQLx migration SQL files
+├── tests/                        # Integration and unit tests
+│   ├── api_tests.rs              # Axum HTTP and WebSocket API tests
+│   ├── bazi_flow_tests.rs        # Core Bazi logic mock tests
+│   ├── solar_time_tests.rs       # Solar time conversion tests
+│   └── test_helpers.rs           # Shared configuration and state builders
 ├── logs/                         # Runtime logs (gitignored)
 └── public/                       # Runtime HTML charts (gitignored)
 ```
@@ -122,3 +129,9 @@ Are you deploying on an ARM-based edge device like a **Raspberry Pi 4B (DietPi O
 ## 🧠 Native LLM Prompt Design
 
 The bot uses `async-openai` to natively orchestrate LLM calls. It strictly enforces the constraints and prompts specified in `prompts/`. This prevents generic responses (e.g., ziping "旺衰" theory) and mandates the Blindman Bazi "体用" & "做功" methodology. The Almanac data and User Intent are constructed and provided directly within the LLM messages.
+
+## Secure integrations and resource limits
+
+The [Bruno API collection](bruno/README.md) covers every HTTP and WebSocket endpoint, including SSE variants and local chart downloads. Open `bruno/` in Bruno and select the Local environment to get started.
+
+See [WebSocket integration](docs/websocket-integration.md) for the versioned owner-scoped gateway, limits, deployment requirements, and migration from predictable chart links. The listener now defaults to loopback; put a TLS reverse proxy in front of it for production. [Project sequences](docs/project-flow-sequence.md) describe admission, streaming, notifications, and shutdown.
