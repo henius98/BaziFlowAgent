@@ -19,6 +19,8 @@ pub struct AppConfig {
   pub runtime: RuntimeConfig,
   pub upstreams: Upstreams,
   pub telegram_bot_token: String,
+  pub telegram_webhook_enabled: bool,
+  pub telegram_webhook_path: String,
   pub llm_client_config: crate::services::llm::LlmClientConfig,
   pub llm_model_name: String,
   pub database_url: String,
@@ -52,6 +54,9 @@ impl AppConfig {
       }
       Ok(t)
     })?;
+    let telegram_webhook_enabled = env::var("TELEGRAM_WEBHOOK_ENABLED").unwrap_or_else(|_| "false".to_string()).parse::<bool>().context("TELEGRAM_WEBHOOK_ENABLED must be true or false")?;
+    let telegram_webhook_path = env::var("TELEGRAM_WEBHOOK_PATH").context("TELEGRAM_WEBHOOK_PATH must be set in .env")?;
+    anyhow::ensure!(telegram_webhook_path.starts_with('/'), "TELEGRAM_WEBHOOK_PATH must start with /");
 
     let mut llm_client_config = crate::services::llm::LlmClientConfig {
       api_key: env::var("LLM_API_KEY").context("LLM_API_KEY must be set in .env")?,
@@ -106,6 +111,15 @@ impl AppConfig {
       app_timezone_str.trim().parse::<chrono_tz::Tz>().map_err(|e| anyhow::anyhow!("Invalid APP_TIMEZONE: {}", e))?
     };
 
+    // Sync the OS-level TZ variable from APP_TIMEZONE so that SQLite datetime('now'),
+    // stdlib time calls, and any non-chrono code all agree on the same timezone.
+    // Only override TZ when it is absent or explicitly set to match APP_TIMEZONE intent.
+    let tz_name = app_timezone.name();
+    if env::var("TZ").map(|v| v.trim().is_empty()).unwrap_or(true) {
+      // SAFETY: single-threaded at this point (called before tokio::main spawns tasks).
+      unsafe { std::env::set_var("TZ", tz_name) };
+    }
+
     let cors_allowed_origin = env::var("CORS_ALLOWED_ORIGIN").unwrap_or_else(|_| "*".to_string());
     if cors_allowed_origin != "*" {
       for origin in cors_allowed_origin.split(',') {
@@ -121,6 +135,8 @@ impl AppConfig {
       runtime: RuntimeConfig::from_env()?,
       upstreams: Upstreams::default(),
       telegram_bot_token,
+      telegram_webhook_enabled,
+      telegram_webhook_path,
       llm_client_config,
       llm_model_name,
       database_url,

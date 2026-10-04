@@ -100,11 +100,10 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
   }
 
   let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
-  let mut params = crate::services::llm::LlmRequestParams::new(model_name, messages);
+  let mut params = crate::services::llm::LlmRequestParams::new(model_name, messages, crate::models::LlmRequestType::FollowUpChat);
   params.stream = Some(true);
   params.temperature = Some(0.4);
   params.user_id = Some(user_id as i64);
-  params.request_type = Some(crate::models::LlmRequestType::FollowUpChat);
 
   match state.llm_service.call(params).await {
     Ok(crate::models::LlmResponse::Stream(receiver)) => {

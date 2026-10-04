@@ -8,6 +8,8 @@ pub fn test_config(mock_url: String) -> AppConfig {
     runtime: Default::default(),
     upstreams: baziflow_agent::config::Upstreams { chart_base: mock_url.clone(), supplement_base: mock_url.clone(), almanac: format!("{mock_url}/api/almanac") },
     telegram_bot_token: "".into(),
+    telegram_webhook_enabled: false,
+    telegram_webhook_path: "/telegram/webhook".into(),
     llm_client_config: baziflow_agent::services::llm::LlmClientConfig { api_key: "test".into(), api_base: mock_url, timeout_seconds: 30, http_client: None },
     llm_model_name: "gpt-4o".into(),
     database_url: "sqlite::memory:".into(),

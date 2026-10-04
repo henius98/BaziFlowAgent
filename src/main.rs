@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use teloxide::{prelude::*, utils::command::BotCommands};
+use teloxide::{error_handlers::LoggingErrorHandler, prelude::*, update_listeners::webhooks, utils::command::BotCommands};
 use tracing::{debug, error, info};
 
 use baziflow_agent::bot;
@@ -62,16 +62,36 @@ async fn main() -> anyhow::Result<()> {
   let _ = tokio::fs::create_dir_all("public").await;
 
   // Start web server with API routes + static file serving for Instant View / Web view
-  let app = baziflow_agent::api::api_router(config.clone()).route("/charts/{token}", axum::routing::get(baziflow_agent::api::charts::chart));
+  let mut app = baziflow_agent::api::api_router(config.clone()).route("/charts/{token}", axum::routing::get(baziflow_agent::api::charts::chart));
 
   let addr = config.runtime.bind;
   info!("Starting web server on http://{}", addr);
 
   let listener = tokio::net::TcpListener::bind(addr).await.context("Failed to bind web server")?;
+  let (webhook_listener, webhook_stop) = if config.telegram_webhook_enabled {
+    let mut url = reqwest::Url::parse(&config.base_url).context("Invalid BASE_URL for Telegram webhook")?;
+    anyhow::ensure!(url.scheme() == "https", "BASE_URL must use HTTPS when TELEGRAM_WEBHOOK_ENABLED=true");
+    url.set_path(&config.telegram_webhook_path);
+    url.set_query(None);
+    url.set_fragment(None);
+    let options = webhooks::Options::new(addr, url).path(config.telegram_webhook_path.clone());
+    let (listener, stop, router) = webhooks::axum_to_router(bot.clone(), options).await.context("Failed to set Telegram webhook")?;
+    app = app.merge(router);
+    info!(path = %config.telegram_webhook_path, "Telegram webhook enabled");
+    (Some(listener), Some(stop))
+  } else {
+    (None, None)
+  };
   let shutdown = state.runtime.shutdown.clone();
   let mut web_task = tokio::spawn(async move { axum::serve(baziflow_agent::api::listener(listener), app).with_graceful_shutdown(shutdown.cancelled_owned()).await });
   let dispatcher_shutdown = bot_dispatcher.shutdown_token();
-  let mut bot_task = tokio::spawn(async move { bot_dispatcher.dispatch().await });
+  let mut bot_task = tokio::spawn(async move {
+    if let Some(listener) = webhook_listener {
+      bot_dispatcher.dispatch_with_listener(listener, LoggingErrorHandler::new()).await;
+    } else {
+      bot_dispatcher.dispatch().await;
+    }
+  });
   tokio::select! {
     result = &mut web_task => { error!(?result, "Web server stopped"); }
     result = &mut bot_task => { info!(?result, "Bot dispatcher stopped"); }
@@ -85,6 +105,9 @@ async fn main() -> anyhow::Result<()> {
     }
     if !bot_task.is_finished() {
       let _ = (&mut bot_task).await;
+    }
+    if let Some(stop) = webhook_stop {
+      stop.await;
     }
     if !web_task.is_finished() {
       let _ = (&mut web_task).await;

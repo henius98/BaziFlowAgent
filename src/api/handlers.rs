@@ -343,7 +343,7 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
     stream: true,
     llm_model: user_profile.llm_model,
     user_id: Some(user_id as i64),
-    request_type: Some(models::LlmRequestType::ApiDateFortune),
+    request_type: models::LlmRequestType::ApiDateFortune,
   })
   .await;
 
@@ -436,7 +436,7 @@ pub async fn pick_date(auth: AuthUser, query: Query<StreamQuery>, Json(req): Jso
     stream: is_stream,
     llm_model: user_profile.llm_model,
     user_id: Some(user_id as i64),
-    request_type: Some(models::LlmRequestType::ApiPickDate),
+    request_type: models::LlmRequestType::ApiPickDate,
   })
   .await
   {
@@ -571,11 +571,10 @@ pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<Cha
 
   let model_name = user_profile.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
 
-  let mut params = services::llm::LlmRequestParams::new(model_name, messages);
+  let mut params = services::llm::LlmRequestParams::new(model_name, messages, models::LlmRequestType::ApiChat);
   params.stream = Some(is_stream);
   params.temperature = Some(0.4);
   params.user_id = Some(user_id as i64);
-  params.request_type = Some(models::LlmRequestType::ApiChat);
 
   match state.llm_service.call(params).await {
     Ok(models::LlmResponse::Stream(mut receiver)) if is_stream => {

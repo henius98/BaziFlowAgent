@@ -161,7 +161,7 @@ pub async fn get_all_scheduled_users(database: &Database) -> Vec<(u64, String)> 
 pub struct LlmLogParams<'a> {
   pub model: &'a str,
   pub user_id: Option<i64>,
-  pub request_type: Option<&'a str>,
+  pub request_type: &'a str,
   pub request_body: &'a str,
   pub response_body: &'a str,
   pub total_tokens: Option<i64>,
@@ -196,7 +196,7 @@ pub async fn save_llm_log(database: &Database, params: LlmLogParams<'_>) {
           vec![
             serde_json::json!(params.model),
             params.user_id.map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
-            params.request_type.map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
+            serde_json::json!(params.request_type),
             serde_json::json!(params.request_body),
             serde_json::json!(params.response_body),
             params.total_tokens.map_or(serde_json::Value::Null, |value| serde_json::json!(value)),

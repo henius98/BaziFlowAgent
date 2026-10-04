@@ -55,7 +55,7 @@ async fn test_all_api_endpoints() {
   let m5_sync = server.mock("POST", "/chat/completions")
         .match_body(mockito::Matcher::Regex(r#"(?s).*用户命盘详批.*"#.to_string()))
         .with_status(200)
-        .with_body(r#"{"id":"1","object":"chat.completion","created":1694268190,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"基础：丁丑日；日时为主｜做功：子丑合，反局未载｜大运：未载｜性格：敏锐，易急｜应期：未载"},"finish_reason":"stop"}]}"#)
+        .with_body(r#"{"id":"1","object":"chat.completion","created":1694268190,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"基础：丁丑日; 日时为主｜做功：子丑合，反局未载｜大运：未载｜性格：敏锐，易急｜应期：未载"},"finish_reason":"stop"}]}"#)
         .expect(1)
         .create_async().await;
 

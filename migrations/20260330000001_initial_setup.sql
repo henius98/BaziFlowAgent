@@ -1,5 +1,6 @@
 -- Initial database setup with standardized datetime formats (until second)
 -- Using YYYY-MM-DD HH:MM:SS format for all timestamps
+-- 'localtime' modifier converts UTC 'now' using the process TZ (set from APP_TIMEZONE in .env)
 CREATE TABLE IF NOT EXISTS users (
   user_id INTEGER PRIMARY KEY, -- Telegram i64 ID, NOT auto-generated
   username TEXT, -- Telegram @handle, nullable (not all users set one)
@@ -10,8 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
   bazi_four_pillars BLOB, -- JSON stored via jsonb(); BLOB affinity matches binary format
   bazi_analysis TEXT, -- LLM-generated destiny text
   bazi_summary TEXT, -- main essential keypoint life for improve user date fortune analysis + save token
-  created_at TEXT NOT NULL DEFAULT (strftime ('%Y-%m-%d %H:%M:%S', 'now')),
-  last_active_at TEXT NOT NULL DEFAULT (strftime ('%Y-%m-%d %H:%M:%S', 'now'))
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime')),
+  last_active_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime'))
 );
 
 -- Trigger to automatically update last_active_at on any change to the user row
@@ -20,7 +21,7 @@ UPDATE ON users FOR EACH ROW WHEN NEW.last_active_at IS OLD.last_active_at -- On
 BEGIN
 UPDATE users
 SET
-  last_active_at = strftime ('%Y-%m-%d %H:%M:%S', 'now')
+  last_active_at = strftime('%Y-%m-%d %H:%M:%S', 'now', 'localtime')
 WHERE
   user_id = NEW.user_id;
 

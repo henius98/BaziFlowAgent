@@ -10,8 +10,8 @@ impl fmt::Display for StructuredBazi {
     if self.info.birth_time_known {
       writeln!(f, "阳历:{} (排盘时间)", self.info.solar_date)?;
     } else {
-      writeln!(f, "阳历:{} (出生时间未知；12:00仅为参考排盘时间)", self.info.solar_date)?;
-      writeln!(f, "注意:时柱及受时柱影响的关系不可作为确定事实")?;
+      writeln!(f, "阳历:{} (出生时间未知; 12:00仅为参考排盘时间)", self.info.solar_date)?;
+      writeln!(f, "注意:时柱各项已用*遮蔽; 受时柱影响的关系不可作为确定事实")?;
     }
 
     // 四柱
@@ -202,7 +202,7 @@ fn render_bazi_html(chart: &StructuredBazi, name: &str) -> String {
   html = html.replace("{{NAME}}", name);
   html = html.replace("{{GENDER_SUFFIX}}", &chart.info.gender);
   html = html.replace("{{lunisolar_date}}", &chart.info.lunisolar_date);
-  let solar_date = if chart.info.birth_time_known { chart.info.solar_date.clone() } else { format!("{}（出生时间未知，12:00参考）", chart.info.solar_date) };
+  let solar_date = if chart.info.birth_time_known { chart.info.solar_date.clone() } else { format!("{}(出生时间未知,12:00仅为参考)", chart.info.solar_date) };
   html = html.replace("{{SOLAR_DATE}}", &solar_date);
 
   // Current Luck columns (流年 + 大运)

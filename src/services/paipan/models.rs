@@ -212,6 +212,47 @@ pub struct RawBaziChart {
   // pub dy_info: Option<BasePillarData>,
 }
 
+impl RawBaziChart {
+  pub(super) fn mask_hour_pillar_if_unknown(mut self, birth_time_known: bool) -> Self {
+    if birth_time_known {
+      return self;
+    }
+
+    const MASK: &str = "*";
+    const HOUR_INDEX: usize = 3;
+
+    self.bz.hour_steam = MASK.to_string();
+    self.bz.hour_branch = MASK.to_string();
+
+    if let Some(value) = self.ss.get_mut(HOUR_INDEX) {
+      *value = MASK.to_string();
+    }
+    if let Some(values) = self.cg.get_mut(HOUR_INDEX) {
+      *values = vec![MASK.to_string()];
+    }
+    if let Some(values) = self.cgss.get_mut(HOUR_INDEX) {
+      *values = vec![MASK.to_string()];
+    }
+    if let Some(value) = self.xy.get_mut(HOUR_INDEX) {
+      *value = MASK.to_string();
+    }
+    if let Some(value) = self.zz.get_mut(HOUR_INDEX) {
+      *value = MASK.to_string();
+    }
+    if let Some(value) = self.kw.get_mut(HOUR_INDEX) {
+      *value = MASK.to_string();
+    }
+    if let Some(value) = self.ny.get_mut(HOUR_INDEX) {
+      *value = MASK.to_string();
+    }
+    if let Some(values) = self.szshensha.get_mut(HOUR_INDEX) {
+      *values = vec![MASK.to_string()];
+    }
+
+    self
+  }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bazi {
   #[serde(alias = "0", rename = "year_steam")]

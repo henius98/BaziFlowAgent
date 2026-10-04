@@ -96,7 +96,7 @@ pub async fn core_bazi_analysis(
   let user_message = async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default().content(full_user_content).build()?;
 
   let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
-  let mut params = crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()]);
+  let mut params = crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()], crate::models::LlmRequestType::BaziAnalysis);
   params.temperature = Some(0.2);
   params.top_p = Some(0.75);
   params.stream = Some(true);
@@ -123,12 +123,11 @@ pub async fn generate_bazi_summary(
   let user_message = async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default().content(full_user_content).build()?;
 
   let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
-  let mut params = crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()]);
+  let mut params = crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()], crate::models::LlmRequestType::GenerateBaziSummary);
   params.temperature = Some(0.1);
   params.top_p = Some(0.7);
   params.stream = Some(false);
   params.user_id = Some(user_id as i64);
-  params.request_type = Some(crate::models::LlmRequestType::GenerateBaziSummary);
 
   match state.llm_service.call(params).await {
     Ok(crate::models::LlmResponse::Full(summary)) => validate_bazi_summary(&summary),
@@ -177,7 +176,7 @@ mod tests {
 
   #[test]
   fn validates_compact_bazi_summary_contract() {
-    let valid = "基础：丁丑日；日时为主｜做功：子丑合，反局未载｜大运：未载｜性格：敏锐，易急｜应期：未载";
+    let valid = "基础：丁丑日;日时为主｜做功：子丑合，反局未载｜大运：未载｜性格：敏锐，易急｜应期：未载";
     assert_eq!(validate_bazi_summary(valid).expect("valid summary should pass"), valid);
     assert!(validate_bazi_summary("基础：身强｜做功：未载｜大运：未载｜性格：未载｜应期：未载").is_err());
   }

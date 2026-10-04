@@ -13,6 +13,7 @@ sequenceDiagram
     participant SharedState
     participant Scheduler
     participant TelegramDispatcher
+    participant TelegramAPI
     participant AxumServer
 
     alt D1_DATABASE_ID configured
@@ -27,11 +28,18 @@ sequenceDiagram
     DurableDatabase-->>Scheduler: User schedules and profiles
     Process->>TelegramDispatcher: Register commands and update handlers
     Process->>AxumServer: Bind authenticated API and chart capability routes
+    alt TELEGRAM_WEBHOOK_ENABLED is true
+        Process->>TelegramAPI: Register HTTPS webhook at BASE_URL + TELEGRAM_WEBHOOK_PATH
+        Process->>AxumServer: Mount POST TELEGRAM_WEBHOOK_PATH
+        Process->>TelegramDispatcher: Dispatch webhook updates
+    else Long polling
+        Process->>TelegramDispatcher: Poll Telegram for updates
+    end
     TelegramDispatcher-->>Process: Telegram updates handled
     AxumServer-->>Process: HTTP, SSE, and WebSocket requests handled
 ```
 
-The durable database is Cloudflare D1 when `D1_DATABASE_ID`, `D1_ACCOUNT_ID`, and `D1_API_TOKEN` are configured; otherwise it is the local SQLite database selected by `DATABASE_URL`. D1 and SQLite apply the same migration files. The chat cache remains a separate, disposable local SQLite database. The process also starts log/context cleanup jobs and runs both request surfaces until graceful shutdown. The scheduler owns a `Bot` instance for centrally throttled scheduled Telegram delivery; it does not route scheduled messages through the update dispatcher.
+The durable database is Cloudflare D1 when `D1_DATABASE_ID`, `D1_ACCOUNT_ID`, and `D1_API_TOKEN` are configured; otherwise it is the local SQLite database selected by `DATABASE_URL`. D1 and SQLite apply the same migration files. The chat cache remains a separate, disposable local SQLite database. The process also starts log/context cleanup jobs and runs both request surfaces until graceful shutdown. With `TELEGRAM_WEBHOOK_ENABLED=true`, Teloxide registers the HTTPS webhook at `TELEGRAM_WEBHOOK_PATH` and the existing Axum listener accepts Telegram updates there; shutdown removes the webhook. Otherwise Teloxide uses long polling. The scheduler owns a `Bot` instance for centrally throttled scheduled Telegram delivery; it does not route scheduled messages through the update dispatcher.
 
 ## 2. Profile creation and initial Bazi analysis
 
@@ -53,7 +61,7 @@ sequenceDiagram
     alt Birth time provided
         BaziService->>BaziService: Use the validated birth time
     else Birth time omitted
-        BaziService->>BaziService: Use 12:00 reference and mark time unknown
+        BaziService->>BaziService: Use 12:00 reference, mark time unknown, and mask hour-pillar values
     end
     opt Birth location provided
         BaziService->>BaziService: Apply true solar time longitude correction
@@ -66,12 +74,13 @@ sequenceDiagram
     BaziService->>ChartStorage: Rotate chart capability and publish escaped HTML
     BaziService->>LLMGateway: Request destiny analysis and summary
     LLMGateway-->>BaziService: Analysis stream and compact summary
-    BaziService->>DurableDatabase: Save completed analysis, summary, and redacted LLM metadata
+    BaziService->>DurableDatabase: Save completed analysis and summary
+    BaziService->>DurableDatabase: Save full LLM request and response or provider error
     BaziService-->>TransportHandler: Chart URL and analysis result
     TransportHandler-->>InteractiveClient: Telegram, JSON, or SSE response
 ```
 
-`InteractiveClient` represents either a Telegram user or an authenticated API client. `TransportHandler` represents the relevant teloxide handler or Axum endpoint. Birth time and birth location can both be omitted. An omitted time uses 12:00 only as a date-safe reference for the required upstream chart calculation; the stored profile marks the time as unknown, and consumers are warned that the reference hour pillar is uncertain. An omitted location receives no longitude correction. `ChartStorage` is Cloudflare R2 when configured and the local `public/` directory otherwise.
+`InteractiveClient` represents either a Telegram user or an authenticated API client. `TransportHandler` represents the relevant teloxide handler or Axum endpoint. Birth time and birth location can both be omitted. An omitted time uses 12:00 only as a date-safe reference for the required upstream chart calculation; before the profile is stored or returned, every hour-pillar value is replaced with `*` and the time is marked unknown. An omitted location receives no longitude correction. `ChartStorage` is Cloudflare R2 when configured and the local `public/` directory otherwise.
 
 ## 3. Interactive fortune, date selection, and follow-up chat
 
@@ -96,7 +105,7 @@ sequenceDiagram
     MingDecodeAPI-->>CoreServices: Validated and formatted almanac data
     CoreServices->>LLMGateway: Send prompt with chart, summary, almanac, and history
     LLMGateway-->>CoreServices: Full response or streamed chunks
-    CoreServices->>DurableDatabase: Append redacted LLM request metadata
+    CoreServices->>DurableDatabase: Save full LLM request and response or provider error
     CoreServices->>MemoryContext: Store assistant turn
     MemoryContext->>ChatCache: Queue write-behind persistence
     CoreServices-->>TransportHandler: Full or streaming result
@@ -125,13 +134,15 @@ sequenceDiagram
     MingDecodeAPI-->>AlmanacService: Validated almanac data
     AlmanacService->>LLMGateway: Generate personalized daily reading
     LLMGateway-->>AlmanacService: Full reading
-    AlmanacService->>DurableDatabase: Save LLM request log
+    AlmanacService->>DurableDatabase: Save full LLM request and response or provider error
     AlmanacService-->>Scheduler: Almanac and reading
     Scheduler->>TelegramBot: Send Unicode-safe chunks through shared throttle
     TelegramBot-->>TelegramUser: Tomorrow almanac and fortune
 ```
 
 The same scheduler also expires stale in-memory contexts and removes old log files on configured cron expressions.
+
+LLM logs store the serialized provider request, including private prompts, and the complete non-streaming response or assembled streaming text. Failed calls store the provider error detail with any partial streaming text. These records are written to the durable database before a non-streaming call returns or a stream reports completion.
 
 ## 5. Persistent third-party gateway
 

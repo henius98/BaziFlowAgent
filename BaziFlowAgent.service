@@ -13,6 +13,10 @@ ExecStart=/home/dietpi/BaziFlowAgent/target/release/baziflow-agent
 # Environment
 EnvironmentFile=/home/dietpi/BaziFlowAgent/.env
 Environment="RUST_BACKTRACE=1"
+# TZ is also set via APP_TIMEZONE in .env (AppConfig::from_env syncs them at startup).
+# Declaring it here too ensures the correct timezone for the process before the app loads .env,
+# keeping SQLite datetime('now') and OS-level stdlib time calls consistent from the very first moment.
+Environment="TZ=Asia/Singapore"
 
 # Restart & Reliability
 Restart=always

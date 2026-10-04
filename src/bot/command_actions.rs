@@ -71,8 +71,7 @@ pub async fn perform_bazi_analysis(bot: Bot, chat_id: ChatId, user_id: u64, user
   };
   let location = profile_state.location;
   let location_status = if let Some(city) = &location { format!("✅ City selected: {}", city) } else { "⏩ Birth location skipped; no longitude correction will be applied.".to_string() };
-  let time_status = birth_time
-    .map_or_else(|| "⏩ Birth time skipped; 12:00 will be used only as a reference, so the hour pillar is uncertain.".to_string(), |time| format!("✅ Time received: {}", time.format("%H:%M")));
+  let time_status = birth_time.map_or_else(|| "⏩ Birth time skipped; the hour pillar will be masked with *.".to_string(), |time| format!("✅ Time received: {}", time.format("%H:%M")));
 
   let status_text = format!("{}\n{}\n\n📅 Date: {}\n⌛ Calculating your Bazi chart...", location_status, time_status, birth_date);
 
@@ -292,7 +291,7 @@ pub async fn process_date_selection(bot: &Bot, q: &CallbackQuery, formatted_date
       stream: true,
       llm_model: user_profile.llm_model,
       user_id: Some(user_id as i64),
-      request_type: Some(request_type),
+      request_type,
     })
     .await
     {
@@ -377,7 +376,7 @@ pub async fn process_pick_selection(bot: Bot, chat_id: ChatId, user_id: u64, tar
     stream: true,
     llm_model: user_profile.llm_model,
     user_id: Some(user_id as i64),
-    request_type: Some(crate::models::LlmRequestType::PickSelection),
+    request_type: crate::models::LlmRequestType::PickSelection,
   })
   .await
   {

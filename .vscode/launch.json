@@ -2,26 +2,58 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug BaziFlow (Manual)",
+      "name": "Debug BaziFlow",
       "type": "lldb",
       "request": "launch",
       "cargo": {
-        "args": ["run", "--bin=baziflow-agent"],
+        "args": ["build", "--bin=baziflow-agent", "--package=baziflow-agent"],
+        "filter": {
+          "name": "baziflow-agent",
+          "kind": "bin"
+        },
+        "env": {
+          "LD_LIBRARY_PATH": "",
+          "LD_PRELOAD": ""
+        }
       },
       "args": [],
-      "stopOnEntry": false,
-      "preLaunchTask": "Sync bashrc to env",
-      "sourceMap": {
-        "/var/home": "/home",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "LD_LIBRARY_PATH": "",
+        "LD_PRELOAD": "",
+        "LOG_LEVEL": "debug",
+        "RUST_BACKTRACE": "1"
       },
+      "sourceLanguages": ["rust"],
+      "stopOnEntry": false,
+      "terminal": "integrated"
     },
     {
-      "name": "Debug unit tests in executable 'baziflow-agent'",
+      "name": "Debug BaziFlow Library Tests",
       "type": "lldb",
       "request": "launch",
       "cargo": {
-        "args": ["test", "--bin=baziflow-agent"],
+        "args": ["test", "--no-run", "--lib", "--package=baziflow-agent"],
+        "filter": {
+          "name": "baziflow_agent",
+          "kind": "lib"
+        },
+        "env": {
+          "LD_LIBRARY_PATH": "",
+          "LD_PRELOAD": ""
+        }
       },
-    },
-  ],
+      "args": ["--nocapture"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "LD_LIBRARY_PATH": "",
+        "LD_PRELOAD": "",
+        "LOG_LEVEL": "debug",
+        "RUST_BACKTRACE": "1"
+      },
+      "sourceLanguages": ["rust"],
+      "stopOnEntry": false,
+      "terminal": "integrated"
+    }
+  ]
 }

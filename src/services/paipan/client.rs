@@ -19,6 +19,7 @@ pub async fn fetch_bazi_chart(
   let solar_dt_str = solar_dt.format("%Y-%m-%d %H:%M").to_string();
 
   let mut chart = fetch_base_bazi(client, &upstreams.chart_base, &solar_dt_str, gender).await?;
+  chart = chart.mask_hour_pillar_if_unknown(birth_time_known);
 
   // Extract the 4 pillars for building query strings
   let gz_str = format!(
@@ -79,8 +80,7 @@ pub async fn fetch_bazi_chart(
 async fn fetch_base_bazi(client: &Client, base: &str, solar_dt: &str, gender: u8) -> AppResult<RawBaziChart> {
   let api_url = format!("{base}/getbasebz8.php");
   let response = client.get(&api_url).query(&[("d", solar_dt), ("s", &gender.to_string()), ("vip", "1"), ("today", "undefined"), ("userguid", ""), ("yzs", "0")]).send().await?.error_for_status()?;
-  let chart: RawBaziChart = crate::services::http::json(response).await?;
-  Ok(chart)
+  crate::services::http::json(response).await
 }
 
 async fn fetch_yongshi(client: &Client, base: &str, solar_dt: &str) -> Option<String> {

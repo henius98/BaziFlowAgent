@@ -181,6 +181,8 @@ If you modify the code and rebuild:
 
 The HTTP listener now defaults to `127.0.0.1:8080`. Terminate HTTPS/WSS at your reverse proxy and forward WebSocket upgrades. Restrict any non-loopback `HTTP_BIND_ADDRESS` to that proxy. Enforce connection/IP limits, header/handshake deadlines, and downstream write timeouts at the proxy; the application's request admission begins after HTTP headers arrive. Keep the proxy WebSocket idle timeout above `WS_IDLE_SECONDS` and disable SSE buffering.
 
+To use Telegram webhooks, set `TELEGRAM_WEBHOOK_ENABLED=true`, set `TELEGRAM_WEBHOOK_PATH`, and set `BASE_URL` to the public HTTPS origin. Forward `POST TELEGRAM_WEBHOOK_PATH` to the same `HTTP_BIND_ADDRESS` as the API. Telegram must be able to reach the public URL on a supported HTTPS port. Leave the flag `false` to use long polling.
+
 Run database migrations with a backup available. Migration checksum mismatches now stop startup; the application never deletes `_sqlx_migrations` to hide a mismatch. The new migration adds a chart capability column/index. Regenerate local charts to replace old predictable URLs; do not independently serve `public/` from the proxy. Treat chart paths as credentials and exclude them from access logs. Existing chart files are retained.
 
 SIGTERM and Ctrl+C initiate bounded draining. Keep systemd's `TimeoutStopSec` above `SHUTDOWN_SECONDS` (default 30 seconds). Deadline expiry is logged; unfinished work can be lost. Recent chat history remains a disposable cache. Old database logs may still contain prompts and responses from previous versions; apply your retention policy to that historical data. New LLM log bodies are redacted.

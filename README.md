@@ -115,7 +115,11 @@ We provide a template for all required environment variables, including database
    ```
 2. Open `.env` and fill in your secrets (e.g., `TELEGRAM_BOT_TOKEN`, `LLM_API_KEY`).
 
+`TELEGRAM_WEBHOOK_ENABLED=false` keeps Telegram long polling. Set it to `true` to receive updates at `TELEGRAM_WEBHOOK_PATH` on the existing HTTP listener. Webhook mode requires `BASE_URL` to be a public HTTPS URL and a reverse proxy that forwards the configured path to `HTTP_BIND_ADDRESS`. Teloxide registers the webhook with Telegram and checks its secret token header.
+
 To use Cloudflare D1 for durable application data, set `D1_DATABASE_ID`, `D1_ACCOUNT_ID`, and `D1_API_TOKEN`. The token needs D1 Read and D1 Write permissions. When `D1_DATABASE_ID` is empty or absent, the application uses `DATABASE_URL` (default: `sqlite://baziflow_agent.db`). The local chat-history cache continues to use `CHAT_CACHE_DATABASE_URL` in either mode.
+
+The durable database's `llm_logs` table stores full LLM requests and responses, including private Bazi prompts and replies, plus provider error details. Restrict database access and manage retention accordingly.
 
 ### 3. Build & Run locally
 

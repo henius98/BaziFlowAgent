@@ -58,6 +58,8 @@ pub enum LlmResponse {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LlmRequestType {
+  /// Initial Bazi chart analysis
+  BaziAnalysis,
   /// /date calendar → specific date selection
   CalendarDate,
   /// /date calendar → "Today" shortcut
@@ -85,6 +87,7 @@ impl LlmRequestType {
   /// Values match the existing strings in `llm_logs` for backward compatibility.
   pub fn as_str(&self) -> &'static str {
     match self {
+      Self::BaziAnalysis => "bazi_analysis",
       Self::CalendarDate => "calendar_date",
       Self::CalendarToday => "calendar_today",
       Self::CalendarTomorrow => "calendar_tomorrow",

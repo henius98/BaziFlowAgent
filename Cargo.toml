@@ -6,7 +6,7 @@ description = "BaziFlowAgent - A high-performance AI Agent for Bazi analysis and
 
 [dependencies]
 # Telegram Bot Framework
-teloxide = { version = "0.17", features = ["macros", "ctrlc_handler", "throttle"] }
+teloxide = { version = "0.17", features = ["macros", "ctrlc_handler", "throttle", "webhooks-axum"] }
 
 # Async Runtime
 tokio = { version = "1", features = ["full"] }

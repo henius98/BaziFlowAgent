@@ -93,21 +93,15 @@ pub struct LlmRequestParams {
   // --- Custom App Tracking ---
   #[serde(skip_serializing_if = "Option::is_none")]
   pub user_id: Option<i64>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub request_type: Option<LlmRequestType>,
+  #[serde(skip_serializing)]
+  pub request_type: LlmRequestType,
 }
 
 impl LlmRequestParams {
-  pub fn new(model: impl Into<String>, messages: Vec<ChatCompletionRequestMessage>) -> Self {
-    Self { model: model.into(), messages, ..Default::default() }
-  }
-}
-
-impl Default for LlmRequestParams {
-  fn default() -> Self {
+  pub fn new(model: impl Into<String>, messages: Vec<ChatCompletionRequestMessage>, request_type: LlmRequestType) -> Self {
     Self {
-      model: "gpt-4o".to_string(), // Can be overridden
-      messages: vec![],
+      model: model.into(), // Required per-call model selection
+      messages,
 
       // Core Defaults
       temperature: Some(0.2), // Best practice for analytical tasks
@@ -142,7 +136,7 @@ impl Default for LlmRequestParams {
 
       // Tracking
       user_id: None,
-      request_type: None,
+      request_type,
     }
   }
 }
@@ -258,16 +252,15 @@ impl LlmService for DefaultLlmService {
 }
 
 /// Provides a general LLM call service using the specified configuration and parameters.
-/// Logs request metadata with bounded tasks; private prompts and responses are redacted.
+/// Logs the full request and response, including provider errors, for each LLM call.
 /// Depending on `params.stream`, returns either a full response string or a streaming receiver.
 pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, params: LlmRequestParams, runtime: &crate::models::runtime::Runtime) -> AppResult<crate::models::LlmResponse> {
   let permit = runtime.llm.clone().try_acquire_owned().map_err(|_| anyhow::anyhow!("LLM capacity exhausted"))?;
   let is_stream = params.stream.unwrap_or(false);
   info!("Initializing LLM client for model: {} (streaming: {})", params.model, is_stream);
 
-  // Capture metadata before params are consumed; never persist private prompt bodies.
+  // Capture tracking fields before params are consumed by the request builder.
   let model_for_log = params.model.clone();
-  let request_body_json = "{}".to_owned();
   let user_id_log = params.user_id;
   let request_type_log = params.request_type;
 
@@ -284,6 +277,7 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
   let llm_client = Client::with_config(OpenAIConfig::new().with_api_base(config.api_base.clone()).with_api_key(config.api_key.clone())).with_http_client(http_client);
 
   let request = build_chat_request(params)?;
+  let request_body_json = serde_json::to_string(&request)?;
 
   if is_stream {
     debug!("Creating streaming request to LLM...");
@@ -293,22 +287,18 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
     let stream = match api_result {
       Ok(s) => s,
       Err(e) => {
-        let pool_clone = pool.clone();
-        let err_msg = "upstream_error".to_owned();
-        runtime.tasks.spawn(async move {
-          let _permit = permit;
-          let params = crate::repos::LlmLogParams {
-            model: &model_for_log,
-            user_id: user_id_log,
-            request_type: request_type_log.map(|rt| rt.as_str()),
-            request_body: &request_body_json,
-            response_body: &err_msg,
-            total_tokens: None,
-            duration_ms: start.elapsed().as_millis() as i64,
-            is_success: false,
-          };
-          crate::repos::save_llm_log(&pool_clone, params).await;
-        });
+        let err_msg = error_response_body(&e);
+        let params = crate::repos::LlmLogParams {
+          model: &model_for_log,
+          user_id: user_id_log,
+          request_type: request_type_log.as_str(),
+          request_body: &request_body_json,
+          response_body: &err_msg,
+          total_tokens: None,
+          duration_ms: start.elapsed().as_millis() as i64,
+          is_success: false,
+        };
+        crate::repos::save_llm_log(pool, params).await;
         return Err(e).log_err_msg("Failed to create LLM stream");
       }
     };
@@ -324,54 +314,64 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
       use futures::StreamExt;
       let mut stream = stream;
       let mut response_bytes = 0usize;
-      let mut succeeded = true;
+      let mut response_text = String::new();
+      let mut stream_error = None;
+      let mut total_tokens = None;
 
-      loop {
+      'stream_loop: loop {
         let result = tokio::select! {
-          _ = shutdown.cancelled() => return,
-          _ = tx.closed() => return,
+          _ = shutdown.cancelled() => { stream_error = Some("LLM stream cancelled during shutdown".to_owned()); break 'stream_loop; },
+          _ = tx.closed() => { stream_error = Some("LLM stream receiver closed".to_owned()); break 'stream_loop; },
           result = stream.next() => match result { Some(result) => result, None => break },
         };
         match result {
           Ok(response) => {
+            total_tokens = response.usage.as_ref().map(|usage| usage.total_tokens as i64).or(total_tokens);
             for choice in &response.choices {
               if let Some(content) = &choice.delta.content {
                 response_bytes = response_bytes.saturating_add(content.len());
                 if response_bytes > MAX_RESPONSE_BYTES {
                   tracing::warn!("LLM response byte limit exceeded");
-                  return;
+                  stream_error = Some("LLM response byte limit exceeded".to_owned());
+                  break 'stream_loop;
                 }
+                response_text.push_str(content);
                 if !matches!(tokio::time::timeout(std::time::Duration::from_secs(5), tx.send(content.clone())).await, Ok(Ok(()))) {
                   // Receiver dropped — stop reading
-                  return;
+                  stream_error = Some("LLM stream receiver unavailable".to_owned());
+                  break 'stream_loop;
                 }
               }
             }
           }
           Err(e) => {
             error!("LLM stream failed");
-            let _ = e;
-            succeeded = false;
+            stream_error = Some(e.to_string());
             break;
           }
         }
       }
 
-      let _ = completion.send(succeeded);
+      let succeeded = stream_error.is_none() && response_bytes > 0;
+      if !succeeded && stream_error.is_none() {
+        stream_error = Some("LLM stream returned no content".to_owned());
+      }
       drop(tx);
       let duration_ms = start.elapsed().as_millis() as i64;
-      // Fire-and-forget: log the accumulated response
+      // Keep the complete text and any error after the stream has ended.
+      let response_body = serde_json::json!({ "content": response_text, "error": stream_error }).to_string();
       let params = crate::repos::LlmLogParams {
         model: &model_for_log,
         user_id: user_id_log,
-        request_type: request_type_log.map(|rt| rt.as_str()),
+        request_type: request_type_log.as_str(),
         request_body: &request_body_json,
-        response_body: "{}",
-        total_tokens: None,
+        response_body: &response_body,
+        total_tokens,
         duration_ms,
-        is_success: succeeded && response_bytes > 0,
+        is_success: succeeded,
       };
       crate::repos::save_llm_log(&pool_clone, params).await;
+      let _ = completion.send(succeeded);
     });
 
     Ok(crate::models::LlmResponse::Stream(crate::models::LlmStream::new(rx, completed)))
@@ -381,45 +381,25 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
     let api_result = llm_client.chat().create(request).await;
     let duration_ms = start.elapsed().as_millis() as i64;
 
-    // Fire-and-forget: log the call to the database without blocking the response path
-    let pool_clone = pool.clone();
-    match &api_result {
+    let (response_body, total_tokens, is_success) = match &api_result {
       Ok(response) => {
         let total_tokens = response.usage.as_ref().map(|u| u.total_tokens as i64);
-        let response_json = "{}".to_owned();
-        runtime.tasks.spawn(async move {
-          let _permit = permit;
-          let params = crate::repos::LlmLogParams {
-            model: &model_for_log,
-            user_id: user_id_log,
-            request_type: request_type_log.map(|rt| rt.as_str()),
-            request_body: &request_body_json,
-            response_body: &response_json,
-            total_tokens,
-            duration_ms,
-            is_success: true,
-          };
-          crate::repos::save_llm_log(&pool_clone, params).await;
-        });
+        let content_too_large = response.choices.iter().any(|choice| choice.message.content.as_ref().is_some_and(|content| content.len() > MAX_RESPONSE_BYTES));
+        if content_too_large { (error_response_body(&"LLM response byte limit exceeded"), total_tokens, false) } else { (serde_json::to_string(response)?, total_tokens, true) }
       }
-      Err(_e) => {
-        let err_msg = "upstream_error".to_owned();
-        runtime.tasks.spawn(async move {
-          let _permit = permit;
-          let params = crate::repos::LlmLogParams {
-            model: &model_for_log,
-            user_id: user_id_log,
-            request_type: request_type_log.map(|rt| rt.as_str()),
-            request_body: &request_body_json,
-            response_body: &err_msg,
-            total_tokens: None,
-            duration_ms,
-            is_success: false,
-          };
-          crate::repos::save_llm_log(&pool_clone, params).await;
-        });
-      }
-    }
+      Err(e) => (error_response_body(e), None, false),
+    };
+    let params = crate::repos::LlmLogParams {
+      model: &model_for_log,
+      user_id: user_id_log,
+      request_type: request_type_log.as_str(),
+      request_body: &request_body_json,
+      response_body: &response_body,
+      total_tokens,
+      duration_ms,
+      is_success,
+    };
+    crate::repos::save_llm_log(pool, params).await;
 
     let response = api_result.log_err_msg("General LLM call failed")?;
     debug!("Received response from general LLM service");
@@ -434,6 +414,10 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
 
 /// Upper bound for accumulated analysis and streaming output.
 pub const MAX_RESPONSE_BYTES: usize = 1_048_576;
+
+fn error_response_body(error: &impl std::fmt::Display) -> String {
+  serde_json::json!({ "error": error.to_string() }).to_string()
+}
 
 impl std::fmt::Debug for LlmClientConfig {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

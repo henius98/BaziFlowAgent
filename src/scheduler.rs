@@ -114,7 +114,7 @@ pub async fn add_or_update_user_schedule(bot: Bot, user_id: u64, cron_str: &str)
           stream: false,
           llm_model: user_profile.llm_model,
           user_id: Some(user_id as i64),
-          request_type: Some(crate::models::LlmRequestType::ScheduledDaily),
+          request_type: crate::models::LlmRequestType::ScheduledDaily,
         })
         .await
         {

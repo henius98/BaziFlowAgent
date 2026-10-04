@@ -34,6 +34,15 @@ async fn test_core_bazi_analysis() {
   assert!(!structured_data.info.birth_time_known);
   assert_eq!(structured_data.info.birth_location, "未知");
   assert!(structured_data.info.solar_date.contains("12:00"));
+  let hour_pillar = structured_data.pillars.iter().find(|pillar| pillar.name == "时柱").expect("hour pillar must exist");
+  assert_eq!(hour_pillar.base.stem_and_stars, vec![("*".to_string(), "*".to_string())]);
+  assert_eq!(hour_pillar.base.branch, "*");
+  assert_eq!(hour_pillar.base.hidden_stems_and_stars, vec![("*".to_string(), "*".to_string())]);
+  assert_eq!(hour_pillar.base.star_luck, "*");
+  assert_eq!(hour_pillar.base.self_sitting, "*");
+  assert_eq!(hour_pillar.base.empty_death, "*");
+  assert_eq!(hour_pillar.base.nayin, "*");
+  assert_eq!(hour_pillar.base.shensha, vec!["*".to_string()]);
 
   let receiver = core_bazi_analysis(&state, 123_u64, &structured_data, None::<baziflow_agent::models::common::LlmModel>).await.expect("Failed to run core analysis");
   let mut rx = receiver;
