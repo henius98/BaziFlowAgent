@@ -21,14 +21,21 @@ mkdir -p "$BIN_DIR"
 cd "$BASE_DIR"
 
 echo "[2/5] Downloading latest release assets..."
-wget -q --show-progress "$REPO_URL/releases/download/$RELEASE_TAG/baziflow-agent" -O "$BIN_DIR/baziflow-agent"
-wget -q --show-progress "$REPO_URL/releases/download/$RELEASE_TAG/baziflow-agent.sha256" -O "$BIN_DIR/baziflow-agent.sha256"
-wget -q --show-progress "$REPO_URL/releases/download/$RELEASE_TAG/BaziFlowAgent.service" -O BaziFlowAgent.service
+DEPLOY_STAGE=$(mktemp -d "$BASE_DIR/.deploy.XXXXXXXX")
+trap 'rm -f -- "$DEPLOY_STAGE/baziflow-agent" "$DEPLOY_STAGE/baziflow-agent.sha256" "$DEPLOY_STAGE/BaziFlowAgent.service"; rmdir -- "$DEPLOY_STAGE"' EXIT
+wget -q --show-progress "$REPO_URL/releases/download/$RELEASE_TAG/baziflow-agent" -O "$DEPLOY_STAGE/baziflow-agent"
+wget -q --show-progress "$REPO_URL/releases/download/$RELEASE_TAG/baziflow-agent.sha256" -O "$DEPLOY_STAGE/baziflow-agent.sha256"
+wget -q --show-progress "$REPO_URL/releases/download/$RELEASE_TAG/BaziFlowAgent.service" -O "$DEPLOY_STAGE/BaziFlowAgent.service"
 
 echo "[3/5] Verifying checksum..."
-cd "$BIN_DIR"
+cd "$DEPLOY_STAGE"
 sha256sum -c baziflow-agent.sha256 || { echo "Checksum verification failed!"; exit 1; }
 chmod +x baziflow-agent
+if [ -f "$BIN_DIR/baziflow-agent" ]; then
+    cp -p "$BIN_DIR/baziflow-agent" "$BIN_DIR/baziflow-agent.previous"
+fi
+mv -- "$DEPLOY_STAGE/baziflow-agent" "$BIN_DIR/baziflow-agent"
+cp -- "$DEPLOY_STAGE/BaziFlowAgent.service" "$BASE_DIR/BaziFlowAgent.service"
 cd "$BASE_DIR"
 
 echo "[4/5] Configuring environment..."
@@ -55,7 +62,14 @@ if [ "$NEEDS_CONFIG" -eq 1 ]; then
     echo "Then start the bot with:"
     echo "  sudo systemctl start BaziFlowAgent"
 else
-    sudo systemctl restart BaziFlowAgent
+    if ! sudo systemctl restart BaziFlowAgent || ! sudo systemctl is-active --quiet BaziFlowAgent; then
+        echo "New release failed to start; restoring the previous binary when available."
+        if [ -f "$BIN_DIR/baziflow-agent.previous" ]; then
+            mv -- "$BIN_DIR/baziflow-agent.previous" "$BIN_DIR/baziflow-agent"
+            sudo systemctl restart BaziFlowAgent
+        fi
+        exit 1
+    fi
     echo "==========================================="
     echo "Deployment completed and service restarted successfully!"
     echo "Check logs with: sudo journalctl -fu BaziFlowAgent"

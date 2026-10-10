@@ -605,9 +605,8 @@ impl ModelAction {
   }
 }
 
-pub fn build_model_picker() -> InlineKeyboardMarkup {
-  use crate::models::common::LlmModel;
-  let rows: Vec<Vec<InlineKeyboardButton>> = LlmModel::ALL.iter().map(|model| vec![InlineKeyboardButton::callback(model.as_str(), ModelAction::Select(*model as u8).encode())]).collect();
+pub fn build_model_picker(models: &[crate::models::common::LlmModel]) -> InlineKeyboardMarkup {
+  let rows: Vec<Vec<InlineKeyboardButton>> = models.iter().map(|model| vec![InlineKeyboardButton::callback(model.as_str(), ModelAction::Select(model.id()).encode())]).collect();
   InlineKeyboardMarkup::new(rows)
 }
 

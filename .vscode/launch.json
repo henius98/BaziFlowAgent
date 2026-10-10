@@ -5,6 +5,10 @@
       "name": "Debug BaziFlow",
       "type": "lldb",
       "request": "launch",
+      "preLaunchTask": "Sync bashrc to env",
+      "sourceMap": {
+        "/var/home": "/home"
+      },
       "cargo": {
         "args": ["build", "--bin=baziflow-agent", "--package=baziflow-agent"],
         "filter": {
@@ -18,6 +22,7 @@
       },
       "args": [],
       "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
       "env": {
         "LD_LIBRARY_PATH": "",
         "LD_PRELOAD": "",
@@ -32,6 +37,10 @@
       "name": "Debug BaziFlow Library Tests",
       "type": "lldb",
       "request": "launch",
+      "preLaunchTask": "Sync bashrc to env",
+      "sourceMap": {
+        "/var/home": "/home"
+      },
       "cargo": {
         "args": ["test", "--no-run", "--lib", "--package=baziflow-agent"],
         "filter": {

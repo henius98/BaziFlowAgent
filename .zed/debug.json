@@ -1,50 +1,72 @@
 // Project-local debug tasks
-//
-// For more documentation on how to configure debug tasks,
-// see: https://zed.dev/docs/debugger
+// For documentation: https://zed.dev/docs/debugger
 [
   {
-    "label": "Debug BaziFlow",
+    "label": "Debug BaziFlow (Binary)",
     "adapter": "CodeLLDB",
     "request": "launch",
     "program": "$ZED_WORKTREE_ROOT/target/debug/baziflow-agent",
     "cwd": "$ZED_WORKTREE_ROOT",
     "sourceLanguages": ["rust"],
+    "stopOnEntry": false,
     "env": {
-      "LD_LIBRARY_PATH": "",
-      "LD_PRELOAD": "",
+      "RUST_BACKTRACE": "1",
+      "RUST_LOG": "debug",
       "LOG_LEVEL": "debug",
-      "RUST_BACKTRACE": "1"
+      "HTTP_PROXY": "http://127.0.0.1:9000",
+      "HTTPS_PROXY": "http://127.0.0.1:9000",
+      "SSL_CERT_FILE": "${env:HOME}/.local/share/ca-certificates/bundle.pem"
     },
     "build": {
       "command": "cargo",
-      "args": ["build", "--bin=baziflow-agent", "--package=baziflow-agent"],
-      "env": {
-        "LD_LIBRARY_PATH": "",
-        "LD_PRELOAD": ""
-      }
+      "args": ["build", "--bin=baziflow-agent", "--package=baziflow-agent"]
     },
+    "initCommands": [
+      // Suppresses ASLR if necessary for deterministic breakpoints
+      "settings set target.disable-aslr false"
+    ],
     "args": []
   },
   {
     "label": "Debug BaziFlow Library Tests",
     "adapter": "CodeLLDB",
+    "request": "launch",
+    // NOTE: cargo test produces binaries in target/debug/deps/baziflow_agent-<hash>.
+    // If running a specific test target, point 'program' to your test binary name:
+    "program": "$ZED_WORKTREE_ROOT/target/debug/deps/baziflow_agent",
     "cwd": "$ZED_WORKTREE_ROOT",
     "sourceLanguages": ["rust"],
+    "stopOnEntry": false,
     "env": {
-      "LD_LIBRARY_PATH": "",
-      "LD_PRELOAD": "",
-      "LOG_LEVEL": "debug",
-      "RUST_BACKTRACE": "1"
+      "RUST_BACKTRACE": "1",
+      "RUST_LOG": "debug"
     },
     "build": {
       "command": "cargo",
-      "args": ["test", "--no-run", "--lib", "--package=baziflow-agent"],
-      "env": {
-        "LD_LIBRARY_PATH": "",
-        "LD_PRELOAD": ""
-      }
+      "args": ["test", "--no-run", "--lib", "--package=baziflow-agent"]
     },
-    "args": ["--nocapture"]
+    "args": ["--", "--nocapture"]
+  },
+  {
+    "label": "Debug BaziFlow (Release with Debug Info)",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/target/release/baziflow-agent",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "sourceLanguages": ["rust"],
+    "env": {
+      "RUST_BACKTRACE": "1",
+      "RUST_LOG": "info"
+    },
+    "build": {
+      "command": "cargo",
+      "args": [
+        "build",
+        "--release",
+        "--bin=baziflow-agent",
+        "--package=baziflow-agent"
+      ]
+    },
+    "args": []
   }
 ]

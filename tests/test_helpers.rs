@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 pub fn test_config(mock_url: String) -> AppConfig {
   AppConfig {
-    runtime: Default::default(),
+    runtime: baziflow_agent::config::runtime::RuntimeConfig { requests_per_minute: 100, ..Default::default() },
     upstreams: baziflow_agent::config::Upstreams { chart_base: mock_url.clone(), supplement_base: mock_url.clone(), almanac: format!("{mock_url}/api/almanac") },
     telegram_bot_token: "".into(),
     telegram_webhook_enabled: false,
@@ -25,6 +25,7 @@ pub fn test_config(mock_url: String) -> AppConfig {
     base_url: "http://localhost".into(),
     log_level: "info".into(),
     cors_allowed_origin: "*".into(),
+    chart_token_secret: [7u8; 32],
   }
 }
 

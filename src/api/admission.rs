@@ -25,7 +25,7 @@ pub async fn admit(request: Request, next: Next) -> Response {
     Ok(Err(error)) => return error.into_response(),
     Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
   };
-  if !state.runtime.allow(auth.user_id, state.config.runtime.requests_per_minute) {
+  if !state.runtime.allow(auth.user_id, auth.rate_limit) {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
   }
   let processing = if parts.method == Method::POST || parts.method == Method::PUT {

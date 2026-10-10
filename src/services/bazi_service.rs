@@ -49,12 +49,6 @@ pub async fn prepare_bazi_data(state: &std::sync::Arc<crate::models::AppState>, 
 }
 
 pub async fn build_and_save_bazi_html(state: &std::sync::Arc<crate::models::AppState>, user_id: u64, username: &str, structured_data: &paipan::StructuredBazi) {
-  use rand::Rng;
-  let token = hex::encode(rand::rng().random::<[u8; 32]>());
-  if repos::set_chart_token(&state.db_pool, user_id, &token).await.is_err() {
-    error!("Failed to rotate chart capability");
-    return;
-  }
   state.events.publish(user_id, "profile.updated", "application");
   let html_diagram = paipan::generate_bazi_html(structured_data, username);
   let filename = format!("bazi_{}.html", user_id);
@@ -77,8 +71,11 @@ pub async fn get_bazi_chart_url(state: &std::sync::Arc<crate::models::AppState>,
     // Presign URL valid for 24 hours (86400 seconds)
     bucket.presign_get(&filename, 86400, None).await.map_err(|e| crate::models::error::AppError::Message(format!("Failed to generate presigned URL: {}", e)))
   } else {
-    let token = repos::get_chart_token(&state.db_pool, user_id).await?;
-    let token = token.ok_or_else(|| crate::models::AppError::Message("Chart unavailable; regenerate the profile".into()))?;
+    let public_path = std::path::PathBuf::from("public").join(&filename);
+    if !tokio::fs::try_exists(&public_path).await.unwrap_or(false) {
+      return Err(crate::models::AppError::Message("Chart unavailable; regenerate the profile".into()));
+    }
+    let token = crate::services::chart_token::generate_chart_token(user_id, &state.config.chart_token_secret)?;
     Ok(format!("{}/charts/{}", state.config.base_url.trim_end_matches('/'), token))
   }
 }

@@ -12,6 +12,7 @@ use crate::repos;
 #[derive(Clone)]
 pub struct AuthUser {
   pub user_id: u64,
+  pub rate_limit: usize,
   key_hash: String,
 }
 
@@ -47,10 +48,12 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthUser {
     }
 
     let state = crate::models::get_state();
-    let user_id = repos::get_user_id_by_api_key(&state.db_pool, token).await.ok_or(AuthError::InvalidToken)?;
+    let (user_id, user_limit) = repos::get_auth_user_by_api_key(&state.db_pool, token).await.ok_or(AuthError::InvalidToken)?;
+    let rate_limit = user_limit.unwrap_or(state.config.runtime.requests_per_minute);
+    state.runtime.set_cached_limit(user_id, rate_limit);
 
     use sha2::{Digest, Sha256};
-    Ok(AuthUser { user_id, key_hash: hex::encode(Sha256::digest(token.as_bytes())) })
+    Ok(AuthUser { user_id, rate_limit, key_hash: hex::encode(Sha256::digest(token.as_bytes())) })
   }
 }
 

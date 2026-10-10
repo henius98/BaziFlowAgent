@@ -32,7 +32,9 @@ pub enum Command {
 // ─────────────────────────────────────────────
 pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
   let state = crate::models::get_state();
-  if !state.runtime.allow(msg.from.as_ref().map_or(0, |user| user.id.0), state.config.runtime.requests_per_minute) {
+  let user_id = msg.from.as_ref().map_or(0, |user| user.id.0);
+  let rate_limit = state.get_user_rate_limit(user_id).await;
+  if !state.runtime.allow(user_id, rate_limit) {
     return Ok(());
   }
   let Some(_guard) = msg.from.as_ref().and_then(|user| crate::models::ProcessingGuard::acquire(state.clone(), user.id.0)) else {
@@ -95,7 +97,12 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
     }
 
     Command::Model => {
-      let markup = keyboards::build_model_picker();
+      let models = crate::repos::get_llm_models(&state.db_pool).await.unwrap_or_default();
+      if models.is_empty() {
+        bot.send_message(msg.chat.id, "⚠️ No LLM models are currently available. Please try again later.").await?;
+        return Ok(());
+      }
+      let markup = keyboards::build_model_picker(&models);
       bot.send_message(msg.chat.id, "🤖 Select an LLM model:").reply_markup(markup).await?;
     }
 

@@ -78,8 +78,10 @@ rand = "0.9"
 # Async Stream utilities (for SSE streaming)
 async-stream = "0.3"
 tower = { version = "0.5.3", features = ["util"] }
+aes-gcm = "0.11.1"
 
 [profile.release]
+debug = true  # Preserves full debug symbols while maintaining opt-level = 3
 lto = "thin"
 strip = true
 codegen-units = 1

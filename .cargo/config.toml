@@ -1,0 +1,3 @@
+# Limit concurrent compiler jobs to reduce peak memory usage during local builds.
+[build]
+jobs = 16

@@ -115,7 +115,7 @@ pub async fn perform_bazi_analysis(bot: Bot, chat_id: ChatId, user_id: u64, user
   };
   let _ = bot.send_message(chat_id, format!("📊 <b>Bazi Chart Diagram</b>\n\nView your chart here:\n{}", chart_url)).parse_mode(teloxide::types::ParseMode::Html).await;
 
-  match crate::services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model).await {
+  match crate::services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model.clone()).await {
     Ok(receiver) => {
       let reading = super::helpers::stream_to_telegram(&bot, chat_id, "🔮 Generating bazi analysis...", receiver).await;
       if !reading.is_empty() {
@@ -213,7 +213,7 @@ pub async fn display_user_profile(bot: Bot, chat_id: ChatId, user_id: u64) -> Re
 
     bot.send_message(chat_id, profile_msg).parse_mode(teloxide::types::ParseMode::Html).await?;
 
-    let llm_model_str = user_profile.llm_model.map(|m| m.as_str()).unwrap_or("Not set (未设置)");
+    let llm_model_str = user_profile.llm_model.as_ref().map(|m| m.as_str()).unwrap_or("Not set (未设置)");
     let schedule_str = user_profile.schedule.as_deref().unwrap_or("Not set (未设置)");
     let settings_msg = format!(
       "⚙️ <b>Settings (设置):</b>\n\
@@ -298,13 +298,20 @@ pub async fn process_date_selection(bot: &Bot, q: &CallbackQuery, formatted_date
       Ok(crate::models::LlmResponse::Stream(receiver)) => {
         let result_text = super::helpers::stream_to_telegram(bot, chat_id, response_prefix, receiver).await;
 
-        // Save assistant response to context for future follow-ups
-        {
-          let mut ctx = state.user_contexts.entry(user_id).or_default();
-          ctx.push_message(format!("Assistant: {}", result_text), state.config.max_context_messages);
-        }
-        if let Err(e) = state.chat_cache_writer.save(user_id, "assistant", &result_text) {
-          error!("Failed to cache assistant response for user {}: {}", user_id, e);
+        if !result_text.is_empty() {
+          let almanac_msg = format!("📅 【{} 黄历信息】\n\n{}", formatted_date, almanac_data);
+          // Save initial almanac data and assistant response to context for future follow-ups
+          {
+            let mut ctx = state.user_contexts.entry(user_id).or_default();
+            ctx.push_message(format!("Tool: {}", almanac_msg), state.config.max_context_messages);
+            ctx.push_message(format!("Assistant: {}", result_text), state.config.max_context_messages);
+          }
+          if let Err(e) = state.chat_cache_writer.save(user_id, "tool", &almanac_msg) {
+            error!("Failed to cache almanac data for user {}: {}", user_id, e);
+          }
+          if let Err(e) = state.chat_cache_writer.save(user_id, "assistant", &result_text) {
+            error!("Failed to cache assistant response for user {}: {}", user_id, e);
+          }
         }
       }
       Ok(_) => {
@@ -380,16 +387,27 @@ pub async fn process_pick_selection(bot: Bot, chat_id: ChatId, user_id: u64, tar
   })
   .await
   {
-    Ok(crate::models::LlmResponse::Stream(receiver)) => {
+    Ok((crate::models::LlmResponse::Stream(receiver), combined_almanac)) => {
       let result_text = super::helpers::stream_to_telegram(&bot, chat_id, &placeholder_text, receiver).await;
 
-      // Save assistant response to context for future follow-ups
-      {
-        let mut ctx = state.user_contexts.entry(user_id).or_default();
-        ctx.push_message(format!("Assistant: {}", result_text), state.config.max_context_messages);
-      }
-      if let Err(e) = state.chat_cache_writer.save(user_id, "assistant", &result_text) {
-        error!("Failed to cache assistant response for user {}: {}", user_id, e);
+      if !result_text.is_empty() {
+        let pick_msg = if !combined_almanac.is_empty() {
+          format!("🎯 【择吉日黄历信息】活动: {}, 日期范围: {} 至 {}\n\n{}", activity, start_date, end_date, combined_almanac)
+        } else {
+          format!("🎯 择吉日：活动「{}」，日期范围：{} 至 {}", activity, start_date, end_date)
+        };
+        // Save initial pick request with almanac data and assistant response to context for future follow-ups
+        {
+          let mut ctx = state.user_contexts.entry(user_id).or_default();
+          ctx.push_message(format!("Tool: {}", pick_msg), state.config.max_context_messages);
+          ctx.push_message(format!("Assistant: {}", result_text), state.config.max_context_messages);
+        }
+        if let Err(e) = state.chat_cache_writer.save(user_id, "tool", &pick_msg) {
+          error!("Failed to cache pick almanac data for user {}: {}", user_id, e);
+        }
+        if let Err(e) = state.chat_cache_writer.save(user_id, "assistant", &result_text) {
+          error!("Failed to cache assistant response for user {}: {}", user_id, e);
+        }
       }
     }
     Ok(_) => {

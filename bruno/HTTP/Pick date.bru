@@ -19,10 +19,12 @@ body:json {
   {
     "start_date": "{{start_date}}",
     "end_date": "{{end_date}}",
-    "activity": "{{activity}}"
+    "activity": "{{activity}}",
+    "reasoning_effort": "high"
   }
 }
 
 docs {
   Requires an existing Bazi profile. Dates use YYYY-MM-DD; activity must not be blank.
+  reasoning_effort is optional: none, minimal, low, medium, high, or xhigh.
 }

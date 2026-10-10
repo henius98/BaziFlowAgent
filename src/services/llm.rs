@@ -130,7 +130,7 @@ impl LlmRequestParams {
       max_completion_tokens: None, // Prevent compatibility issues with non-OpenAI endpoints
       store: None,                 // Some APIs reject this param entirely
       metadata: None,
-      reasoning_effort: None,    // Left None because passing this to non-reasoning models (like gpt-4o) causes API errors
+      reasoning_effort: None,    // Left None because passing this to non-reasoning models causes API errors
       service_tier: None,        // Left None to let OpenAI handle routing
       parallel_tool_calls: None, // Not all models/APIs support this
 
@@ -297,6 +297,7 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
           total_tokens: None,
           duration_ms: start.elapsed().as_millis() as i64,
           is_success: false,
+          model_id: None,
         };
         crate::repos::save_llm_log(pool, params).await;
         return Err(e).log_err_msg("Failed to create LLM stream");
@@ -369,6 +370,7 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
         total_tokens,
         duration_ms,
         is_success: succeeded,
+        model_id: None,
       };
       crate::repos::save_llm_log(&pool_clone, params).await;
       let _ = completion.send(succeeded);
@@ -398,6 +400,7 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
       total_tokens,
       duration_ms,
       is_success,
+      model_id: None,
     };
     crate::repos::save_llm_log(pool, params).await;
 

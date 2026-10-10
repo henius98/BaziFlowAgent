@@ -15,11 +15,8 @@ pub async fn snapshot(state: &AppState, owner: u64) -> AppResult<Snapshot> {
 }
 
 /// Setting a value is naturally idempotent across retries and reconnects.
-pub async fn set_model(state: &AppState, owner: u64, model: u8) -> AppResult<()> {
-  if crate::models::common::LlmModel::from_u8(model).is_none() {
-    return Err(crate::models::AppError::Message("Invalid model".into()));
-  }
-  crate::repos::update_user_llm_model(&state.db_pool, owner, model).await?;
+pub async fn set_model(state: &AppState, owner: u64, model: u8) -> AppResult<crate::models::common::LlmModel> {
+  let saved_model = crate::repos::update_user_llm_model(&state.db_pool, owner, model).await?;
   state.events.publish(owner, "profile.updated", "application");
-  Ok(())
+  Ok(saved_model)
 }

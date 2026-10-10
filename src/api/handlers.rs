@@ -116,7 +116,7 @@ pub async fn create_profile(auth: AuthUser, query: Query<StreamQuery>, Json(req)
   if is_stream {
     let structured_bazi_for_stream = structured_bazi.clone();
     // SSE streaming mode
-    match services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model).await {
+    match services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model.clone()).await {
       Ok(receiver) => {
         let chart_url_clone = chart_url.clone();
         let sse_stream = async_stream::stream! {
@@ -164,7 +164,7 @@ pub async fn create_profile(auth: AuthUser, query: Query<StreamQuery>, Json(req)
   }
 
   // Non-streaming mode: collect full response
-  let analysis = match services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model).await {
+  let analysis = match services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model.clone()).await {
     Ok(receiver) => match collect_stream(receiver).await {
       Ok(text) => text,
       Err(_) => return api_error(StatusCode::BAD_GATEWAY, "Analysis interrupted"),
@@ -363,7 +363,7 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
                 match msg {
                     Some(Ok(Message::Close(_))) => break,
                     Some(Ok(Message::Text(text))) => {
-                        if !state.runtime.allow(user_id, state.config.runtime.requests_per_minute) || !auth.is_current(&state).await { break; }
+                        if !state.runtime.allow(user_id, auth.rate_limit) || !auth.is_current(&state).await { break; }
                         if let Ok(ClientMessage::Stop) = serde_json::from_str::<ClientMessage>(&text) {
                             // Drop receiver by breaking the loop
                             break;
@@ -440,12 +440,26 @@ pub async fn pick_date(auth: AuthUser, query: Query<StreamQuery>, Json(req): Jso
   })
   .await
   {
-    Ok(models::LlmResponse::Stream(receiver)) if is_stream => Sse::new(stream_to_sse(receiver)).into_response(),
-    Ok(models::LlmResponse::Full(analysis)) => Json(ApiResponse::ok(PickData { analysis })).into_response(),
+    Ok((models::LlmResponse::Stream(receiver), _)) if is_stream => Sse::new(stream_to_sse(receiver)).into_response(),
+    Ok((models::LlmResponse::Full(analysis), _)) => Json(ApiResponse::ok(PickData { analysis })).into_response(),
     Ok(_) => api_error(StatusCode::INTERNAL_SERVER_ERROR, "Unexpected response type from LLM"),
     Err(e) => {
       error!("API: Pick date error: {}", e);
       api_error(StatusCode::INTERNAL_SERVER_ERROR, "Upstream service unavailable")
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// GET /api/v1/models
+// ─────────────────────────────────────────────
+pub async fn get_models(_auth: AuthUser) -> Response {
+  let state = models::get_state();
+  match repos::get_llm_models(&state.db_pool).await {
+    Ok(models) => Json(ApiResponse::ok(ModelsData { models })).into_response(),
+    Err(e) => {
+      error!("API: Get models error: {}", e);
+      api_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch models")
     }
   }
 }
@@ -457,16 +471,11 @@ pub async fn update_model(auth: AuthUser, Json(req): Json<UpdateModelRequest>) -
   let state = models::get_state();
   let user_id = auth.user_id;
 
-  let model = match models::common::LlmModel::from_u8(req.model) {
-    Some(m) => m,
-    None => {
-      return api_error(StatusCode::BAD_REQUEST, format!("Invalid model ID: {}. Valid: 0, 1, 2", req.model));
-    }
+  let model = match services::integration::set_model(&state, user_id, req.model).await {
+    Ok(model) => model,
+    Err(models::AppError::Message(_)) => return api_error(StatusCode::BAD_REQUEST, "Model is unavailable"),
+    Err(_) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to save model"),
   };
-
-  if services::integration::set_model(&state, user_id, req.model).await.is_err() {
-    return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to save model");
-  }
 
   Json(ApiResponse::ok(ModelData { model: model.as_str().to_string() })).into_response()
 }

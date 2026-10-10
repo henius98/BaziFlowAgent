@@ -15,7 +15,7 @@ body:ws {
   type: json
   selected: true
   content: '''
-    {"action":"generate","date":"{{date}}"}
+    {"action":"generate","date":"{{date}}","reasoning_effort":"high"}
   '''
 }
 
@@ -30,6 +30,7 @@ body:ws {
 
 docs {
   Requires an existing Bazi profile. Connect and send Generate first.
+  Generate accepts optional reasoning_effort: none, minimal, low, medium, high, or xhigh.
   Receives almanac, chunk, done or error messages. Date uses YYYY-MM-DD.
   To cancel, send Stop on the SAME connection while generation is streaming.
   Reconnect to generate another reading; this endpoint handles one reading per connection.

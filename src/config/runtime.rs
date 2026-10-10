@@ -27,7 +27,7 @@ impl Default for RuntimeConfig {
       max_contexts: 256,
       max_message_bytes: 16_384,
       queue_capacity: 32,
-      requests_per_minute: 120,
+      requests_per_minute: 9,
       idle_seconds: 60,
       send_seconds: 5,
       work_seconds: 180,

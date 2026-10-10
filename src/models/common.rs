@@ -102,44 +102,27 @@ impl LlmRequestType {
   }
 }
 
-macro_rules! define_llm_models {
-    (
-        $(
-            $variant:ident = $val:expr => $str_name:expr
-        ),* $(,)?
-    ) => {
-        /// Represents the LLM model used by a user.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        #[repr(u8)]
-        pub enum LlmModel {
-            $( $variant = $val, )*
-        }
-
-        impl LlmModel {
-            pub const ALL: &'static [Self] = &[
-                $( Self::$variant, )*
-            ];
-
-            pub fn from_u8(val: u8) -> Option<Self> {
-                match val {
-                    $( $val => Some(Self::$variant), )*
-                    _ => None,
-                }
-            }
-
-            pub fn as_str(&self) -> &'static str {
-                match self {
-                    $( Self::$variant => $str_name, )*
-                }
-            }
-        }
-    };
+/// Represents an LLM model configured in the database.
+/// The database (llm_models table) is the single source of truth.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LlmModel {
+  pub model_id: u8,
+  pub model_name: String,
+  pub is_enabled: bool,
 }
 
-define_llm_models! {
-    Claude48Opus = 0 => "anthropic/claude-opus-4.8",
-    Gpt55Pro = 1 => "openai/gpt-5.5-pro",
-    Gemini31Pro = 2 => "google/gemini-3.1-pro-preview",
+impl LlmModel {
+  pub fn new(model_id: u8, model_name: impl Into<String>, is_enabled: bool) -> Self {
+    Self { model_id, model_name: model_name.into(), is_enabled }
+  }
+
+  pub fn as_str(&self) -> &str {
+    &self.model_name
+  }
+
+  pub fn id(&self) -> u8 {
+    self.model_id
+  }
 }
 
 /// A stream is successful only after its producer explicitly acknowledges completion.

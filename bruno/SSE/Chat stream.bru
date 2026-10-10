@@ -21,11 +21,13 @@ headers {
 
 body:json {
   {
-    "message": "{{message}}"
+    "message": "{{message}}",
+    "reasoning_effort": "high"
   }
 }
 
 docs {
   Requires an existing Bazi profile. Persists completed replies.
+  reasoning_effort is optional: none, minimal, low, medium, high, or xhigh.
   Events: chunk, then data: [DONE]. An error event means failure.
 }

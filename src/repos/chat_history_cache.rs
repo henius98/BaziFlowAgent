@@ -13,11 +13,10 @@ use tracing::error;
 
 const CREATE_CHAT_HISTORY_TABLE: &str = r#"
     CREATE TABLE IF NOT EXISTS chat_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id INTEGER PRIMARY KEY,
         user_id INTEGER NOT NULL,
         role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
-        content TEXT NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        content TEXT NOT NULL
     )
 "#;
 
@@ -142,7 +141,8 @@ async fn write_batch(pool: &SqlitePool, operations: Vec<ChatHistoryOperation>, m
   for operation in operations {
     match operation {
       ChatHistoryOperation::Save { user_id, role, content } => {
-        sqlx::query("INSERT INTO chat_history (user_id, role, content) VALUES (?1, ?2, ?3)").bind(user_id as i64).bind(role).bind(content).execute(&mut *transaction).await?;
+        let msg_id = crate::repos::generate_time_id();
+        sqlx::query("INSERT INTO chat_history (id, user_id, role, content) VALUES (?1, ?2, ?3, ?4)").bind(msg_id).bind(user_id as i64).bind(role).bind(content).execute(&mut *transaction).await?;
         touched_users.insert(user_id);
       }
       ChatHistoryOperation::Flush(sender) => barriers.push(sender),
@@ -166,8 +166,7 @@ async fn write_batch(pool: &SqlitePool, operations: Vec<ChatHistoryOperation>, m
 
 async fn trim_chat_history(transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>, user_id: u64, max_messages_per_user: usize) -> Result<(), sqlx::Error> {
   sqlx::query(
-    r#"
-        DELETE FROM chat_history
+    r#"DELETE FROM chat_history
         WHERE user_id = ?1
           AND id NOT IN (
               SELECT id FROM chat_history
@@ -192,8 +191,7 @@ pub async fn recent_chat_messages(pool: &SqlitePool, user_id: u64, limit: usize)
   }
 
   let rows = sqlx::query_as::<_, (String, String)>(
-    r#"
-        SELECT role, content
+    r#"SELECT role, content
         FROM (
             SELECT role, content, id
             FROM chat_history

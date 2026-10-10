@@ -35,6 +35,7 @@ pub fn api_router(config: Arc<crate::config::AppConfig>) -> Router {
     .route("/api/v1/profile", get(handlers::get_profile).post(handlers::create_profile))
     .route("/api/v1/date-fortune", get(handlers::date_fortune))
     .route("/api/v1/pick-date", post(handlers::pick_date))
+    .route("/api/v1/models", get(handlers::get_models))
     .route("/api/v1/model", put(handlers::update_model))
     .route("/api/v1/schedule", put(handlers::update_schedule))
     .route("/api/v1/chat", post(handlers::chat))

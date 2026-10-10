@@ -138,4 +138,16 @@ impl AppState {
       llm_service,
     })
   }
+
+  pub async fn get_user_rate_limit(&self, user_id: u64) -> usize {
+    if user_id == 0 {
+      return self.config.runtime.requests_per_minute;
+    }
+    if let Some(limit) = self.runtime.get_cached_limit(user_id) {
+      return limit;
+    }
+    let limit = crate::repos::get_user_rate_limit(&self.db_pool, user_id).await.unwrap_or(self.config.runtime.requests_per_minute);
+    self.runtime.set_cached_limit(user_id, limit);
+    limit
+  }
 }

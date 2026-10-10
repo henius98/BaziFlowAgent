@@ -39,6 +39,7 @@ pub struct AppConfig {
   pub log_level: String,
   pub app_timezone: chrono_tz::Tz,
   pub cors_allowed_origin: String,
+  pub chart_token_secret: [u8; 32],
 }
 
 impl AppConfig {
@@ -113,12 +114,10 @@ impl AppConfig {
 
     // Sync the OS-level TZ variable from APP_TIMEZONE so that SQLite datetime('now'),
     // stdlib time calls, and any non-chrono code all agree on the same timezone.
-    // Only override TZ when it is absent or explicitly set to match APP_TIMEZONE intent.
+    // APP_TIMEZONE is the single source of truth; sync process TZ unconditionally.
     let tz_name = app_timezone.name();
-    if env::var("TZ").map(|v| v.trim().is_empty()).unwrap_or(true) {
-      // SAFETY: single-threaded at this point (called before tokio::main spawns tasks).
-      unsafe { std::env::set_var("TZ", tz_name) };
-    }
+    // SAFETY: single-threaded at this point (called before tokio::main spawns tasks).
+    unsafe { std::env::set_var("TZ", tz_name) };
 
     let cors_allowed_origin = env::var("CORS_ALLOWED_ORIGIN").unwrap_or_else(|_| "*".to_string());
     if cors_allowed_origin != "*" {
@@ -130,6 +129,8 @@ impl AppConfig {
     anyhow::ensure!(max_context_messages > 0 && max_context_messages <= 100, "MAX_CONTEXT_MESSAGES must be 1..100");
     anyhow::ensure!(chat_cache_max_messages <= 1000, "CHAT_CACHE_MAX_MESSAGES must not exceed 1000");
     anyhow::ensure!(llm_client_config.timeout_seconds > 0 && llm_client_config.timeout_seconds <= 600, "LLM_TIMEOUT_SECONDS must be 1..600");
+
+    let chart_token_secret = derive_chart_token_secret(&telegram_bot_token);
 
     Ok(Self {
       runtime: RuntimeConfig::from_env()?,
@@ -152,8 +153,25 @@ impl AppConfig {
       log_level,
       app_timezone,
       cors_allowed_origin,
+      chart_token_secret,
     })
   }
+}
+
+fn derive_chart_token_secret(telegram_bot_token: &str) -> [u8; 32] {
+  use sha2::Digest;
+  if let Ok(raw) = env::var("CHART_TOKEN_SECRET") {
+    let trimmed = raw.trim();
+    let mut key = [0u8; 32];
+    if trimmed.len() == 64 && hex::decode_to_slice(trimmed, &mut key).is_ok() {
+      return key;
+    }
+    if !trimmed.is_empty() {
+      return sha2::Sha256::digest(trimmed.as_bytes()).into();
+    }
+  }
+  let seed = if telegram_bot_token.trim().is_empty() { "baziflow-default-chart-secret" } else { telegram_bot_token };
+  sha2::Sha256::digest(format!("chart-token-secret:{seed}").as_bytes()).into()
 }
 
 fn required_d1_env(name: &str) -> anyhow::Result<String> {

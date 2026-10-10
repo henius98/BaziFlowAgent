@@ -247,30 +247,30 @@ fn render_bazi_html(chart: &StructuredBazi, name: &str) -> String {
   // Natal relations
   if let Some(r) = &chart.relation {
     if let Some(sr) = &r.stem_relations {
-      stem_rels.extend(sr.iter().map(|s| format!("<i>(原局)</i>{}", s)));
+      stem_rels.extend(sr.iter().map(|s| format!("<i><b>(原局)</b></i>{}", s)));
     }
     if let Some(br) = &r.branch_relations {
-      branch_rels.extend(br.iter().map(|s| format!("<i>(原局)</i>{}", s)));
+      branch_rels.extend(br.iter().map(|s| format!("<i><b>(原局)</b></i>{}", s)));
     }
   }
 
   // DaYun relations
   if let Some(r) = chart.dayun.iter().find(|d| d.is_current_dayun).and_then(|d| d.relation.as_ref()) {
     if let Some(sr) = &r.stem_relations {
-      stem_rels.extend(sr.iter().map(|s| format!("<i>(大运)</i>{}", s)));
+      stem_rels.extend(sr.iter().map(|s| format!("<i><b>(大运)</b></i>{}", s)));
     }
     if let Some(br) = &r.branch_relations {
-      branch_rels.extend(br.iter().map(|s| format!("<i>(大运)</i>{}", s)));
+      branch_rels.extend(br.iter().map(|s| format!("<i><b>(大运)</b></i>{}", s)));
     }
   }
 
   // Current luck relations
   if let Some(r) = chart.liunian.as_ref().and_then(|l| l.relation.as_ref()) {
     if let Some(sr) = &r.stem_relations {
-      stem_rels.extend(sr.iter().map(|s| format!("<i>(流年)</i>{}", s)));
+      stem_rels.extend(sr.iter().map(|s| format!("<i><b>(流年)</b></i>{}", s)));
     }
     if let Some(br) = &r.branch_relations {
-      branch_rels.extend(br.iter().map(|s| format!("<i>(流年)</i>{}", s)));
+      branch_rels.extend(br.iter().map(|s| format!("<i><b>(流年)</b></i>{}", s)));
     }
   }
 

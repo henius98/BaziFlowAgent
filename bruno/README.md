@@ -10,7 +10,7 @@ Open this `bruno/` directory with **Open Collection** in Bruno. Use Bruno 4 or n
 
 | Folder | Requests |
 | --- | --- |
-| HTTP | Get/create profile, pick date, update model, enable/disable schedule, chat |
+| HTTP | Get models, get/create profile, pick date, update model, enable/disable schedule, chat |
 | SSE | Create profile, pick date and chat with `stream=true` |
 | WebSocket | Persistent integration gateway and date-fortune stream |
 | Charts | Download local HTML through `/charts/{token}` |

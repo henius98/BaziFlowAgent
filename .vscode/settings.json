@@ -1,0 +1,13 @@
+{
+  "lldb.launch.preRunCommands": [
+    "type category disable Rust",
+    "settings set target.max-children-count 64",
+    "settings set target.max-string-summary-length 512"
+  ],
+  "lldb.evaluateForHovers": false,
+  "rust-analyzer.server.extraEnv": {
+    "RA_LOG": "off"
+  },
+  "rust-analyzer.cargo.buildScripts.enable": false,
+  "rust-analyzer.checkOnSave": false
+}

@@ -19,7 +19,8 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
   let user_id = q.from.id.0;
 
   // Concurrency & Rate Limiting Check
-  if !state.runtime.allow(user_id, state.config.runtime.requests_per_minute) {
+  let rate_limit = state.get_user_rate_limit(user_id).await;
+  if !state.runtime.allow(user_id, rate_limit) {
     return Ok(());
   } // Ignore overly rapid clicks
   let Some(guard) = crate::models::ProcessingGuard::acquire(state.clone(), user_id) else {
@@ -244,14 +245,19 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
     match action {
       ModelAction::Select(m) => {
         let user_id = q.from.id.0;
-        if crate::services::integration::set_model(&state, user_id, m).await.is_err() {
-          bot.answer_callback_query(q.id).text("Failed to save model").await?;
-          return Ok(());
-        }
-
-        let model_name = crate::models::common::LlmModel::from_u8(m).map(|model| model.as_str()).unwrap_or("Unknown");
+        let model = match crate::services::integration::set_model(&state, user_id, m).await {
+          Ok(model) => model,
+          Err(crate::models::AppError::Message(_)) => {
+            bot.answer_callback_query(q.id).text("This model is no longer available").await?;
+            return Ok(());
+          }
+          Err(_) => {
+            bot.answer_callback_query(q.id).text("Failed to save model").await?;
+            return Ok(());
+          }
+        };
         if let Some(msg) = &q.message {
-          let _ = bot.edit_message_text(msg.chat().id, msg.id(), format!("✅ LLM Model updated to: {}", model_name)).await;
+          let _ = bot.edit_message_text(msg.chat().id, msg.id(), format!("✅ LLM Model updated to: {}", model.as_str())).await;
         }
       }
     }

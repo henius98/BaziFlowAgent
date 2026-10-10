@@ -7,6 +7,9 @@ public/
 # Rust
 target/
 
+# Local LLDB backend with LZMA support
+.debugger/
+
 # sqlite db
 *.db
 *.db-shm

@@ -120,7 +120,7 @@ async fn run(mut socket: WebSocket, auth: AuthUser, mut connection: Connection, 
       }
       frame = socket.recv() => {
         let Some(Ok(frame)) = frame else { break; };
-        if !state.runtime.allow(auth.user_id, config.requests_per_minute) {
+        if !state.runtime.allow(auth.user_id, auth.rate_limit) {
           close(&mut socket, 1008, "rate_limit_exceeded", config.send_seconds).await; break;
         }
         match frame {
@@ -161,11 +161,8 @@ async fn dispatch(state: &AppState, auth: &AuthUser, connection: &Connection, ac
   match action {
     Action::GetState {} => integration::snapshot(state, auth.user_id).await.and_then(|data| serde_json::to_value(data).map_err(Into::into)).map_err(|_| "storage_unavailable"),
     Action::SetModel { model } => {
-      if crate::models::common::LlmModel::from_u8(model).is_none() {
-        return Err("invalid_model");
-      }
-      integration::set_model(state, auth.user_id, model).await.map_err(|_| "storage_unavailable")?;
-      Ok(serde_json::json!({"model":model}))
+      let saved = integration::set_model(state, auth.user_id, model).await.map_err(|_| "storage_unavailable")?;
+      Ok(serde_json::json!({"model": saved.as_str()}))
     }
     Action::Subscribe { event } => {
       if event != "profile.updated" {

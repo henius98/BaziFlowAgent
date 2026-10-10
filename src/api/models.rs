@@ -108,6 +108,11 @@ pub struct PickData {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ModelsData {
+  pub models: Vec<crate::models::common::LlmModel>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ModelData {
   pub model: String,
 }

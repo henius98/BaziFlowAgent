@@ -182,8 +182,8 @@ scheduler (background)
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `README.md`                     | Top-level intro, feature list, env vars, build/run commands                                                    |
 | `prompts/`                      | Directory containing all system prompts (e.g. Daily readings, Destiny readings, Summarization, Date selection) |
-| `DEPLOYMENT.md`                 | Raspberry Pi / DietPi ARM cross-compilation & systemd daemon setup                                             |
-| `BaziFlowAgent.service`         | Pre-configured systemd unit file for background deployment                                                     |
+| `deploy/DEPLOYMENT.md`          | Raspberry Pi / DietPi ARM cross-compilation & systemd daemon setup                                             |
+| `deploy/BaziFlowAgent.service`  | Pre-configured systemd unit file for background deployment                                                     |
 | `Cargo.toml`                    | Canonical dependency list and package metadata                                                                 |
 | `docs/project-flow-sequence.md` | Version-controlled Mermaid sequence diagrams for project flows                                                 |
 | `.env` / `.env.example`         | Runtime secrets and configurables (never commit `.env`)                                                        |
@@ -197,8 +197,6 @@ BaziFlowAgent/
 ├── .env                          # App secrets (never commit)
 ├── .env.example                  # Template for required env vars
 ├── Cargo.toml                    # Cargo config and dependency tree
-├── DEPLOYMENT.md                 # ARM/Raspberry Pi deployment guide
-├── BaziFlowAgent.service         # Systemd unit file
 ├── prompts/                      # Embedded system prompts (HuangLi, UserBazi, Summary, Pick, FollowUp)
 ├── src/
 │   ├── lib.rs                    # Library root declaring public modules
@@ -251,3 +249,19 @@ BaziFlowAgent/
 ├── logs/                         # Runtime logs (gitignored)
 └── public/                       # Runtime HTML charts (gitignored)
 ```
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues at `henius98/BaziFlowAgent` (`gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical 5-role defaults (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context (`GLOSSARY.md` and `docs/adr/` at repo root). See `docs/agents/domain.md`.

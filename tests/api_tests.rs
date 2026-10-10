@@ -34,7 +34,7 @@ async fn setup_test_app() -> (axum::Router, ServerGuard, Arc<AppState>, String) 
 
 #[tokio::test]
 async fn test_all_api_endpoints() {
-  let (app, mut server, _state, api_key) = setup_test_app().await;
+  let (app, mut server, state, api_key) = setup_test_app().await;
 
   // ==========================================
   // 1. GET /profile (Not Found)
@@ -114,7 +114,23 @@ async fn test_all_api_endpoints() {
   assert_eq!(response.status(), StatusCode::OK);
 
   // ==========================================
-  // 4. PUT /model
+  // 4a. GET /models
+  // ==========================================
+  let req = Request::builder().method("GET").uri("/api/v1/models").header(header::AUTHORIZATION, format!("Bearer {}", api_key)).body(Body::empty()).unwrap();
+
+  let response = app.clone().oneshot(req).await.unwrap();
+  assert_eq!(response.status(), StatusCode::OK);
+  let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+  let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+  assert_eq!(json["status"], "ok");
+  assert_eq!(json["models"].as_array().unwrap().len(), 2);
+  assert_eq!(json["models"][0]["model_id"], 1);
+  assert_eq!(json["models"][0]["model_name"], "google/gemini-3.8-flash");
+  assert_eq!(json["models"][1]["model_id"], 2);
+  assert_eq!(json["models"][1]["model_name"], "google/gemini-3.1-pro-preview");
+
+  // ==========================================
+  // 4b. PUT /model
   // ==========================================
   let req = Request::builder()
     .method("PUT")
@@ -288,4 +304,64 @@ async fn test_all_api_endpoints() {
   let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
   assert!(body_str.contains("Streaming chat reply"));
   m10.assert_async().await;
+
+  // ==========================================
+  // 10. User-specific Rate Limiting
+  // ==========================================
+  let rate_user_id = 999;
+  let rate_key = repos::create_api_key(&state.db_pool, rate_user_id).await.unwrap();
+  repos::set_user_rate_limit(&state.db_pool, rate_user_id, Some(2)).await.unwrap();
+
+  let req_lim1 = Request::builder().method("GET").uri("/api/v1/profile").header(header::AUTHORIZATION, format!("Bearer {}", rate_key)).body(Body::empty()).unwrap();
+  let res_lim1 = app.clone().oneshot(req_lim1).await.unwrap();
+  assert_eq!(res_lim1.status(), StatusCode::NOT_FOUND);
+
+  let req_lim2 = Request::builder().method("GET").uri("/api/v1/profile").header(header::AUTHORIZATION, format!("Bearer {}", rate_key)).body(Body::empty()).unwrap();
+  let res_lim2 = app.clone().oneshot(req_lim2).await.unwrap();
+  assert_eq!(res_lim2.status(), StatusCode::NOT_FOUND);
+
+  let req_lim3 = Request::builder().method("GET").uri("/api/v1/profile").header(header::AUTHORIZATION, format!("Bearer {}", rate_key)).body(Body::empty()).unwrap();
+  let res_lim3 = app.clone().oneshot(req_lim3).await.unwrap();
+  assert_eq!(res_lim3.status(), StatusCode::TOO_MANY_REQUESTS);
+
+  // Verify that user 1 (with default rate limit) is NOT rate limited
+  let req_orig = Request::builder().method("GET").uri("/api/v1/profile").header(header::AUTHORIZATION, format!("Bearer {}", api_key)).body(Body::empty()).unwrap();
+  let res_orig = app.clone().oneshot(req_orig).await.unwrap();
+  assert_eq!(res_orig.status(), StatusCode::OK);
+
+  // ==========================================
+  // 11. Chart Capability Links (AES-256-GCM)
+  // ==========================================
+  let chart_app = axum::Router::new().route("/charts/{token}", axum::routing::get(baziflow_agent::api::charts::chart));
+
+  let chart_user_id = 42u64;
+  repos::create_api_key(&state.db_pool, chart_user_id).await.unwrap();
+  let _ = tokio::fs::create_dir_all("public").await;
+  let test_html = "<html><body>Test Chart 42</body></html>";
+  tokio::fs::write(format!("public/bazi_{chart_user_id}.html"), test_html).await.unwrap();
+
+  // 11a. Valid AES-256-GCM token loads chart statelessly without DB lookup
+  let token = baziflow_agent::services::chart_token::generate_chart_token(chart_user_id, &state.config.chart_token_secret).unwrap();
+  let req = Request::builder().method("GET").uri(format!("/charts/{}", token)).body(Body::empty()).unwrap();
+  let res = chart_app.clone().oneshot(req).await.unwrap();
+  assert_eq!(res.status(), StatusCode::OK);
+  let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+  assert_eq!(body_bytes, test_html.as_bytes());
+
+  // 11b. Tampered token returns 404
+  let mut tampered = token.clone();
+  let last = if tampered.ends_with('0') { '1' } else { '0' };
+  tampered.pop();
+  tampered.push(last);
+  let req_tampered = Request::builder().method("GET").uri(format!("/charts/{}", tampered)).body(Body::empty()).unwrap();
+  let res_tampered = chart_app.clone().oneshot(req_tampered).await.unwrap();
+  assert_eq!(res_tampered.status(), StatusCode::NOT_FOUND);
+
+  // 11c. Invalid or random token returns 404
+  let req_invalid = Request::builder().method("GET").uri(format!("/charts/{}", "0".repeat(72))).body(Body::empty()).unwrap();
+  let res_invalid = chart_app.clone().oneshot(req_invalid).await.unwrap();
+  assert_eq!(res_invalid.status(), StatusCode::NOT_FOUND);
+
+  // Clean up test file
+  let _ = tokio::fs::remove_file(format!("public/bazi_{chart_user_id}.html")).await;
 }

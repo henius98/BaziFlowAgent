@@ -421,7 +421,7 @@ pub struct PickSelectionRequest<'a> {
   pub request_type: crate::models::LlmRequestType,
 }
 
-pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult<LlmResponse> {
+pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult<(LlmResponse, String)> {
   let stream = req.stream;
   let state = crate::models::get_state();
 
@@ -431,10 +431,10 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
 
   let range_days = (end - start).num_days();
   if range_days < 0 {
-    return Ok(immediate_response(stream, "⚠️ 结束日期不能早于开始日期，请重新选择。").await);
+    return Ok((immediate_response(stream, "⚠️ 结束日期不能早于开始日期，请重新选择。").await, String::new()));
   }
   if range_days > 14 {
-    return Ok(immediate_response(stream, "⚠️ 选定的日期范围过大。开始与结束日期最多相隔 14 天，请重新选择。").await);
+    return Ok((immediate_response(stream, "⚠️ 选定的日期范围过大。开始与结束日期最多相隔 14 天，请重新选择。").await, String::new()));
   }
 
   let mut current = start;
@@ -477,7 +477,7 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
   }
 
   if valid_dates == 0 {
-    return Ok(immediate_response(stream, "⚠️ 所选范围内没有可验证的黄历数据，请稍后重试。").await);
+    return Ok((immediate_response(stream, "⚠️ 所选范围内没有可验证的黄历数据，请稍后重试。").await, String::new()));
   }
 
   let system_message = ChatCompletionRequestSystemMessageArgs::default().content(include_str!("../../prompts/DateSelectionAssistant.md")).build()?;
@@ -487,9 +487,9 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
     if stream {
       let (tx, rx) = tokio::sync::mpsc::channel(1);
       let _ = tx.send(msg).await;
-      return Ok(LlmResponse::Stream(crate::models::LlmStream::completed(rx)));
+      return Ok((LlmResponse::Stream(crate::models::LlmStream::completed(rx)), combined_almanac));
     }
-    return Ok(LlmResponse::Full(msg));
+    return Ok((LlmResponse::Full(msg), combined_almanac));
   }
 
   let bazi_summary = if req.bazi_summary.trim().is_empty() { "未提供" } else { req.bazi_summary };
@@ -509,7 +509,8 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
   params.user_id = req.user_id;
 
   tracing::info!("Sending request to LLM for Date Selection (Model: {}, stream: {})...", model_name, stream);
-  state.llm_service.call(params).await
+  let resp = state.llm_service.call(params).await?;
+  Ok((resp, combined_almanac))
 }
 
 #[cfg(test)]

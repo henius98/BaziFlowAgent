@@ -19,11 +19,12 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
   };
 
   // Concurrency & Rate Limiting Check
-  if !state.runtime.allow(user_id, state.config.runtime.requests_per_minute) {
+  let rate_limit = state.get_user_rate_limit(user_id).await;
+  if !state.runtime.allow(user_id, rate_limit) {
     return Ok(());
   }
   let Some(guard) = crate::models::ProcessingGuard::acquire(state.clone(), user_id) else {
-    let _ = bot.send_message(msg.chat.id, "⏳ Please wait for the previous request.").await;
+    let _ = bot.send_message(msg.chat.id, "⏳ Please wait for the previous request done or failed.").await;
     return Ok(());
   };
 
