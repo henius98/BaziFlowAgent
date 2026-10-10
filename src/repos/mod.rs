@@ -351,7 +351,7 @@ pub async fn update_user_schedule(database: &Database, user_id: u64, schedule: O
 /// Generate a new API key for the user. Revokes any existing key.
 /// Returns the raw key (shown once to user). Only the SHA-256 hash is stored.
 pub async fn create_api_key(database: &Database, user_id: u64) -> crate::models::AppResult<String> {
-  use rand::Rng;
+  use rand::RngExt;
   use sha2::{Digest, Sha256};
 
   // Generate 32 random hex chars with bfa_ prefix

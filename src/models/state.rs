@@ -95,7 +95,7 @@ pub struct AppState {
   pub user_jobs: DashMap<u64, uuid::Uuid>,
 
   /// Cloudflare R2 bucket client (if configured)
-  pub r2_bucket: Option<s3::Bucket>,
+  pub r2_bucket: Option<Box<s3::Bucket>>,
 
   /// LLM Service for decoupled AI generation
   pub llm_service: Arc<dyn crate::services::llm::LlmService>,

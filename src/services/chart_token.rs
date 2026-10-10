@@ -5,7 +5,7 @@ use aes_gcm::{
   Aes256Gcm, Key, Nonce,
   aead::{Aead, KeyInit},
 };
-use rand::Rng;
+use rand::RngExt;
 
 const NONCE_LEN: usize = 12;
 const PAYLOAD_LEN: usize = 36; // 12-byte nonce + 8-byte ciphertext + 16-byte tag
