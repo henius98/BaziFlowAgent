@@ -2,10 +2,7 @@ use crate::models::{AppResult, LlmRequestType, LogErrorExt};
 use async_openai::{
   Client,
   config::OpenAIConfig,
-  types::chat::{
-    ChatCompletionRequestMessage, ChatCompletionStreamOptions, ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools, CreateChatCompletionRequest, CreateChatCompletionRequestArgs,
-    ResponseFormat,
-  },
+  types::chat::{ChatCompletionRequestMessage, ChatCompletionStreamOptions, CreateChatCompletionRequest, CreateChatCompletionRequestArgs, ReasoningEffort},
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
@@ -30,7 +27,7 @@ impl LlmClientConfig {
   }
 }
 
-/// A parameter model matching the OpenAI chat completion schema.
+/// A parameter model focused on application domain needs.
 /// This provides a clean interface for general LLM calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmRequestParams {
@@ -45,53 +42,13 @@ pub struct LlmRequestParams {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub top_p: Option<f32>,
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub seed: Option<i64>,
-
-  // --- Constraints ---
-  #[serde(skip_serializing_if = "Option::is_none")]
   pub max_tokens: Option<u32>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub stop: Option<Vec<String>>,
-
-  // --- Penalties ---
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub frequency_penalty: Option<f32>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub presence_penalty: Option<f32>,
-
-  // --- Structured Output & Tooling ---
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub response_format: Option<ResponseFormat>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub tools: Option<Vec<ChatCompletionTool>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub tool_choice: Option<ChatCompletionToolChoiceOption>,
 
   // --- Telemetry & Optimization ---
   #[serde(skip_serializing_if = "Option::is_none")]
   pub stream: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub logprobs: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub top_logprobs: Option<u8>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub user: Option<String>,
-
-  // --- Latest/Advanced Configurations ---
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub n: Option<u8>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub max_completion_tokens: Option<u32>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub store: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub reasoning_effort: Option<String>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub service_tier: Option<String>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub parallel_tool_calls: Option<bool>,
+  pub reasoning_effort: Option<ReasoningEffort>,
 
   // --- Custom App Tracking ---
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -111,39 +68,32 @@ impl LlmRequestParams {
       // Core Defaults
       temperature: Some(0.2), // Best practice for analytical tasks
       top_p: Some(1.0),
-      seed: None,
       max_tokens: None,
-      stop: None,
-
-      // Penalties
-      frequency_penalty: None,
-      presence_penalty: None,
-
-      // Tooling & Structured Output
-      response_format: None,
-      tools: None,
-      tool_choice: None,
 
       // Telemetry
       stream: Some(false),
-      logprobs: Some(false),
-      top_logprobs: None,
-      user: None,
-
-      // Advanced / Latest Defaults
-      n: None,
-      max_completion_tokens: None, // Prevent compatibility issues with non-OpenAI endpoints
-      store: None,                 // Some APIs reject this param entirely
-      metadata: None,
-      reasoning_effort: None,    // Left None because passing this to non-reasoning models causes API errors
-      service_tier: None,        // Left None to let OpenAI handle routing
-      parallel_tool_calls: None, // Not all models/APIs support this
+      reasoning_effort: None,
 
       // Tracking
       user_id: None,
       request_type,
       model_id: None,
     }
+  }
+
+  /// Preset for analytical readings (low temperature, nucleus sampling)
+  pub fn analytical(model: impl Into<String>, messages: Vec<ChatCompletionRequestMessage>, request_type: LlmRequestType) -> Self {
+    Self { temperature: Some(0.2), top_p: Some(0.75), ..Self::new(model, messages, request_type) }
+  }
+
+  /// Preset for conversational turns (balanced temperature)
+  pub fn chat(model: impl Into<String>, messages: Vec<ChatCompletionRequestMessage>, request_type: LlmRequestType) -> Self {
+    Self { temperature: Some(0.4), top_p: Some(1.0), ..Self::new(model, messages, request_type) }
+  }
+
+  /// Preset for deterministic compact summaries
+  pub fn deterministic(model: impl Into<String>, messages: Vec<ChatCompletionRequestMessage>, request_type: LlmRequestType) -> Self {
+    Self { temperature: Some(0.1), top_p: Some(0.75), ..Self::new(model, messages, request_type) }
   }
 }
 
@@ -160,82 +110,15 @@ fn build_chat_request(params: LlmRequestParams) -> AppResult<CreateChatCompletio
   if let Some(top_p) = params.top_p {
     builder.top_p(top_p);
   }
-  if let Some(seed) = params.seed {
-    builder.seed(seed);
-  }
   if let Some(max_tokens) = params.max_tokens {
     builder.max_tokens(max_tokens);
-  }
-  if let Some(stop) = params.stop {
-    builder.stop(stop);
-  }
-  if let Some(fp) = params.frequency_penalty {
-    builder.frequency_penalty(fp);
-  }
-  if let Some(pp) = params.presence_penalty {
-    builder.presence_penalty(pp);
-  }
-  if let Some(rf) = params.response_format {
-    builder.response_format(rf);
-  }
-  if let Some(tools) = params.tools {
-    let tools_enum: Vec<ChatCompletionTools> = tools.into_iter().map(ChatCompletionTools::Function).collect();
-    builder.tools(tools_enum);
-  }
-  if let Some(tc) = params.tool_choice {
-    builder.tool_choice(tc);
-  }
-  if let Some(true) = params.logprobs {
-    builder.logprobs(true);
-  }
-  if let Some(top_logprobs) = params.top_logprobs {
-    builder.top_logprobs(top_logprobs);
-  }
-  if let Some(user) = params.user {
-    builder.user(user);
   }
   if let Some(true) = params.stream {
     builder.stream(true);
     builder.stream_options(ChatCompletionStreamOptions { include_usage: Some(true), include_obfuscation: None });
   }
-  if let Some(n) = params.n {
-    builder.n(n);
-  }
-  if let Some(mct) = params.max_completion_tokens {
-    builder.max_completion_tokens(mct);
-  }
-  if let Some(store) = params.store {
-    builder.store(store);
-  }
-  if let Some(metadata) = params.metadata
-    && let Ok(meta_value) = serde_json::to_value(metadata)
-  {
-    builder.metadata(meta_value);
-  }
-  // Apply Reasoning Effort if provided (now supported in async-openai 0.40)
-  if let Some(reasoning) = params.reasoning_effort {
-    let effort = match reasoning.to_lowercase().as_str() {
-      "low" => async_openai::types::chat::ReasoningEffort::Low,
-      "medium" => async_openai::types::chat::ReasoningEffort::Medium,
-      "high" => async_openai::types::chat::ReasoningEffort::High,
-      _ => async_openai::types::chat::ReasoningEffort::Medium, // Default
-    };
+  if let Some(effort) = params.reasoning_effort {
     builder.reasoning_effort(effort);
-  }
-  // Apply Service Tier if provided
-  if let Some(tier) = params.service_tier {
-    let st = match tier.to_lowercase().as_str() {
-      "auto" => async_openai::types::chat::ServiceTier::Auto,
-      "default" => async_openai::types::chat::ServiceTier::Default,
-      "flex" => async_openai::types::chat::ServiceTier::Flex,
-      "scale" => async_openai::types::chat::ServiceTier::Scale,
-      "priority" => async_openai::types::chat::ServiceTier::Priority,
-      _ => async_openai::types::chat::ServiceTier::Auto, // Default
-    };
-    builder.service_tier(st);
-  }
-  if let Some(parallel) = params.parallel_tool_calls {
-    builder.parallel_tool_calls(parallel);
   }
 
   Ok(builder.build()?)
@@ -270,6 +153,15 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
   let user_id_log = params.user_id;
   let request_type_log = params.request_type;
   let model_id_log = params.model_id;
+  let reasoning_effort_log = params.reasoning_effort.as_ref().map(|effort| match effort {
+    ReasoningEffort::None => "none",
+    ReasoningEffort::Minimal => "minimal",
+    ReasoningEffort::Low => "low",
+    ReasoningEffort::Medium => "medium",
+    ReasoningEffort::High => "high",
+    ReasoningEffort::Xhigh => "xhigh",
+    ReasoningEffort::Max => "max",
+  });
 
   // Reuse the pre-built HTTP client from config (initialized once at startup)
   let http_client = match config.http_client.clone() {
@@ -304,13 +196,14 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
           duration_ms: start.elapsed().as_millis() as i64,
           is_success: false,
           model_id: model_id_log,
+          reasoning_effort: reasoning_effort_log,
         };
         crate::repos::save_llm_log(pool, params).await;
         return Err(e).log_err_msg("Failed to create LLM stream");
       }
     };
 
-    let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
+    let (tx, rx) = tokio::sync::mpsc::channel::<tokio_util::bytes::Bytes>(64);
     let (completion, completed) = tokio::sync::oneshot::channel();
     let pool_clone = pool.clone();
 
@@ -334,16 +227,17 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
         match result {
           Ok(response) => {
             total_tokens = response.usage.as_ref().map(|usage| usage.total_tokens as i64).or(total_tokens);
-            for choice in &response.choices {
-              if let Some(content) = &choice.delta.content {
+            for choice in response.choices {
+              if let Some(content) = choice.delta.content {
                 response_bytes = response_bytes.saturating_add(content.len());
                 if response_bytes > MAX_RESPONSE_BYTES {
                   tracing::warn!("LLM response byte limit exceeded");
                   stream_error = Some("LLM response byte limit exceeded".to_owned());
                   break 'stream_loop;
                 }
-                response_text.push_str(content);
-                if !matches!(tokio::time::timeout(std::time::Duration::from_secs(5), tx.send(content.clone())).await, Ok(Ok(()))) {
+                response_text.push_str(&content);
+                let chunk_bytes = tokio_util::bytes::Bytes::from(content);
+                if !matches!(tokio::time::timeout(std::time::Duration::from_secs(5), tx.send(chunk_bytes)).await, Ok(Ok(()))) {
                   // Receiver dropped — stop reading
                   stream_error = Some("LLM stream receiver unavailable".to_owned());
                   break 'stream_loop;
@@ -376,6 +270,7 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
         duration_ms,
         is_success: succeeded,
         model_id: model_id_log,
+        reasoning_effort: reasoning_effort_log,
       };
       crate::repos::save_llm_log(&pool_clone, params).await;
       let _ = completion.send(succeeded);
@@ -405,6 +300,7 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
       duration_ms,
       is_success,
       model_id: model_id_log,
+      reasoning_effort: reasoning_effort_log,
     };
     crate::repos::save_llm_log(pool, params).await;
 

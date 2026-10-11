@@ -20,9 +20,25 @@ pub struct ProfileState {
   pub location: Option<String>,
 }
 
+use std::collections::VecDeque;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatRole {
+  User,
+  Assistant,
+  Tool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatTurn {
+  pub role: ChatRole,
+  pub content: Arc<str>,
+}
+
 #[derive(Debug, Clone)]
 pub struct UserContext {
-  pub messages: Vec<String>,
+  pub messages: VecDeque<ChatTurn>,
+  pub total_bytes: usize,
   /// Whether `messages` has been restored from the persistent cache for this session.
   pub history_loaded: bool,
   pub last_active: chrono::DateTime<Utc>,
@@ -36,7 +52,8 @@ pub struct UserContext {
 impl Default for UserContext {
   fn default() -> Self {
     Self {
-      messages: Vec::new(),
+      messages: VecDeque::new(),
+      total_bytes: 0,
       history_loaded: false,
       last_active: chrono::Utc::now(),
       last_request_at: chrono::DateTime::<Utc>::MIN_UTC,
@@ -49,15 +66,45 @@ impl Default for UserContext {
 }
 
 impl UserContext {
-  /// Append a message, evicting the oldest turn when at capacity.
-  pub fn push_message(&mut self, msg: String, max: usize) {
-    if max == 0 || msg.len() > 131_072 {
+  pub const MAX_TOTAL_BYTES: usize = 131_072;
+
+  /// Append a structured turn, evicting the oldest turn when at capacity.
+  pub fn push_turn(&mut self, role: ChatRole, content: impl Into<Arc<str>>, max_turns: usize) {
+    let content: Arc<str> = content.into();
+    let turn_len = content.len();
+
+    if max_turns == 0 || turn_len > Self::MAX_TOTAL_BYTES {
       return;
     }
-    while !self.messages.is_empty() && (self.messages.len() >= max || self.messages.iter().map(String::len).sum::<usize>() + msg.len() > 131_072) {
-      self.messages.remove(0);
+
+    while !self.messages.is_empty() && (self.messages.len() >= max_turns || self.total_bytes + turn_len > Self::MAX_TOTAL_BYTES) {
+      if let Some(evicted) = self.messages.pop_front() {
+        self.total_bytes = self.total_bytes.saturating_sub(evicted.content.len());
+      }
     }
-    self.messages.push(msg);
+
+    self.total_bytes += turn_len;
+    self.messages.push_back(ChatTurn { role, content });
+  }
+
+  /// Append a message, evicting the oldest turn when at capacity.
+  pub fn push_message(&mut self, msg: String, max: usize) {
+    let (role, content) = if let Some(stripped) = msg.strip_prefix("User: ") {
+      (ChatRole::User, stripped)
+    } else if let Some(stripped) = msg.strip_prefix("Assistant: ") {
+      (ChatRole::Assistant, stripped)
+    } else if let Some(stripped) = msg.strip_prefix("Tool: ") {
+      (ChatRole::Tool, stripped)
+    } else {
+      (ChatRole::User, msg.as_str())
+    };
+    self.push_turn(role, content, max);
+  }
+
+  /// Clear all messages and reset byte tracking.
+  pub fn clear_messages(&mut self) {
+    self.messages.clear();
+    self.total_bytes = 0;
   }
 }
 
@@ -81,6 +128,10 @@ pub struct AppState {
   pub runtime: Arc<crate::models::runtime::Runtime>,
   pub events: Arc<crate::models::events::EventHub>,
   pub http_client: reqwest::Client,
+  pub user_repo: Arc<dyn crate::repos::UserRepository>,
+  pub log_repo: Arc<dyn crate::repos::LlmLogRepository>,
+  pub chat_cache: Arc<dyn crate::repos::ChatCacheRepository>,
+  pub blob_store: Arc<dyn crate::repos::BlobStore>,
   pub db_pool: crate::repos::Database,
   /// Dedicated, disposable SQLite store for recent chat turns.
   pub chat_cache_pool: sqlx::SqlitePool,
@@ -93,9 +144,6 @@ pub struct AppState {
 
   /// Track user-specific background jobs (user_id -> Job UUID)
   pub user_jobs: DashMap<u64, uuid::Uuid>,
-
-  /// Cloudflare R2 bucket client (if configured)
-  pub r2_bucket: Option<Box<s3::Bucket>>,
 
   /// LLM Service for decoupled AI generation
   pub llm_service: Arc<dyn crate::services::llm::LlmService>,
@@ -110,16 +158,10 @@ impl AppState {
     config: Arc<AppConfig>,
   ) -> crate::models::error::AppResult<Self> {
     let db_pool = db_pool.into();
-    let r2_bucket = if let Some(d1_config) = &config.d1
-      && let (Some(account_id), Some(access_key), Some(secret_key), Some(bucket_name)) =
-        (&d1_config.r2_account_id, &d1_config.r2_access_key_id, &d1_config.r2_secret_access_key, &d1_config.r2_bucket_name)
-    {
-      let creds = s3::creds::Credentials::new(Some(access_key), Some(secret_key), None, None, None)?;
-      let region = s3::region::Region::Custom { region: "auto".to_owned(), endpoint: format!("https://{}.r2.cloudflarestorage.com", account_id) };
-      Some(s3::Bucket::new(bucket_name, region, creds)?.with_path_style())
-    } else {
-      None
-    };
+    let user_repo: Arc<dyn crate::repos::UserRepository> = Arc::new(db_pool.clone());
+    let log_repo: Arc<dyn crate::repos::LlmLogRepository> = Arc::new(db_pool.clone());
+    let chat_cache: Arc<dyn crate::repos::ChatCacheRepository> = Arc::new(crate::repos::chat_history_cache::ChatHistoryCache { pool: chat_cache_pool.clone(), writer: chat_cache_writer.clone() });
+    let blob_store = crate::repos::init_blob_store(&config)?;
 
     let runtime = Arc::new(crate::models::runtime::Runtime::new(&config.runtime));
     let llm_service = Arc::new(crate::services::llm::DefaultLlmService { runtime: runtime.clone(), pool: db_pool.clone(), config: config.llm_client_config.clone() });
@@ -128,13 +170,16 @@ impl AppState {
       runtime,
       events: Arc::new(crate::models::events::EventHub::default()),
       http_client,
+      user_repo,
+      log_repo,
+      chat_cache,
+      blob_store,
       db_pool,
       chat_cache_pool,
       chat_cache_writer,
       config,
       user_contexts: DashMap::new(),
       user_jobs: DashMap::new(),
-      r2_bucket,
       llm_service,
     })
   }

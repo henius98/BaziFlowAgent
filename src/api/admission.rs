@@ -1,10 +1,11 @@
 //! Admission applies before authentication I/O and retains permits through streaming bodies.
 use super::auth::AuthUser;
+use crate::models::runtime::AdmissionRejection;
 use axum::extract::FromRequestParts;
 use axum::{
   body::Body,
   extract::Request,
-  http::{Method, StatusCode},
+  http::{Method, StatusCode, header},
   middleware::Next,
   response::{IntoResponse, Response},
 };
@@ -16,26 +17,28 @@ pub async fn admit(request: Request, next: Next) -> Response {
   if state.runtime.shutdown.is_cancelled() {
     return StatusCode::SERVICE_UNAVAILABLE.into_response();
   }
-  let Ok(permit) = state.runtime.requests.clone().try_acquire_owned() else {
-    return StatusCode::TOO_MANY_REQUESTS.into_response();
-  };
   let (mut parts, body) = request.into_parts();
   let auth = match tokio::time::timeout(Duration::from_secs(5), AuthUser::from_request_parts(&mut parts, &())).await {
     Ok(Ok(auth)) => auth,
     Ok(Err(error)) => return error.into_response(),
     Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
   };
-  if !state.runtime.allow(auth.user_id, auth.rate_limit) {
-    return StatusCode::TOO_MANY_REQUESTS.into_response();
-  }
-  let processing = if parts.method == Method::POST || parts.method == Method::PUT {
-    match crate::models::ProcessingGuard::acquire(state.clone(), auth.user_id) {
-      Some(guard) => Some(guard),
-      None => return StatusCode::TOO_MANY_REQUESTS.into_response(),
+
+  let require_exclusive = parts.method == Method::POST || parts.method == Method::PUT;
+  let permit = match state.runtime.admission.try_admit(auth.user_id, auth.rate_limit, require_exclusive) {
+    Ok(permit) => permit,
+    Err(AdmissionRejection::ServerShuttingDown) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    Err(AdmissionRejection::MaxRequestsExceeded) => {
+      return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "5")]).into_response();
     }
-  } else {
-    None
+    Err(AdmissionRejection::RateLimitExceeded) => {
+      return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "60")]).into_response();
+    }
+    Err(AdmissionRejection::UserAlreadyProcessing) => {
+      return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "2")]).into_response();
+    }
   };
+
   parts.extensions.insert(auth);
   let response = tokio::select! {
     _ = state.runtime.shutdown.cancelled() => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -49,7 +52,6 @@ pub async fn admit(request: Request, next: Next) -> Response {
   let (parts, body) = response.into_parts();
   let stream = async_stream::stream! {
     let _permit = permit;
-    let _processing = processing;
     let mut body = body.into_data_stream();
     let deadline = tokio::time::sleep(Duration::from_secs(state.config.runtime.work_seconds));
     tokio::pin!(deadline);

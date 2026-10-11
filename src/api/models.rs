@@ -16,6 +16,8 @@ pub struct CreateProfileRequest {
 #[derive(Debug, Deserialize)]
 pub struct DateFortuneRequest {
   pub date: String,
+  #[serde(default)]
+  pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -23,6 +25,8 @@ pub struct PickDateRequest {
   pub start_date: String,
   pub end_date: String,
   pub activity: String,
+  #[serde(default)]
+  pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +42,8 @@ pub struct UpdateScheduleRequest {
 #[derive(Debug, Deserialize)]
 pub struct ChatRequest {
   pub message: String,
+  #[serde(default)]
+  pub reasoning_effort: Option<String>,
 }
 
 // ─────────────────────────────────────────────
@@ -134,7 +140,11 @@ pub struct ChatData {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ClientMessage {
-  Generate { date: String },
+  Generate {
+    date: String,
+    #[serde(default)]
+    reasoning_effort: Option<String>,
+  },
   Stop,
 }
 

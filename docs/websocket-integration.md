@@ -1,12 +1,36 @@
 # Third-party integration protocol
 
-The persistent endpoint is `GET /api/v1/ws`. Use `wss://` in production through a trusted TLS reverse proxy. The Rust listener defaults to `127.0.0.1:8080`; `ws://` is for local development. Do not expose its plaintext listener directly to the Internet. Firewall any explicitly configured non-loopback listener to the proxy. Configure proxy connection/IP limits, handshake/header timeouts, and an idle timeout longer than `WS_IDLE_SECONDS`. The application does not trust `X-Forwarded-For` or accept credentials from URLs.
+Persistent endpoint: `GET /api/v1/ws`.
+Use `wss://` in production through trusted TLS reverse proxy.
+Rust listener defaults to `127.0.0.1:8080`.
+`ws://` local development only.
+Never expose plaintext listener directly to internet.
+Firewall non-loopback listener to proxy only.
+Proxy must enforce connection/IP limits, handshake/header timeouts, and idle timeout above `WS_IDLE_SECONDS`.
+App does not trust `X-Forwarded-For`.
+App rejects credentials in URLs.
 
 ## Authentication and authorization
 
-Send `Authorization: Bearer <api_key>` in the HTTP upgrade. Generate and rotate owner keys through `/apikey` in the bot's private chat. Only SHA-256 hashes of random 128-bit keys are stored. Every authenticated action acts as the key's owner; no request can choose a user ID or Telegram chat. Keys currently have the fixed capabilities `state.read`, `model.write`, and `profile.events.subscribe`. There is no arbitrary Telegram send/edit/delete capability or raw-update subscription. Use separate users for integrations that require separate ownership. Delegated per-application keys and narrower scopes are not implemented.
+Send `Authorization: Bearer <api_key>` in HTTP upgrade.
+Generate and rotate owner keys via `/apikey` in bot private chat.
+Stores only SHA-256 hashes of random 128-bit keys.
+Every action runs as key owner.
+No request can select user ID or Telegram chat.
+Keys have fixed capabilities: `state.read`, `model.write`, `profile.events.subscribe`.
+No Telegram send/edit/delete capability.
+No raw-update subscription.
+Use separate users for separate ownership.
+No delegated per-app keys or narrower scopes.
 
-A key is revalidated before each application request and each heartbeat. Rotation disconnects existing connections at their next request or heartbeat; it is not instantaneous. The handshake's identity limiter persists across reconnects. Native clients omit `Origin`; browser requests require an exact configured `CORS_ALLOWED_ORIGIN`. A wildcard does not authorize browser WebSocket origins. Browsers cannot normally set this header through the native WebSocket constructor; use a trusted server-side integration rather than putting keys in query strings.
+Key revalidates before each request and heartbeat.
+Key rotation disconnects sockets on next request or heartbeat, not instantly.
+Handshake identity limiter persists across reconnects.
+Native clients omit `Origin`.
+Browser requests require exact configured `CORS_ALLOWED_ORIGIN`.
+Wildcards do not authorize browser WebSocket origins.
+Native browser WebSocket cannot set upgrade headers.
+Use trusted server-side integration instead of keys in URLs.
 
 ## Requests
 
@@ -49,14 +73,42 @@ Events are ephemeral, best effort, and not replayed. Reconnect, authenticate, su
 | HTTP work / legacy WS lifetime                           | 180 seconds | `APP_WORK_SECONDS`         |
 | Shutdown drain deadline                                  |  30 seconds | `SHUTDOWN_SECONDS`         |
 
-Native Ping frames run every one-third of the idle deadline, minimum one second. Clients must return Pong frames. Any received frame consumes the identity budget. Over-budget clients close with 1008; slow event consumers close with 1013; unsupported frames close with 1003; shutdown closes with 1001. Close reasons include `heartbeat_timeout`, `credential_revoked`, `rate_limit_exceeded`, `slow_consumer`, and `server_shutdown`. Close delivery is best effort when the peer/network has failed. Upgraded connections remain tracked until cleanup. Sending is time bounded and publishers use nonblocking bounded queues; a slow subscriber does not block Telegram work.
+Server sends Ping every 1/3 of idle deadline (min 1 second).
+Client must reply Pong.
+Every received frame drains identity budget.
+Close codes: 1008 over budget, 1013 slow consumer, 1003 unsupported frame, 1001 shutdown.
+Close reasons: `heartbeat_timeout`, `credential_revoked`, `rate_limit_exceeded`, `slow_consumer`, `server_shutdown`.
+Close frame delivery is best-effort.
+Upgraded sockets stay tracked until cleanup.
+Send calls are bounded; queues are non-blocking.
+Slow subscriber never blocks Telegram tasks.
 
-Transport read buffers are 8 KiB by default (or the smaller message limit), writes flush eagerly, and accepted sockets use `TCP_NODELAY`. The explicit write-buffer ceiling accommodates a maximum JSON-escaped LLM chunk; it is not preallocated.
+Read buffers default to 8 KiB or message limit.
+Writes flush eagerly; sockets set `TCP_NODELAY`.
+Write buffer ceiling fits max JSON-escaped LLM chunk; not preallocated.
 
-In-memory history is limited to 128 KiB per owner; a turn exceeding that budget is omitted from follow-up context. `APP_MAX_CONTEXTS` defaults to 256. Because admission can race across distinct owners, the context count can exceed that threshold by at most the concurrent work budget. The cache write queue holds 128 entries of at most 64 KiB, and its four SQLite connections each have an 8 MiB configured page-cache budget. History clearing awaits a flush barrier. These bounds do not measure the total process heap.
+In-memory history max: 128 KiB per owner.
+Turns exceeding 128 KiB drop from follow-up context.
+`APP_MAX_CONTEXTS` default: 256.
+Owner admission races can exceed context ceiling by up to concurrent work budget.
+Cache write queue holds 128 items (max 64 KiB each).
+Four SQLite connections each have 8 MiB page cache.
+History clear waits for flush barrier.
+Bounds exclude total process heap.
 
-The identity limiter stores at most 4,096 recent identities and fails closed at capacity. It uses fixed windows, so a boundary can permit two bursts. Socket/IP admission before an HTTP request completes belongs to the reverse proxy; application semaphore limits do not bound half-open TCP connections.
+Identity limiter stores max 4,096 identities; fails closed at capacity.
+Fixed-window limiter allows burst across boundary.
+Proxy must manage pre-upgrade socket/IP limits; app semaphores do not bound half-open TCP sockets.
 
 ## Compatibility and migration
 
-`/api/v1/date-fortune` retains its existing `generate`/`stop` protocol and single-reading behavior. Its `generate` frame may include an optional `reasoning_effort` value: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`; omitting it uses `LLM_REASONING_EFFORT` when configured. It now shares connection limits, owner admission, frame limits, send deadlines, origin policy, date validation, and the shutdown signal. It rechecks credentials before generation and periodically during streaming. It has a bounded initialization wait and total lifetime, but does not implement the persistent gateway heartbeat/subscription protocol. Reconnect for another reading. Existing HTTP/SSE endpoints remain available. Stream failures emit an error instead of a successful completion; partial results are not persisted as completed analyses.
+`/api/v1/date-fortune` keeps `generate`/`stop` protocol and single-reading behavior.
+Optional `reasoning_effort` in `generate`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`.
+Missing field defaults to `none` (omits parameter in upstream LLM request).
+Shares connection caps, admission, frame limits, timeouts, origin checks, date validation, shutdown signal.
+Rechecks credentials before generation and while streaming.
+Has bounded startup wait and total lifetime.
+Does not implement heartbeat or subscription protocol.
+Reconnect to get new reading.
+Existing HTTP/SSE endpoints remain available.
+Stream failure returns error; partial results never save as complete analyses.

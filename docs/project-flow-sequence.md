@@ -41,7 +41,7 @@ sequenceDiagram
     AxumServer-->>Process: HTTP, SSE, and WebSocket requests handled
 ```
 
-The durable database is Cloudflare D1 when `D1_DATABASE_ID`, `D1_ACCOUNT_ID`, and `D1_API_TOKEN` are configured; otherwise it is the local SQLite database selected by `DATABASE_URL`. D1 and SQLite apply the same immutable historical migrations plus new forward migrations. Durable timestamps remain UTC; `APP_TIMEZONE` controls user-facing time and cron scheduling, and startup sets process `TZ` before Tokio. The chat cache remains a separate, disposable local SQLite database. Database/scheduler initialization errors fail startup explicitly instead of silently discarding saved schedules.
+The durable database is accessed via dyn-compatible repository traits (`UserRepository`, `LlmLogRepository`), backed by Cloudflare D1 when `D1_DATABASE_ID`, `D1_ACCOUNT_ID`, and `D1_API_TOKEN` are configured; otherwise by local SQLite selected by `DATABASE_URL`. D1 and SQLite apply the same immutable historical migrations plus new forward migrations. Durable timestamps remain UTC; `APP_TIMEZONE` controls user-facing time and cron scheduling, and startup sets process `TZ` before Tokio. Chart diagram artifacts and presigned links are managed by the `BlobStore` trait (`R2BlobStore` for S3 SigV4 or `LocalFsBlobStore` for local capability tokens). The chat cache implements `ChatCacheRepository` over a separate, disposable local SQLite database. All storage dependencies are decoupled and injected through `AppState`. Database/scheduler initialization errors fail startup explicitly instead of silently discarding saved schedules.
 
 Telegram command registration and optional webhook registration retry in cancellable background tasks, so a Telegram outage does not prevent HTTP availability. With `TELEGRAM_WEBHOOK_ENABLED=true`, the Axum listener mounts the configured path with a generated secret; registration sends the same secret to Telegram, and shutdown attempts webhook removal within five seconds. The proxy template forwards `/telegram/webhook`; change that location if `TELEGRAM_WEBHOOK_PATH` changes. Otherwise Teloxide uses long polling. The scheduler owns a `Bot` instance for centrally throttled scheduled delivery, without routing messages through the update dispatcher.
 
@@ -52,42 +52,47 @@ sequenceDiagram
     title Profile creation and initial Bazi analysis
     participant InteractiveClient
     participant TransportHandler
-    participant ContextStore
     participant BaziService
+    participant ContextStore
     participant PaipanAPIs
     participant DurableDatabase
     participant ChartStorage
     participant LLMGateway
 
     InteractiveClient->>TransportHandler: Submit gender and birth date with optional time and location
-    TransportHandler->>TransportHandler: Validate date year 1-9999 and callback month/time bounds
-    TransportHandler->>ContextStore: Clear prior conversation
-    TransportHandler->>BaziService: Prepare Bazi data
+    TransportHandler->>TransportHandler: Validate date year 1-9999 and input bounds
+    TransportHandler->>BaziService: create_destiny_profile(params)
+    BaziService->>ContextStore: Clear prior conversation and stale cache
     alt Birth time provided
         BaziService->>BaziService: Use the validated birth time
     else Birth time omitted
         BaziService->>BaziService: Use 12:00 reference, mark time unknown, and mask hour-pillar values
     end
     opt Birth location provided
-        BaziService->>BaziService: Apply checked true solar time longitude correction
+        BaziService->>BaziService: Apply internal true solar time longitude correction
     end
-    BaziService->>PaipanAPIs: Fetch base chart
-    PaipanAPIs-->>BaziService: Base pillars and luck cycles
-    BaziService->>PaipanAPIs: Fetch supplementary data concurrently
+    BaziService->>PaipanAPIs: Fetch base and supplementary chart concurrently
+    PaipanAPIs-->>BaziService: Base pillars, luck cycles, relations, shensha
     BaziService->>DurableDatabase: Upsert structured profile
     BaziService->>ChartStorage: Publish escaped HTML with checked R2 status or atomic local rename
     ChartStorage-->>BaziService: Confirm successful storage or return error
-    BaziService->>LLMGateway: Request destiny analysis and summary
-    LLMGateway-->>BaziService: Analysis stream and compact summary
-    BaziService->>DurableDatabase: Save completed analysis and optional generated summary with checked writes
-    BaziService->>DurableDatabase: Save full LLM request and response or provider error
-    BaziService-->>TransportHandler: Chart URL and analysis result
-    TransportHandler-->>InteractiveClient: Telegram, JSON, or SSE response
+    BaziService->>LLMGateway: Request streaming destiny analysis
+    LLMGateway-->>BaziService: LLM chunk stream
+    BaziService-->>TransportHandler: Return chart URL and managed analysis stream
+    loop Stream consumption
+        TransportHandler->>InteractiveClient: Progressive draft / SSE chunk streaming
+    end
+    Note over BaziService,DurableDatabase: On clean stream finish:
+    BaziService->>DurableDatabase: Save completed analysis
+    BaziService->>ContextStore: Record assistant response in memory & SQLite cache
+    BaziService->>LLMGateway: Generate compact Blindman summary
+    LLMGateway-->>BaziService: Validated compact summary
+    BaziService->>DurableDatabase: Save summary with checked writes
 ```
 
-`InteractiveClient` represents either a Telegram user or an authenticated API client. `TransportHandler` represents the relevant teloxide handler or Axum endpoint. Birth time and birth location can both be omitted. An omitted time uses 12:00 only as a date-safe reference for the required upstream chart calculation; before the profile is stored or returned, every hour-pillar value is replaced with `*` and the time is marked unknown. An omitted location receives no longitude correction. `ChartStorage` is Cloudflare R2 when configured and the local `public/` directory otherwise.
+`InteractiveClient` represents either a Telegram user or an authenticated API client. `TransportHandler` represents the relevant teloxide handler or Axum endpoint, which delegates profile creation atomically to `BaziService::create_destiny_profile`. Birth time and birth location can both be omitted. An omitted time uses 12:00 only as a date-safe reference for the required upstream chart calculation; before the profile is stored or returned, every hour-pillar value is replaced with `*` and the time is marked unknown. An omitted location receives no longitude correction. `ChartStorage` is Cloudflare R2 when configured and the local `public/` directory otherwise.
 
-Chart publication errors propagate instead of publishing a dead fallback URL or success event. A failed replacement can leave the new structured profile without a chart or analysis; it cannot expose the old chart as the new profile. Profile reads distinguish missing data from unavailable storage, and critical analysis/summary writes must succeed before HTTP completion. Telegram pending birth inputs survive chart preparation/publication failure. Idempotent chart/almanac GETs have at most two transient retries within a 30-second budget, including body/framing failures after response headers arrive.
+Chart publication errors propagate instead of publishing a dead fallback URL or success event. Analysis persistence, session context recording, and compact Blindman summary generation are managed within the stream's completion lifecycle upon clean termination. Telegram pending birth inputs survive chart preparation/publication failure. Idempotent chart/almanac GETs have at most two transient retries within a 30-second budget, including body/framing failures after response headers arrive.
 
 ## 3. Interactive fortune, date selection, and follow-up chat
 
@@ -103,12 +108,11 @@ sequenceDiagram
     participant MingDecodeAPI
     participant LLMGateway
 
-    InteractiveClient->>TransportHandler: Send date, range, or chat request
+    InteractiveClient->>TransportHandler: Send date, range, or chat request (with optional #<level> or effort field)
     alt Telegram
-        TransportHandler-->>InteractiveClient: Present one-time reasoning-effort selector
-        InteractiveClient->>TransportHandler: Select default, none, minimal, low, medium, high, or xhigh
+        TransportHandler->>TransportHandler: Parse optional leading #<level> placeholder or default to none
     else HTTP, SSE, or WebSocket
-        InteractiveClient->>TransportHandler: Include optional reasoning_effort with the request
+        InteractiveClient->>TransportHandler: Include optional reasoning_effort in payload
     end
     TransportHandler->>DurableDatabase: Authenticate and load profile settings
     TransportHandler->>MemoryContext: Rate limit and update session state
@@ -130,9 +134,15 @@ sequenceDiagram
     TransportHandler-->>InteractiveClient: Telegram drafts, JSON, SSE, or WebSocket frames
 ```
 
-Almanac retrieval applies to daily-fortune and date-selection requests. Follow-up chat skips that call and uses the stored structured chart, compact Bazi summary, and recent conversation turns. The shared LLM transport uses async-openai request/response types but reads HTTP/SSE directly: it alone owns the retry budget, raw-body limits, and producer backpressure. There are at most three actual HTTP attempts across initial and continuation requests, within one absolute LLM timeout. Integer retry-after values are capped at five seconds; shutdown and receiver closure cancel waits and reads.
+Almanac retrieval applies to daily-fortune and date-selection requests via `services::almanac::get_daily_fortune` and `services::almanac::pick_dates`, which encapsulate Destiny Profile verification, upstream almanac retrieval, Blindman prompt assembly, and session context synchronization for interactive turns. Follow-up chat turns route through `ConversationService::submit_chat_turn`, which encapsulates Destiny Profile verification, recent turn hydration from `ChatCacheRepository`, prompt construction, and automatic write-behind persistence. In-memory `UserContext` stores structured `VecDeque<ChatTurn>` using `Arc<str>` with $O(1)$ ring-buffer eviction and incremental byte tracking, eliminating role tag formatting/parsing roundtrips.
 
-Telegram asks for a reasoning level after every free-text question, `/date` selection, and `/pick` activity selection. HTTP/SSE clients send `reasoning_effort` in `/api/v1/chat` and `/api/v1/pick-date`; date-fortune WebSocket clients include it in their `generate` frame. Valid explicit values are `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Telegram’s `Default` option and an omitted API field use `LLM_REASONING_EFFORT` when configured; Telegram’s `None` option explicitly sends `none`. Scheduled work has no interactive selector and continues to use the configured fallback.
+Token streaming uses a zero-copy pipeline: `LlmStream` transfers `tokio_util::bytes::Bytes` directly from LLM deltas into Axum SSE/WebSocket and Telegram draft accumulators with $O(1)$ shallow cloning and no secondary reallocations.
+
+Unified admission control is orchestrated across Web API and Telegram by `AdmissionController` in `Runtime`. `AdmissionController::try_admit` validates the concurrency semaphore (`requests`), per-user rate limit (`rates`), and exclusive turn mutex (`active_users` / `ProcessingGuard`) into a single RAII `AdmissionPermit`. Rejections fail fast with typed `AdmissionRejection` mapped to HTTP `Retry-After` headers (429 with 5s for concurrency, 60s for rate limits, 2s for concurrent turns; 503 for shutdown) or user-friendly localized Telegram notices. For streaming requests, the `AdmissionPermit` is retained inside the response stream (`AdmittedResponseStream`), preventing capacity leaks until the stream completes or disconnects.
+
+The shared LLM transport uses async-openai request/response types but reads HTTP/SSE directly: it alone owns the retry budget, raw-body limits, and producer backpressure. There are at most three actual HTTP attempts across initial and continuation requests, within one absolute LLM timeout. Integer retry-after values are capped at five seconds; shutdown and receiver closure cancel waits and reads.
+
+Telegram parses an optional leading `#<level>` placeholder in chat messages and custom pick activity text (e.g. `#high 问事业`, `#low`, `#none`). If omitted, or when using `/date` calendar buttons, reasoning effort defaults to `none`. HTTP/SSE clients send `reasoning_effort` in `/api/v1/chat` and `/api/v1/pick-date`; date-fortune WebSocket clients include it in their `generate` frame. Valid explicit values are `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`. An omitted API field defaults to `none`, and `none` omits the parameter in upstream LLM calls to preserve compatibility with non-reasoning models. Scheduled work has no interactive selector and uses `none`.
 
 Only an explicit `stop` finish reason with nonempty text is complete. Bare EOF, `[DONE]` without an acceptable finish reason, and token-limit endings resume within the remaining budget or fail. Non-retryable provider/schema errors fail immediately. Full response bodies and accumulated output are capped at one MiB; each SSE event is capped at 64 KiB, and production feeds a bounded application channel without a detached unbounded SDK queue. Continuation is a new model request containing accumulated text, not a byte-identical transport resume. Boundary deduplication is best-effort and does not guarantee identical prose.
 

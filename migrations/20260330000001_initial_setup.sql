@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS llm_logs (
   user_id INTEGER NOT NULL,
   request_type TEXT,
   model_id INTEGER,
+  reasoning_effort TEXT, -- Reasoning level requested per LLM call (e.g., "low", "medium", "high")
   request_body TEXT NOT NULL, -- Full LlmRequestParams serialized as JSON
   response_body TEXT NOT NULL, -- JSON response on success, error message on failure
   total_tokens INTEGER, -- Extracted from response usage (NULL on failure)

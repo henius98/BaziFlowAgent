@@ -1,8 +1,21 @@
+use crate::services::paipan;
 use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime};
 use tracing::error;
 
-use crate::repos;
-use crate::services::{paipan, solar_time};
+pub struct DestinyProfileParams<'a> {
+  pub user_id: u64,
+  pub username: &'a str,
+  pub birth_date: &'a str,
+  pub birth_time: Option<NaiveTime>,
+  pub gender: u8,
+  pub location: Option<String>,
+  pub llm_model: Option<crate::models::common::LlmModel>,
+}
+
+pub struct DestinyProfileResult {
+  pub chart_url: String,
+  pub stream: crate::models::LlmStream,
+}
 
 pub struct BaziDataParams<'a> {
   pub user_id: u64,
@@ -38,12 +51,12 @@ pub async fn prepare_bazi_data(state: &std::sync::Arc<crate::models::AppState>, 
   let (naive_dt, birth_time_known) = resolve_birth_datetime(birth_date, params.birth_time)?;
 
   // Calculate True Solar Time only when the location is known.
-  let solar_dt = if let Some(city_name) = &params.location { solar_time::calculate_true_solar_time(naive_dt, city_name, 120.0) } else { naive_dt };
+  let solar_dt = crate::services::solar_time::to_true_solar_time(naive_dt, params.location.as_deref());
 
   let birth_year = naive_dt.year();
   let (structured_data, structured_json) = paipan::fetch_bazi_chart(&state.http_client, &state.config.upstreams, solar_dt, params.gender, birth_year, params.location, birth_time_known).await?;
 
-  repos::upsert_user_bazi(&state.db_pool, params.user_id, Some(params.username), &structured_json, params.gender, params.birth_date).await?;
+  state.user_repo.upsert_user_bazi(params.user_id, Some(params.username), &structured_json, params.gender, params.birth_date).await?;
 
   Ok(structured_data)
 }
@@ -53,31 +66,82 @@ pub async fn build_and_save_bazi_html(state: &std::sync::Arc<crate::models::AppS
   let html_diagram = paipan::generate_bazi_html(structured_data, username);
   let filename = format!("bazi_{}.html", user_id);
 
-  if let Some(bucket) = &state.r2_bucket {
-    if let Err(e) = bucket.put_object(&filename, html_diagram.as_bytes()).await {
-      error!("Failed to upload Bazi HTML to R2: {}", e);
-    }
-  } else {
-    let public_path = std::path::PathBuf::from("public").join(&filename);
-    if let Err(e) = tokio::fs::write(&public_path, html_diagram).await {
-      error!("Failed to save Bazi HTML to public: {}", e);
-    }
+  if let Err(e) = state.blob_store.put(&filename, html_diagram.as_bytes(), Some("text/html")).await {
+    error!("Failed to upload Bazi HTML: {}", e);
   }
 }
 
 pub async fn get_bazi_chart_url(state: &std::sync::Arc<crate::models::AppState>, user_id: u64) -> crate::models::AppResult<String> {
   let filename = format!("bazi_{}.html", user_id);
-  if let Some(bucket) = &state.r2_bucket {
-    // Presign URL valid for 24 hours (86400 seconds)
-    bucket.presign_get(&filename, 86400, None).await.map_err(|e| crate::models::error::AppError::Message(format!("Failed to generate presigned URL: {}", e)))
-  } else {
-    let public_path = std::path::PathBuf::from("public").join(&filename);
-    if !tokio::fs::try_exists(&public_path).await.unwrap_or(false) {
-      return Err(crate::models::AppError::Message("Chart unavailable; regenerate the profile".into()));
+  // Presign URL valid for 24 hours (86400 seconds)
+  state.blob_store.presign_get(&filename, 86400).await
+}
+
+/// Single entry point for creating or replacing a user's Destiny Profile.
+///
+/// Orchestrates solar time calculation, chart fetching, database persistence,
+/// session context invalidation, HTML rendering, capability URL generation,
+/// and streaming analysis with automatic persistence and background summarization.
+pub async fn create_destiny_profile(state: &std::sync::Arc<crate::models::AppState>, params: DestinyProfileParams<'_>) -> crate::models::AppResult<DestinyProfileResult> {
+  let birth_date = match chrono::NaiveDate::parse_from_str(params.birth_date, "%Y-%m-%d") {
+    Ok(date) => date,
+    Err(e) => {
+      error!("Invalid date format {}: {}", params.birth_date, e);
+      return Err(crate::models::error::AppError::Message("Invalid date".to_string()));
     }
-    let token = crate::services::chart_token::generate_chart_token(user_id, &state.config.chart_token_secret)?;
-    Ok(format!("{}/charts/{}", state.config.base_url.trim_end_matches('/'), token))
+  };
+
+  // A noon reference keeps an unknown time away from a date boundary. It is
+  // metadata-marked below so consumers do not treat its hour pillar as certain.
+  let (naive_dt, birth_time_known) = resolve_birth_datetime(birth_date, params.birth_time)?;
+
+  // Calculate True Solar Time internally when the location is known.
+  let solar_dt = crate::services::solar_time::to_true_solar_time(naive_dt, params.location.as_deref());
+
+  let birth_year = naive_dt.year();
+  let (structured_data, structured_json) = paipan::fetch_bazi_chart(&state.http_client, &state.config.upstreams, solar_dt, params.gender, birth_year, params.location, birth_time_known).await?;
+
+  state.user_repo.upsert_user_bazi(params.user_id, Some(params.username), &structured_json, params.gender, params.birth_date).await?;
+
+  // Invalidate old chat turns derived from the previous profile.
+  {
+    let mut ctx = state.user_contexts.entry(params.user_id).or_default();
+    ctx.clear_messages();
+    ctx.history_loaded = true;
+    ctx.last_active = chrono::Utc::now();
   }
+  if let Err(e) = state.chat_cache.clear(params.user_id).await {
+    error!("Failed to clear stale chat history for user {}: {}", params.user_id, e);
+  }
+
+  build_and_save_bazi_html(state, params.user_id, params.username, &structured_data).await;
+
+  let chart_url = match get_bazi_chart_url(state, params.user_id).await {
+    Ok(url) => url,
+    Err(e) => {
+      error!("Failed to generate bazi chart URL: {}", e);
+      format!("{}/bazi_{}.html", state.config.base_url.trim_end_matches('/'), params.user_id)
+    }
+  };
+
+  let raw_stream = core_bazi_analysis(state, params.user_id, &structured_data, params.llm_model.clone()).await?;
+
+  let state_clone = state.clone();
+  let user_id = params.user_id;
+  let structured_bazi = structured_data.to_string();
+  let llm_model = params.llm_model;
+
+  let stream = crate::services::conversation::wrap_persisted_stream(raw_stream, move |text| async move {
+    state_clone.user_repo.save_user_bazi_analysis(user_id, &text).await;
+    crate::services::conversation::persist_turn_response(&state_clone, user_id, None, &text).await;
+    if let Ok(summary) = generate_bazi_summary(&state_clone, user_id, &structured_bazi, &text, llm_model).await {
+      state_clone.user_repo.save_user_bazi_summary(user_id, &summary).await;
+    } else {
+      tracing::error!("Failed to generate bazi summary for user {}", user_id);
+    }
+  });
+
+  Ok(DestinyProfileResult { chart_url, stream })
 }
 
 /// Core logic for Bazi chart calculation and destiny reading generation.

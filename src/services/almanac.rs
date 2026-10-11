@@ -1,77 +1,110 @@
 //! Service to fetch and format traditional Chinese Almanac (Huangli) data.
 use crate::models::common::{BRANCHES, STEMS};
-use crate::models::{AppError, AppResult, LlmResponse, LogErrorExt};
+use crate::models::{AppError, AppResult, AppState, LlmResponse};
 use crate::services::paipan::bazi_utils::get_empty_death;
 use async_openai::types::{chat::ChatCompletionRequestSystemMessageArgs, chat::ChatCompletionRequestUserMessageArgs};
 use reqwest::Client;
-use tracing::{debug, info};
+use std::sync::Arc;
+use tracing::{debug, error, info, warn};
 
-pub struct DateFortuneRequest<'a> {
-  pub target_date: &'a str,
-  pub almanac_data: &'a str,
-  pub bazi_four_pillars: &'a str,
-  pub bazi_summary: &'a str,
-  /// Whether to stream the LLM response. Defaults to `false`.
-  pub stream: bool,
-  pub llm_model: Option<crate::models::common::LlmModel>,
-  pub user_id: Option<i64>,
-  pub request_type: crate::models::LlmRequestType,
+pub struct DailyFortuneResult {
+  pub almanac_data: String,
+  pub response: LlmResponse,
 }
 
 async fn immediate_response(stream: bool, message: impl Into<String>) -> LlmResponse {
   let message = message.into();
   if stream {
     let (tx, rx) = tokio::sync::mpsc::channel(1);
-    let _ = tx.send(message).await;
+    let _ = tx.send(tokio_util::bytes::Bytes::from(message)).await;
     LlmResponse::Stream(crate::models::LlmStream::completed(rx))
   } else {
     LlmResponse::Full(message)
   }
 }
 
-/// Analyze date fortune using the almanac + LLM.
-/// When `req.stream` is true, returns `LlmResponse::Stream`; otherwise `LlmResponse::Full`.
-pub async fn analysis_date_fortune(req: DateFortuneRequest<'_>) -> AppResult<LlmResponse> {
-  let stream = req.stream;
-  let state = crate::models::get_state();
+/// Generate a Daily Fortune reading correlating the user's Destiny Profile with the day's Almanac.
+///
+/// Handles Destiny Profile validation, calendar retrieval, CoT prompt building, and
+/// conversational context synchronization for interactive sessions.
+pub async fn get_daily_fortune(
+  state: &Arc<AppState>,
+  user_id: u64,
+  target_date: &str,
+  stream: bool,
+  request_type: crate::models::LlmRequestType,
+  reasoning_effort: Option<crate::models::ReasoningEffortLevel>,
+) -> AppResult<DailyFortuneResult> {
+  let user_profile = state.user_repo.get_user_profile(user_id).await;
+  let bazi_four_pillars =
+    user_profile.bazi_four_pillars.as_deref().and_then(|raw| crate::services::paipan::models::StructuredBazi::from_json(Some(raw)).ok()).map(|b| b.to_string()).ok_or(AppError::ProfileNotFound)?;
 
-  let almanac_data = req.almanac_data;
-  debug!("Building LLM prompt with provided almanac data...");
+  let almanac_data = fetch_and_format_almanac(&state.http_client, target_date).await?;
+
+  let bazi_summary = user_profile.bazi_summary.as_deref().unwrap_or_else(|| user_profile.bazi_analysis.as_deref().unwrap_or("未提供"));
 
   let system_message = ChatCompletionRequestSystemMessageArgs::default().content(include_str!("../../prompts/BaziHuangLiAssistant.md")).build()?;
 
-  if req.bazi_four_pillars.trim().is_empty() {
-    let msg = "请先输入您的生辰八字进行排盘。".to_string();
-    if stream {
-      let (tx, rx) = tokio::sync::mpsc::channel(1);
-      let _ = tx.send(msg).await;
-      return Ok(LlmResponse::Stream(crate::models::LlmStream::completed(rx)));
-    }
-    return Ok(LlmResponse::Full(msg));
-  }
-
-  let bazi_summary = if req.bazi_summary.trim().is_empty() { "未提供" } else { req.bazi_summary };
   let user_content = format!(
     "请结合以下信息进行精确的日运势推演：\n【用户八字排盘】\n{}\n【命理核心摘要（既有分析）】\n{}\n【目标预测日期】\n{}\n【时辰解释时区（系统默认）】\n{}\n【该日黄历数据】\n{}",
-    req.bazi_four_pillars, bazi_summary, req.target_date, state.config.app_timezone, almanac_data
+    bazi_four_pillars, bazi_summary, target_date, state.config.app_timezone, almanac_data
   );
 
   debug!("Built fortune prompt");
   let user_message = ChatCompletionRequestUserMessageArgs::default().content(user_content).build()?;
 
-  let model_id = req.llm_model.as_ref().map(|m| m.id() as i64);
-  let model_name = req.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let model_id = user_profile.llm_model.as_ref().map(|m| m.id() as i64);
+  let model_name = user_profile.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+
   let params = crate::services::llm::LlmRequestParams {
     stream: Some(stream),
     temperature: Some(0.2),
     top_p: Some(0.75),
-    user_id: req.user_id,
+    user_id: Some(user_id as i64),
     model_id,
-    ..crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()], req.request_type)
+    reasoning_effort: reasoning_effort.and_then(|r| r.into_upstream()),
+    ..crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()], request_type)
   };
 
+  let is_interactive = matches!(request_type, crate::models::LlmRequestType::CalendarDate | crate::models::LlmRequestType::CalendarToday | crate::models::LlmRequestType::CalendarTomorrow);
+  let almanac_msg = format!("📅 【{} 黄历信息】\n\n{}", target_date, almanac_data);
+
+  if is_interactive {
+    // Clear chat history for fresh reading
+    {
+      let mut ctx = state.user_contexts.entry(user_id).or_default();
+      ctx.clear_messages();
+      ctx.history_loaded = true;
+      ctx.last_active = chrono::Utc::now();
+    }
+    if let Err(e) = state.chat_cache.clear(user_id).await {
+      error!("Failed to clear chat cache for user {}: {}", user_id, e);
+    }
+  }
+
   info!("Sending request to LLM (Model: {}, stream: {})...", model_name, stream);
-  state.llm_service.call(params).await
+  let response = state.llm_service.call(params).await?;
+
+  let managed_response = if is_interactive {
+    match response {
+      LlmResponse::Stream(raw_stream) => {
+        let state_clone = state.clone();
+        let tool_msg = almanac_msg.clone();
+        let stream = crate::services::conversation::wrap_persisted_stream(raw_stream, move |reply| async move {
+          crate::services::conversation::persist_turn_response(&state_clone, user_id, Some(&tool_msg), &reply).await;
+        });
+        LlmResponse::Stream(stream)
+      }
+      LlmResponse::Full(reply) => {
+        crate::services::conversation::persist_turn_response(state, user_id, Some(&almanac_msg), &reply).await;
+        LlmResponse::Full(reply)
+      }
+    }
+  } else {
+    response
+  };
+
+  Ok(DailyFortuneResult { almanac_data, response: managed_response })
 }
 
 pub async fn fetch_and_format_almanac(client: &Client, target_date: &str) -> crate::models::AppResult<String> {
@@ -412,33 +445,50 @@ fn format_almanac_data(data: &AlmanacResponse) -> String {
 // Date Selection (/pick) Feature
 // ─────────────────────────────────────────────
 
-pub struct PickSelectionRequest<'a> {
+pub struct DateSelectionParams<'a> {
+  pub user_id: u64,
   pub start_date: &'a str,
   pub end_date: &'a str,
   pub activity: &'a str,
-  pub bazi_four_pillars: &'a str,
-  pub bazi_summary: &'a str,
   pub stream: bool,
-  pub llm_model: Option<crate::models::common::LlmModel>,
-  pub user_id: Option<i64>,
   pub request_type: crate::models::LlmRequestType,
+  pub reasoning_effort: Option<crate::models::ReasoningEffortLevel>,
 }
 
-pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult<(LlmResponse, String)> {
-  let stream = req.stream;
-  let state = crate::models::get_state();
+pub struct DateSelectionResult {
+  pub combined_almanac: String,
+  pub response: LlmResponse,
+}
 
-  // Parse dates
-  let start = chrono::NaiveDate::parse_from_str(req.start_date, "%Y-%m-%d").log_err_msg("Invalid start date")?;
-  let end = chrono::NaiveDate::parse_from_str(req.end_date, "%Y-%m-%d").log_err_msg("Invalid end date")?;
+/// Perform Date Selection (择吉日) across a candidate date window.
+///
+/// Validates the date window and activity, verifies the user's Destiny Profile,
+/// concurrently retrieves almanac records, builds the selection prompt, and
+/// synchronizes consultation session state.
+pub async fn pick_dates(state: &Arc<AppState>, params: DateSelectionParams<'_>) -> AppResult<DateSelectionResult> {
+  // Parse and validate dates
+  let start = chrono::NaiveDate::parse_from_str(params.start_date, "%Y-%m-%d").map_err(|_| AppError::Message("start_date must be YYYY-MM-DD format".to_string()))?;
+  let end = chrono::NaiveDate::parse_from_str(params.end_date, "%Y-%m-%d").map_err(|_| AppError::Message("end_date must be YYYY-MM-DD format".to_string()))?;
+
+  if params.activity.trim().is_empty() {
+    return Err(AppError::Message("activity must not be empty".to_string()));
+  }
 
   let range_days = (end - start).num_days();
   if range_days < 0 {
-    return Ok((immediate_response(stream, "⚠️ 结束日期不能早于开始日期，请重新选择。").await, String::new()));
+    return Ok(DateSelectionResult { combined_almanac: String::new(), response: immediate_response(params.stream, "⚠️ 结束日期不能早于开始日期，请重新选择。").await });
   }
   if range_days > 14 {
-    return Ok((immediate_response(stream, "⚠️ 选定的日期范围过大。开始与结束日期最多相隔 14 天，请重新选择。").await, String::new()));
+    return Ok(DateSelectionResult {
+      combined_almanac: String::new(), response: immediate_response(params.stream, "⚠️ 选定的日期范围过大。开始与结束日期最多相隔 14 天，请重新选择。").await
+    });
   }
+
+  let user_profile = state.user_repo.get_user_profile(params.user_id).await;
+  let bazi_four_pillars =
+    user_profile.bazi_four_pillars.as_deref().and_then(|raw| crate::services::paipan::models::StructuredBazi::from_json(Some(raw)).ok()).map(|b| b.to_string()).ok_or(AppError::ProfileNotFound)?;
+
+  let bazi_summary = user_profile.bazi_summary.as_deref().unwrap_or_else(|| user_profile.bazi_analysis.as_deref().unwrap_or("未提供"));
 
   let mut current = start;
   let mut dates = Vec::with_capacity((range_days + 1) as usize);
@@ -450,9 +500,8 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
     };
   }
 
-  tracing::info!(date_count = dates.len(), "Fetching almanac data");
+  info!(date_count = dates.len(), "Fetching almanac data for date selection");
 
-  // Fetch almanac for all dates concurrently
   let mut fetch_futures = Vec::new();
   for date_str in &dates {
     let client = &state.http_client;
@@ -473,51 +522,89 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
         combined_almanac.push_str(&format!("【{}】\n{}\n\n", date_str, data));
       }
       Err(e) => {
-        tracing::warn!("Failed to fetch almanac for {}: {}", date_str, e);
+        warn!("Failed to fetch almanac for {}: {}", date_str, e);
         combined_almanac.push_str(&format!("【{}】\n暂无数据。\n\n", date_str));
       }
     }
   }
 
   if valid_dates == 0 {
-    return Ok((immediate_response(stream, "⚠️ 所选范围内没有可验证的黄历数据，请稍后重试。").await, String::new()));
+    return Ok(DateSelectionResult { combined_almanac: String::new(), response: immediate_response(params.stream, "⚠️ 所选范围内没有可验证的黄历数据，请稍后重试。").await });
   }
 
   let system_message = ChatCompletionRequestSystemMessageArgs::default().content(include_str!("../../prompts/DateSelectionAssistant.md")).build()?;
 
-  if req.bazi_four_pillars.trim().is_empty() {
-    let msg = "请先输入您的生辰八字进行排盘。".to_string();
-    if stream {
-      let (tx, rx) = tokio::sync::mpsc::channel(1);
-      let _ = tx.send(msg).await;
-      return Ok((LlmResponse::Stream(crate::models::LlmStream::completed(rx)), combined_almanac));
-    }
-    return Ok((LlmResponse::Full(msg), combined_almanac));
-  }
-
-  let bazi_summary = if req.bazi_summary.trim().is_empty() { "未提供" } else { req.bazi_summary };
   let user_content = format!(
     "请结合以下信息为用户进行择吉日推演：\n【用户八字排盘】\n{}\n【命理核心摘要（既有分析）】\n{}\n【目标活动】\n{}\n【候选日期范围】\n{} 至 {}\n【事件时区（系统默认）】\n{}\n【备选日期范围黄历数据】\n{}",
-    req.bazi_four_pillars, bazi_summary, req.activity, req.start_date, req.end_date, state.config.app_timezone, combined_almanac
+    bazi_four_pillars, bazi_summary, params.activity, params.start_date, params.end_date, state.config.app_timezone, combined_almanac
   );
 
-  tracing::debug!("Built date selection prompt");
+  debug!("Built date selection prompt");
   let user_message = ChatCompletionRequestUserMessageArgs::default().content(user_content).build()?;
 
-  let model_id = req.llm_model.as_ref().map(|m| m.id() as i64);
-  let model_name = req.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
-  let params = crate::services::llm::LlmRequestParams {
-    temperature: Some(0.2), // Low temperature for factual analysis
+  let model_id = user_profile.llm_model.as_ref().map(|m| m.id() as i64);
+  let model_name = user_profile.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+
+  let llm_params = crate::services::llm::LlmRequestParams {
+    temperature: Some(0.2),
     top_p: Some(0.75),
-    stream: Some(stream),
-    user_id: req.user_id,
+    stream: Some(params.stream),
+    user_id: Some(params.user_id as i64),
     model_id,
-    ..crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()], req.request_type)
+    reasoning_effort: params.reasoning_effort.and_then(|r| r.into_upstream()),
+    ..crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()], params.request_type)
   };
 
-  tracing::info!("Sending request to LLM for Date Selection (Model: {}, stream: {})...", model_name, stream);
-  let resp = state.llm_service.call(params).await?;
-  Ok((resp, combined_almanac))
+  let is_interactive = matches!(params.request_type, crate::models::LlmRequestType::PickSelection);
+
+  let pick_msg = if is_interactive {
+    if !combined_almanac.is_empty() {
+      format!("🎯 【择吉日黄历信息】活动: {}, 日期范围: {} 至 {}\n\n{}", params.activity, params.start_date, params.end_date, combined_almanac)
+    } else {
+      format!("🎯 择吉日：活动「{}」，日期范围：{} 至 {}", params.activity, params.start_date, params.end_date)
+    }
+  } else {
+    String::new()
+  };
+
+  if is_interactive {
+    // Clear previous context
+    {
+      let mut ctx = state.user_contexts.entry(params.user_id).or_default();
+      ctx.clear_messages();
+      ctx.history_loaded = true;
+      ctx.last_active = chrono::Utc::now();
+    }
+    if let Err(e) = state.chat_cache.clear(params.user_id).await {
+      error!("Failed to clear chat cache for user {}: {}", params.user_id, e);
+    }
+  }
+
+  info!("Sending request to LLM for Date Selection (Model: {}, stream: {})...", model_name, params.stream);
+  let response = state.llm_service.call(llm_params).await?;
+
+  let managed_response = if is_interactive {
+    let tool_msg = if !pick_msg.is_empty() { Some(pick_msg.as_str()) } else { None };
+    match response {
+      LlmResponse::Stream(raw_stream) => {
+        let state_clone = state.clone();
+        let user_id = params.user_id;
+        let tool_owned = tool_msg.map(str::to_string);
+        let stream = crate::services::conversation::wrap_persisted_stream(raw_stream, move |reply| async move {
+          crate::services::conversation::persist_turn_response(&state_clone, user_id, tool_owned.as_deref(), &reply).await;
+        });
+        LlmResponse::Stream(stream)
+      }
+      LlmResponse::Full(reply) => {
+        crate::services::conversation::persist_turn_response(state, params.user_id, tool_msg, &reply).await;
+        LlmResponse::Full(reply)
+      }
+    }
+  } else {
+    response
+  };
+
+  Ok(DateSelectionResult { combined_almanac, response: managed_response })
 }
 
 #[cfg(test)]
@@ -528,7 +615,7 @@ mod tests {
   async fn immediate_response_preserves_stream_contract() {
     match immediate_response(true, "validation failed").await {
       LlmResponse::Stream(mut receiver) => {
-        assert_eq!(receiver.recv().await.as_deref(), Some("validation failed"));
+        assert_eq!(receiver.recv().await.as_deref(), Some(b"validation failed".as_slice()));
       }
       LlmResponse::Full(_) => panic!("stream request must not return a full response"),
     }

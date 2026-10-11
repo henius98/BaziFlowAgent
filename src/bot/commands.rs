@@ -33,12 +33,12 @@ pub enum Command {
 pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
   let state = crate::models::get_state();
   let user_id = msg.from.as_ref().map_or(0, |user| user.id.0);
-  let rate_limit = state.get_user_rate_limit(user_id).await;
-  if !state.runtime.allow(user_id, rate_limit) {
-    return Ok(());
-  }
-  let Some(_guard) = msg.from.as_ref().and_then(|user| crate::models::ProcessingGuard::acquire(state.clone(), user.id.0)) else {
-    return Ok(());
+  let _guard = match crate::models::ProcessingGuard::try_acquire(state.clone(), user_id) {
+    Ok(guard) => guard,
+    Err(rejection) => {
+      let _ = bot.send_message(msg.chat.id, rejection.user_message()).await;
+      return Ok(());
+    }
   };
   match cmd {
     Command::New => {

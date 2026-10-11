@@ -24,6 +24,14 @@ pub struct StructuredBazi {
   pub pillar_traits: Vec<String>, // 盖头, 截脚, 伏吟, 反吟
 }
 
+impl StructuredBazi {
+  /// Parse from raw JSON string (e.g. from database `bazi_four_pillars` column).
+  pub fn from_json(raw: Option<&str>) -> crate::models::AppResult<Self> {
+    let raw_str = raw.ok_or_else(|| crate::models::AppError::Message("Bazi data not found".to_string()))?;
+    serde_json::from_str::<Self>(raw_str).map_err(|e| crate::models::AppError::Message(format!("Failed to parse Bazi JSON: {}", e)))
+  }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BasicInfo {
   #[serde(rename = "性别")] // 乾造, 坤造

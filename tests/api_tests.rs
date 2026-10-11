@@ -277,6 +277,28 @@ async fn test_all_api_endpoints() {
   assert_eq!(response.status(), StatusCode::OK);
   m9.assert_async().await;
 
+  // 8b. POST /chat with invalid reasoning_effort returns 400
+  let req_bad_re = Request::builder()
+    .method("POST")
+    .uri("/api/v1/chat")
+    .header(header::CONTENT_TYPE, "application/json")
+    .header(header::AUTHORIZATION, format!("Bearer {}", api_key))
+    .body(Body::from(serde_json::json!({"message": "Hello", "reasoning_effort": "ultra"}).to_string()))
+    .unwrap();
+  let res_bad_re = app.clone().oneshot(req_bad_re).await.unwrap();
+  assert_eq!(res_bad_re.status(), StatusCode::BAD_REQUEST);
+
+  // 8c. POST /pick-date with invalid reasoning_effort returns 400
+  let req_bad_pick = Request::builder()
+    .method("POST")
+    .uri("/api/v1/pick-date")
+    .header(header::CONTENT_TYPE, "application/json")
+    .header(header::AUTHORIZATION, format!("Bearer {}", api_key))
+    .body(Body::from(serde_json::json!({"start_date": "2023-10-10", "end_date": "2023-10-15", "activity": "Wedding", "reasoning_effort": "ultra"}).to_string()))
+    .unwrap();
+  let res_bad_pick = app.clone().oneshot(req_bad_pick).await.unwrap();
+  assert_eq!(res_bad_pick.status(), StatusCode::BAD_REQUEST);
+
   // ==========================================
   // 9. POST /chat?stream=true
   // ==========================================

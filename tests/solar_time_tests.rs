@@ -14,3 +14,15 @@ fn test_malacca_conversion() {
   assert_eq!(sun_time.hour(), 6);
   assert_eq!(sun_time.minute(), 23);
 }
+
+#[test]
+fn test_to_true_solar_time_defaults_and_conversion() {
+  let dt = NaiveDate::from_ymd_opt(1998, 10, 8).and_then(|d| d.and_hms_opt(7, 21, 0)).expect("test constant must be valid");
+  // None location returns unmodified time
+  assert_eq!(baziflow_agent::services::solar_time::to_true_solar_time(dt, None), dt);
+
+  // Known location converts with Beijing meridian default
+  let sun_time = baziflow_agent::services::solar_time::to_true_solar_time(dt, Some("Malacca"));
+  assert_eq!(sun_time.hour(), 6);
+  assert_eq!(sun_time.minute(), 23);
+}

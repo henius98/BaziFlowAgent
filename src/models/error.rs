@@ -36,6 +36,9 @@ pub enum AppError {
   #[error("Credentials Error: {0}")]
   Credentials(#[from] s3::creds::error::CredentialsError),
 
+  #[error("Profile not found")]
+  ProfileNotFound,
+
   #[error("Application Error: {0}")]
   Message(String),
 }

@@ -218,6 +218,65 @@ pub async fn recent_chat_messages(pool: &SqlitePool, user_id: u64, limit: usize)
   )
 }
 
+impl From<ChatHistoryQueueError> for crate::repos::traits::ChatCacheQueueError {
+  fn from(e: ChatHistoryQueueError) -> Self {
+    match e {
+      ChatHistoryQueueError::Full => Self::Full,
+      ChatHistoryQueueError::TooLarge => Self::TooLarge,
+      ChatHistoryQueueError::Closed => Self::Closed,
+    }
+  }
+}
+
+impl std::fmt::Debug for ChatHistoryCache {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("ChatHistoryCache").field("pool", &"SqlitePool").field("writer", &self.writer).finish()
+  }
+}
+
+impl crate::repos::traits::ChatCacheRepository for ChatHistoryCache {
+  fn save(&self, user_id: u64, role: crate::repos::traits::CacheRole, content: &str) -> Result<(), crate::repos::traits::ChatCacheQueueError> {
+    self.writer.save(user_id, role.as_str(), content).map_err(Into::into)
+  }
+
+  fn clear<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, Result<(), crate::repos::traits::ChatCacheQueueError>> {
+    Box::pin(async move { self.writer.clear(user_id).await.map_err(Into::into) })
+  }
+
+  fn flush<'a>(&'a self) -> futures::future::BoxFuture<'a, Result<(), crate::repos::traits::ChatCacheQueueError>> {
+    Box::pin(async move { self.writer.flush().await.map_err(Into::into) })
+  }
+
+  fn recent_turns<'a>(&'a self, user_id: u64, limit: usize) -> futures::future::BoxFuture<'a, crate::models::AppResult<Vec<crate::repos::traits::ChatTurnRecord>>> {
+    Box::pin(async move { recent_chat_turns(&self.pool, user_id, limit).await.map_err(Into::into) })
+  }
+}
+
+pub async fn recent_chat_turns(pool: &SqlitePool, user_id: u64, limit: usize) -> Result<Vec<crate::repos::traits::ChatTurnRecord>, sqlx::Error> {
+  if limit == 0 {
+    return Ok(Vec::new());
+  }
+
+  let rows = sqlx::query_as::<_, (String, String)>(
+    r#"SELECT role, content
+        FROM (
+            SELECT role, content, id
+            FROM chat_history
+            WHERE user_id = ?1
+            ORDER BY id DESC
+            LIMIT ?2
+        )
+        ORDER BY id ASC
+        "#,
+  )
+  .bind(user_id as i64)
+  .bind(limit as i64)
+  .fetch_all(pool)
+  .await?;
+
+  Ok(rows.into_iter().map(|(role, content)| crate::repos::traits::ChatTurnRecord { role: role.parse().unwrap_or(crate::repos::traits::CacheRole::User), content }).collect())
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

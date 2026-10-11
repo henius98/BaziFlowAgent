@@ -87,53 +87,27 @@ pub async fn add_or_update_user_schedule(bot: Bot, user_id: u64, cron_str: &str)
         };
         let tomorrow = (Utc::now().with_timezone(&state.config.app_timezone).date_naive() + Duration::days(1)).format("%Y-%m-%d").to_string();
 
-        let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
-        let bazi_four_pillars = match user_profile.bazi_four_pillars {
-          Some(p) => p,
-          None => {
-            warn!("User {} lacks bazi profile, skipping scheduled job.", user_id);
-            return;
-          }
-        };
-
-        let almanac_data = match crate::services::almanac::fetch_and_format_almanac(&state.http_client, &tomorrow).await {
-          Ok(data) => data,
-          Err(e) => {
-            error!("Failed to fetch almanac data for user {} scheduled job: {}", user_id, e);
-            return;
-          }
-        };
-
-        let bazi_summary = user_profile.bazi_summary.unwrap_or_else(|| user_profile.bazi_analysis.unwrap_or_default());
-
-        match crate::services::almanac::analysis_date_fortune(crate::services::almanac::DateFortuneRequest {
-          target_date: &tomorrow,
-          almanac_data: &almanac_data,
-          bazi_four_pillars: &bazi_four_pillars,
-          bazi_summary: &bazi_summary,
-          stream: false,
-          llm_model: user_profile.llm_model,
-          user_id: Some(user_id as i64),
-          request_type: crate::models::LlmRequestType::ScheduledDaily,
-        })
-        .await
-        {
-          Ok(crate::models::LlmResponse::Full(response)) => {
+        match crate::services::almanac::get_daily_fortune(&state, user_id, &tomorrow, false, crate::models::LlmRequestType::ScheduledDaily, None).await {
+          Ok(result) => {
             info!("Scheduled reading generated for user {}", user_id);
 
             // Send almanac data message first, back-to-back with the LLM result
-            let _ = bot_clone.send_message(ChatId(user_id as i64), format!("📅 【{} 明日黄历】\n\n{}", tomorrow, almanac_data)).await;
+            let _ = bot_clone.send_message(ChatId(user_id as i64), format!("📅 【{} 明日黄历】\n\n{}", tomorrow, result.almanac_data)).await;
 
-            let parts = crate::utils::split_message(&response, 4000);
-            for part in parts {
-              if let Err(e) = bot_clone.send_message(ChatId(user_id as i64), part).await {
-                error!("Failed to send scheduled message to user {}: {}", user_id, e);
-                break;
+            if let crate::models::LlmResponse::Full(response) = result.response {
+              let parts = crate::utils::split_message(&response, 4000);
+              for part in parts {
+                if let Err(e) = bot_clone.send_message(ChatId(user_id as i64), part).await {
+                  error!("Failed to send scheduled message to user {}: {}", user_id, e);
+                  break;
+                }
               }
+            } else {
+              error!("Unexpected stream response for scheduled job (user {})", user_id);
             }
           }
-          Ok(_) => {
-            error!("Unexpected stream response for scheduled job (user {})", user_id);
+          Err(crate::models::AppError::ProfileNotFound) => {
+            warn!("User {} lacks bazi profile, skipping scheduled job.", user_id);
           }
           Err(e) => {
             error!("Scheduled job error for user {}: {}", user_id, e);

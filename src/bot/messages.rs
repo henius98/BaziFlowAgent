@@ -1,7 +1,5 @@
 use super::Bot;
-use crate::repos;
 use teloxide::prelude::*;
-use tracing::{debug, error};
 
 // ─────────────────────────────────────────────
 // Message handler
@@ -19,122 +17,70 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
   };
 
   // Concurrency & Rate Limiting Check
-  let rate_limit = state.get_user_rate_limit(user_id).await;
-  if !state.runtime.allow(user_id, rate_limit) {
-    return Ok(());
-  }
-  let Some(guard) = crate::models::ProcessingGuard::acquire(state.clone(), user_id) else {
-    let _ = bot.send_message(msg.chat.id, "⏳ Please wait for the previous request done or failed.").await;
-    return Ok(());
+  let _guard = match crate::models::ProcessingGuard::try_acquire(state.clone(), user_id) {
+    Ok(guard) => guard,
+    Err(rejection) => {
+      let _ = bot.send_message(msg.chat.id, rejection.user_message()).await;
+      return Ok(());
+    }
   };
 
+  let (effort, content) = crate::models::ReasoningEffortLevel::extract_leading_placeholder(text);
+  let content = content.trim();
+  if content.is_empty() {
+    return Ok(());
+  }
+
   // Intercept pick activity text
-  let mut is_pick_activity = false;
-  {
+  let is_pick_activity = {
     let mut ctx = state.user_contexts.entry(user_id).or_default();
     if ctx.pick_state.waiting_for_text {
-      ctx.pick_state.activity = Some(text.to_string());
+      ctx.pick_state.activity = Some(content.to_string());
       ctx.pick_state.waiting_for_text = false;
-      is_pick_activity = true;
+      true
+    } else {
+      false
     }
-  }
-  if is_pick_activity {
-    let bot_clone = bot.clone();
-    let chat_id = msg.chat.id;
-    let reply_id = msg.id;
+  };
 
+  let chat_id = msg.chat.id;
+  let bot_clone = bot.clone();
+
+  if is_pick_activity {
+    let target = Some(super::command_actions::MessageTarget::Reply(msg.id));
     state.runtime.tasks.spawn(async move {
-      let _guard = guard;
-      let target = Some(super::command_actions::MessageTarget::Reply(reply_id));
-      let _ = super::run(super::command_actions::process_pick_selection(bot_clone, chat_id, user_id, target)).await;
+      let _guard = _guard;
+      let _ = super::run(super::command_actions::process_pick_selection(bot_clone, chat_id, user_id, target, effort)).await;
     });
     return Ok(());
   }
 
-  let _guard = guard;
+  // General chat turn with streaming response
+  let state_clone = state.clone();
+  let content_string = content.to_string();
 
-  // Restore from SQLite only after a memory expiry or process restart.
-  crate::utils::hydrate_chat_context(&state, user_id).await;
-
-  // The normal request path stays entirely in memory.
-  {
-    let mut ctx = state.user_contexts.entry(user_id).or_default();
-    ctx.push_message(format!("User: {}", text), state.config.max_context_messages);
-    ctx.last_active = chrono::Utc::now();
-  }
-  if let Err(e) = state.chat_cache_writer.save(user_id, "user", text) {
-    error!("Failed to cache chat message for user {}: {}", user_id, e);
-  }
-  debug!(user_id, "Stored chat message");
-
-  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
-  let Some(bazi_four_pillars) = user_profile.bazi_four_pillars.as_deref() else {
-    let _ = bot.send_message(msg.chat.id, "⚠️ You haven't set your birthdate yet! Please use /new to set your birthdate first to get accurate readings.").await;
-    return Ok(());
-  };
-  let bazi_context = match crate::utils::build_bazi_context_message(bazi_four_pillars, user_profile.bazi_summary.as_deref()) {
-    Ok(message) => message,
-    Err(e) => {
-      error!("Failed to build Bazi context for user {}: {}", user_id, e);
-      let _ = bot.send_message(msg.chat.id, "Internal error: Invalid Bazi profile").await;
-      return Ok(());
-    }
-  };
-  let llm_model = user_profile.llm_model;
-
-  let system_prompt_text = include_str!("../../prompts/FollowUpAssistant.md");
-
-  let system_msg = match async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default().content(system_prompt_text).build() {
-    Ok(m) => m,
-    Err(e) => {
-      error!("Failed to build system message: {}", e);
-      let _ = bot.send_message(msg.chat.id, "Internal error: Failed to build prompt").await;
-      return Ok(());
-    }
-  };
-
-  let mut messages: Vec<async_openai::types::chat::ChatCompletionRequestMessage> = vec![system_msg.into()];
-  messages.push(bazi_context);
-
-  if let Some(ctx) = state.user_contexts.get(&user_id) {
-    messages.extend(crate::utils::build_chat_messages(&ctx.messages));
-  }
-
-  let model_id = llm_model.as_ref().map(|m| m.id() as i64);
-  let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
-  let params = crate::services::llm::LlmRequestParams {
-    stream: Some(true),
-    temperature: Some(0.4),
-    user_id: Some(user_id as i64),
-    model_id,
-    ..crate::services::llm::LlmRequestParams::new(model_name, messages, crate::models::LlmRequestType::FollowUpChat)
-  };
-
-  match state.llm_service.call(params).await {
-    Ok(crate::models::LlmResponse::Stream(receiver)) => {
-      let result_text = super::helpers::stream_to_telegram(&bot, msg.chat.id, "📝 Generating...", receiver).await;
-
-      if result_text.is_empty() {
-        return Ok(());
+  state.runtime.tasks.spawn(async move {
+    let _guard = _guard;
+    let stream = match crate::services::conversation::submit_chat_turn(&state_clone, user_id, &content_string, true, crate::models::LlmRequestType::FollowUpChat, effort).await {
+      Ok(crate::models::LlmResponse::Stream(s)) => s,
+      Ok(crate::models::LlmResponse::Full(full_text)) => {
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        let _ = tx.send(tokio_util::bytes::Bytes::from(full_text)).await;
+        crate::models::LlmStream::completed(rx)
       }
-      // Save assistant response to context for future follow-ups
-      {
-        let mut ctx = state.user_contexts.entry(user_id).or_default();
-        ctx.push_message(format!("Assistant: {}", result_text), state.config.max_context_messages);
+      Err(crate::models::AppError::ProfileNotFound) => {
+        let _ = bot_clone.send_message(chat_id, "⚠️ You haven't set your birthdate yet! Please use /new to set your birthdate first to get accurate readings.").await;
+        return;
       }
-      if let Err(e) = state.chat_cache_writer.save(user_id, "assistant", &result_text) {
-        error!("Failed to cache assistant response for user {}: {}", user_id, e);
+      Err(e) => {
+        tracing::error!("Error generating reading: {}", e);
+        let _ = bot_clone.send_message(chat_id, format!("Error processing request: {}", e)).await;
+        return;
       }
-    }
-    Ok(_) => {
-      error!("Expected stream response from LLM, got non-stream variant");
-      let _ = bot.send_message(msg.chat.id, "Internal error: unexpected response type").await;
-    }
-    Err(e) => {
-      error!("Error generating reading: {}", e);
-      let _ = bot.send_message(msg.chat.id, format!("Error processing request: {}", e)).await;
-    }
-  }
+    };
+
+    super::helpers::stream_to_telegram(&bot_clone, chat_id, "📝 Generating...", stream).await;
+  });
 
   Ok(())
 }

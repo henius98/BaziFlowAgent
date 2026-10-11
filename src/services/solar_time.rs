@@ -1,6 +1,20 @@
 use crate::models::common::COMMON_CITIES;
 use chrono::{Datelike, Duration, NaiveDateTime};
 
+/// Default reference meridian for China / Singapore standard time (UTC+8).
+pub const BEIJING_MERIDIAN: f64 = 120.0;
+
+/// Converts Standard Time to True Solar Time (真太阳时) for an optional location.
+///
+/// If location is None or not found in known cities, returns origin_time unmodified.
+/// Uses the Beijing standard meridian (120.0°E) by default.
+pub fn to_true_solar_time(origin_time: NaiveDateTime, location: Option<&str>) -> NaiveDateTime {
+  match location {
+    Some(city) => calculate_true_solar_time(origin_time, city, BEIJING_MERIDIAN),
+    None => origin_time,
+  }
+}
+
 /// Converts Standard Time (usually Beijing Time / UTC+8) to True Solar Time (真太阳时).
 pub fn calculate_true_solar_time(origin_time: NaiveDateTime, city_name: &str, standard_meridian: f64) -> NaiveDateTime {
   let longitude = COMMON_CITIES.iter().find(|c| c.name.contains(city_name) || city_name.contains(c.name)).map(|c| c.longitude);

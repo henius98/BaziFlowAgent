@@ -26,6 +26,7 @@ pub fn get_username(user: &teloxide::types::User) -> String {
 /// If the final text exceeds 4096 chars, the first message is trimmed and overflow
 /// is sent as separate messages.
 pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, mut receiver: crate::models::LlmStream) -> String {
+  let mut accumulated_bytes = Vec::new();
   let mut accumulated = String::new();
   let edit_interval = std::time::Duration::from_millis(1000);
   // Allow the first chunk to be flushed immediately
@@ -47,7 +48,8 @@ pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, 
         chunk_opt = receiver.recv() => {
             match chunk_opt {
                 Some(chunk) => {
-                    accumulated.push_str(&chunk);
+                    accumulated_bytes.extend_from_slice(&chunk);
+                    accumulated = String::from_utf8_lossy(&accumulated_bytes).into_owned();
                     pending = true;
 
                     // Throttle: flush immediately if enough time has passed

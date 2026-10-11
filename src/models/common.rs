@@ -128,42 +128,166 @@ impl LlmModel {
 /// A stream is successful only after its producer explicitly acknowledges completion.
 /// Dropped/failed producers cannot turn partial output into a successful reading.
 pub struct LlmStream {
-  receiver: tokio::sync::mpsc::Receiver<String>,
+  receiver: tokio::sync::mpsc::Receiver<tokio_util::bytes::Bytes>,
   completion: tokio::sync::oneshot::Receiver<bool>,
 }
 impl LlmStream {
-  pub fn new(receiver: tokio::sync::mpsc::Receiver<String>, completion: tokio::sync::oneshot::Receiver<bool>) -> Self {
+  pub fn new(receiver: tokio::sync::mpsc::Receiver<tokio_util::bytes::Bytes>, completion: tokio::sync::oneshot::Receiver<bool>) -> Self {
     Self { receiver, completion }
   }
-  pub fn completed(receiver: tokio::sync::mpsc::Receiver<String>) -> Self {
+  pub fn completed(receiver: tokio::sync::mpsc::Receiver<tokio_util::bytes::Bytes>) -> Self {
     let (sender, completion) = tokio::sync::oneshot::channel();
     let _ = sender.send(true);
     Self::new(receiver, completion)
   }
-  pub async fn recv(&mut self) -> Option<String> {
+  pub async fn recv(&mut self) -> Option<tokio_util::bytes::Bytes> {
     self.receiver.recv().await
   }
   pub async fn finish(self) -> crate::models::AppResult<()> {
     if matches!(self.completion.await, Ok(true)) { Ok(()) } else { Err(crate::models::AppError::Message("Analysis stream interrupted".into())) }
+  }
+  /// Converts stream into an Axum-compatible byte stream yielding Result<Bytes, std::io::Error>
+  pub fn into_byte_stream(self) -> impl futures::Stream<Item = Result<tokio_util::bytes::Bytes, std::io::Error>> {
+    async_stream::try_stream! {
+      let mut rx = self.receiver;
+      let completion = self.completion;
+      while let Some(chunk) = rx.recv().await {
+        yield chunk;
+      }
+      if !matches!(completion.await, Ok(true)) {
+        Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "Analysis stream interrupted"))?;
+      }
+    }
+  }
+}
+
+/// User-selected or API-requested reasoning effort level for LLM generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffortLevel {
+  #[default]
+  None,
+  Minimal,
+  Low,
+  Medium,
+  High,
+  Xhigh,
+}
+
+impl ReasoningEffortLevel {
+  pub fn as_str(&self) -> &'static str {
+    match self {
+      Self::None => "none",
+      Self::Minimal => "minimal",
+      Self::Low => "low",
+      Self::Medium => "medium",
+      Self::High => "high",
+      Self::Xhigh => "xhigh",
+    }
+  }
+
+  pub fn parse(s: &str) -> Option<Self> {
+    match s.trim().to_ascii_lowercase().as_str() {
+      "none" => Some(Self::None),
+      "minimal" => Some(Self::Minimal),
+      "low" => Some(Self::Low),
+      "medium" => Some(Self::Medium),
+      "high" => Some(Self::High),
+      "xhigh" => Some(Self::Xhigh),
+      _ => None,
+    }
+  }
+
+  /// Extracts an optional leading `#<level>` placeholder from the input text.
+  /// If present, returns `(Some(level), remaining_text)`.
+  /// If not present, returns `(None, original_text)`.
+  /// Handles optional punctuation (e.g. `:`, `,`, `;`) and strips leading whitespace from remaining text.
+  pub fn extract_leading_placeholder(text: &str) -> (Option<Self>, &str) {
+    let trimmed = text.trim_start();
+    if let Some(rest) = trimmed.strip_prefix('#') {
+      let end_idx = rest.find(|c: char| c.is_whitespace() || matches!(c, ':' | ',' | ';')).unwrap_or(rest.len());
+      let tag = &rest[..end_idx];
+      if let Some(level) = Self::parse(tag) {
+        let after_tag = &rest[end_idx..];
+        let stripped = after_tag.trim_start_matches([':', ',', ';']).trim_start();
+        return (Some(level), stripped);
+      }
+    }
+    (None, text)
+  }
+
+  /// Maps to upstream provider reasoning effort.
+  /// `None` is mapped to `None` so non-reasoning models (gpt-4o, gemini) do not reject the request.
+  pub fn into_upstream(self) -> Option<async_openai::types::chat::ReasoningEffort> {
+    match self {
+      Self::None => None,
+      Self::Minimal => Some(async_openai::types::chat::ReasoningEffort::Minimal),
+      Self::Low => Some(async_openai::types::chat::ReasoningEffort::Low),
+      Self::Medium => Some(async_openai::types::chat::ReasoningEffort::Medium),
+      Self::High => Some(async_openai::types::chat::ReasoningEffort::High),
+      Self::Xhigh => Some(async_openai::types::chat::ReasoningEffort::Xhigh),
+    }
   }
 }
 
 #[cfg(test)]
 mod stream_tests {
   use super::LlmStream;
+  use tokio_util::bytes::Bytes;
+
   #[tokio::test]
   async fn partial_output_requires_explicit_success() {
     let (sender, receiver) = tokio::sync::mpsc::channel(1);
     let (completion, completed) = tokio::sync::oneshot::channel();
-    sender.send("partial".into()).await.unwrap();
+    sender.send(Bytes::from_static(b"partial")).await.unwrap();
     drop(sender);
     drop(completion);
     let mut stream = LlmStream::new(receiver, completed);
-    assert_eq!(stream.recv().await.as_deref(), Some("partial"));
+    assert_eq!(stream.recv().await.as_deref(), Some(&b"partial"[..]));
     assert!(stream.recv().await.is_none());
     assert!(stream.finish().await.is_err());
     let (sender, receiver) = tokio::sync::mpsc::channel(1);
     drop(sender);
     assert!(LlmStream::completed(receiver).finish().await.is_ok());
+  }
+
+  #[tokio::test]
+  async fn into_byte_stream_reports_interrupted_error() {
+    use futures::StreamExt;
+    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    let (completion, completed) = tokio::sync::oneshot::channel();
+    sender.send(Bytes::from_static(b"hello")).await.unwrap();
+    drop(sender);
+    drop(completion);
+
+    let stream = LlmStream::new(receiver, completed);
+    let byte_stream = stream.into_byte_stream();
+    tokio::pin!(byte_stream);
+    assert_eq!(byte_stream.next().await.unwrap().unwrap().as_ref(), b"hello");
+    assert!(byte_stream.next().await.unwrap().is_err());
+  }
+
+  #[test]
+  fn test_reasoning_effort_level_mapping_and_parsing() {
+    use super::ReasoningEffortLevel;
+
+    assert_eq!(ReasoningEffortLevel::parse("none"), Some(ReasoningEffortLevel::None));
+    assert_eq!(ReasoningEffortLevel::parse("HIGH"), Some(ReasoningEffortLevel::High));
+    assert_eq!(ReasoningEffortLevel::parse("unknown"), None);
+
+    assert_eq!(ReasoningEffortLevel::None.into_upstream(), None);
+    assert_eq!(ReasoningEffortLevel::Low.into_upstream(), Some(async_openai::types::chat::ReasoningEffort::Low));
+    assert_eq!(ReasoningEffortLevel::Medium.into_upstream(), Some(async_openai::types::chat::ReasoningEffort::Medium));
+    assert_eq!(ReasoningEffortLevel::High.into_upstream(), Some(async_openai::types::chat::ReasoningEffort::High));
+
+    // Test leading hashtag extraction
+    assert_eq!(ReasoningEffortLevel::extract_leading_placeholder("#high 问财运"), (Some(ReasoningEffortLevel::High), "问财运"));
+    assert_eq!(ReasoningEffortLevel::extract_leading_placeholder("#HIGH: 问财运"), (Some(ReasoningEffortLevel::High), "问财运"));
+    assert_eq!(ReasoningEffortLevel::extract_leading_placeholder("#low, 问财运"), (Some(ReasoningEffortLevel::Low), "问财运"));
+    assert_eq!(ReasoningEffortLevel::extract_leading_placeholder("#none 问财运"), (Some(ReasoningEffortLevel::None), "问财运"));
+    assert_eq!(ReasoningEffortLevel::extract_leading_placeholder("#xhigh"), (Some(ReasoningEffortLevel::Xhigh), ""));
+    assert_eq!(ReasoningEffortLevel::extract_leading_placeholder("问财运"), (None, "问财运"));
+    assert_eq!(ReasoningEffortLevel::extract_leading_placeholder("#unknown 问财运"), (None, "#unknown 问财运"));
+    assert_eq!(ReasoningEffortLevel::extract_leading_placeholder("   #medium 问财运"), (Some(ReasoningEffortLevel::Medium), "问财运"));
   }
 }

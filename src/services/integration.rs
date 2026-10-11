@@ -1,17 +1,10 @@
 //! Owner-scoped application commands shared with integration transports.
 use crate::models::{AppResult, AppState};
-use serde::Serialize;
 
-#[derive(Serialize)]
-pub struct Snapshot {
-  pub has_profile: bool,
-  pub model: Option<u8>,
-  pub schedule: Option<String>,
-}
+pub use crate::repos::UserSnapshotData as Snapshot;
 
 pub async fn snapshot(state: &AppState, owner: u64) -> AppResult<Snapshot> {
-  let data = crate::repos::get_user_snapshot(&state.db_pool, owner).await?;
-  Ok(Snapshot { has_profile: data.has_profile, model: data.model, schedule: data.schedule })
+  crate::repos::get_user_snapshot(&state.db_pool, owner).await
 }
 
 /// Setting a value is naturally idempotent across retries and reconnects.

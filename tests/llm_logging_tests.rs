@@ -1,4 +1,4 @@
-use async_openai::types::chat::ChatCompletionRequestUserMessageArgs;
+use async_openai::types::chat::{ChatCompletionRequestUserMessageArgs, ReasoningEffort};
 use baziflow_agent::{
   config::RuntimeConfig,
   models::{LlmRequestType, runtime::Runtime},
@@ -78,7 +78,7 @@ async fn successful_stream_log_keeps_complete_text() {
   };
   let mut content = String::new();
   while let Some(chunk) = stream.recv().await {
-    content.push_str(&chunk);
+    content.push_str(std::str::from_utf8(&chunk).unwrap());
   }
   stream.finish().await.expect("stream should complete");
   assert_eq!(content, "First second");
@@ -191,7 +191,7 @@ async fn interrupted_stream_log_keeps_partial_text_and_error() {
   let baziflow_agent::models::LlmResponse::Stream(mut stream) = call_llm(&database, &config, params, &runtime).await.expect("stream should start") else {
     panic!("expected a stream");
   };
-  assert_eq!(stream.recv().await.as_deref(), Some("Partial reply"));
+  assert_eq!(stream.recv().await.as_deref(), Some(b"Partial reply".as_slice()));
   assert!(stream.recv().await.is_none());
   assert!(stream.finish().await.is_err());
   upstream.assert_async().await;
@@ -201,6 +201,36 @@ async fn interrupted_stream_log_keeps_partial_text_and_error() {
   assert_eq!(response["content"], "Partial reply");
   assert!(response["error"].as_str().is_some_and(|error| error.contains("invalid-json")));
   assert_eq!(is_success, 0);
+
+  repos::Database::Sqlite(pool).close().await;
+}
+
+#[tokio::test]
+async fn reasoning_effort_is_logged_in_llm_logs() {
+  let pool = test_database().await;
+  let mut server = mockito::Server::new_async().await;
+  let upstream = server
+    .mock("POST", "/chat/completions")
+    .with_status(200)
+    .with_header("content-type", "application/json")
+    .with_body(r#"{"id":"1","object":"chat.completion","created":1694268190,"model":"o3-mini","choices":[{"index":0,"message":{"role":"assistant","content":"Deep thought result"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":45,"total_tokens":55}}"#)
+    .expect(1)
+    .create_async()
+    .await;
+
+  let message = ChatCompletionRequestUserMessageArgs::default().content("reasoning test").build().expect("test message should build");
+  let params = LlmRequestParams { user_id: Some(1), reasoning_effort: Some(ReasoningEffort::High), ..LlmRequestParams::new("o3-mini", vec![message.into()], LlmRequestType::FollowUpChat) };
+  let database = Database::Sqlite(pool.clone());
+  let runtime = Runtime::new(&RuntimeConfig::default());
+  let config = LlmClientConfig { api_key: "test".into(), api_base: server.url(), timeout_seconds: 5, http_client: None };
+
+  let response = call_llm(&database, &config, params, &runtime).await.expect("call should succeed");
+  assert!(matches!(response, baziflow_agent::models::LlmResponse::Full(s) if s == "Deep thought result"));
+  upstream.assert_async().await;
+
+  let (logged_effort, logged_type): (Option<String>, String) = sqlx::query_as("SELECT reasoning_effort, request_type FROM llm_logs").fetch_one(&pool).await.expect("log row should exist");
+  assert_eq!(logged_effort, Some("high".to_string()));
+  assert_eq!(logged_type, LlmRequestType::FollowUpChat.as_str());
 
   repos::Database::Sqlite(pool).close().await;
 }

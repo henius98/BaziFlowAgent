@@ -1,6 +1,7 @@
 pub mod almanac;
 pub mod bazi_service;
 pub mod chart_token;
+pub mod conversation;
 pub mod integration;
 pub mod llm;
 pub mod paipan;

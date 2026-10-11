@@ -3,14 +3,18 @@ use sqlx::{
   SqlitePool,
   sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
-use std::cell::Cell;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{error, info};
 
+pub mod blob_store;
 pub mod chat_history_cache;
 mod d1;
+pub mod traits;
+
+pub use blob_store::*;
+pub use traits::*;
 
 pub(crate) static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
@@ -34,19 +38,91 @@ impl Database {
   }
 }
 
-thread_local! {
-  static RNG_SEED: Cell<u64> = Cell::new(init_seed());
+impl traits::UserRepository for Database {
+  fn upsert_user_bazi<'a>(
+    &'a self,
+    user_id: u64,
+    username: Option<&'a str>,
+    bazi_four_pillars: &'a str,
+    gender: u8,
+    birth_datetime: &'a str,
+  ) -> futures::future::BoxFuture<'a, crate::models::AppResult<()>> {
+    Box::pin(upsert_user_bazi(self, user_id, username, bazi_four_pillars, gender, birth_datetime))
+  }
+
+  fn save_user_bazi_analysis<'a>(&'a self, user_id: u64, reading: &'a str) -> futures::future::BoxFuture<'a, ()> {
+    Box::pin(save_user_bazi_analysis(self, user_id, reading))
+  }
+
+  fn save_user_bazi_summary<'a>(&'a self, user_id: u64, summary: &'a str) -> futures::future::BoxFuture<'a, ()> {
+    Box::pin(save_user_bazi_summary(self, user_id, summary))
+  }
+
+  fn get_user_profile<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, UserProfileData> {
+    Box::pin(get_user_profile(self, user_id))
+  }
+
+  fn get_user_snapshot<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, crate::models::AppResult<UserSnapshotData>> {
+    Box::pin(get_user_snapshot(self, user_id))
+  }
+
+  fn get_all_scheduled_users<'a>(&'a self) -> futures::future::BoxFuture<'a, Vec<(u64, String)>> {
+    Box::pin(get_all_scheduled_users(self))
+  }
+
+  fn update_user_schedule<'a>(&'a self, user_id: u64, schedule: Option<&'a str>) -> futures::future::BoxFuture<'a, crate::models::AppResult<()>> {
+    Box::pin(update_user_schedule(self, user_id, schedule))
+  }
+
+  fn get_user_rate_limit<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, Option<usize>> {
+    Box::pin(get_user_rate_limit(self, user_id))
+  }
+
+  fn set_user_rate_limit<'a>(&'a self, user_id: u64, rate_limit: Option<usize>) -> futures::future::BoxFuture<'a, crate::models::AppResult<()>> {
+    Box::pin(set_user_rate_limit(self, user_id, rate_limit))
+  }
+
+  fn get_user_last_active<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, crate::models::AppResult<Option<i64>>> {
+    Box::pin(get_user_last_active(self, user_id))
+  }
+
+  fn get_user_last_active_formatted<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, crate::models::AppResult<Option<String>>> {
+    Box::pin(get_user_last_active_formatted(self, user_id))
+  }
+
+  fn touch_user_last_active<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, crate::models::AppResult<()>> {
+    Box::pin(touch_user_last_active(self, user_id))
+  }
+
+  fn get_llm_models<'a>(&'a self) -> futures::future::BoxFuture<'a, crate::models::AppResult<Vec<LlmModel>>> {
+    Box::pin(get_llm_models(self))
+  }
+
+  fn update_user_llm_model<'a>(&'a self, user_id: u64, llm_model: u8) -> futures::future::BoxFuture<'a, crate::models::AppResult<LlmModel>> {
+    Box::pin(update_user_llm_model(self, user_id, llm_model))
+  }
+
+  fn create_api_key<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, crate::models::AppResult<String>> {
+    Box::pin(create_api_key(self, user_id))
+  }
+
+  fn get_auth_user_by_api_key<'a>(&'a self, raw_key: &'a str) -> futures::future::BoxFuture<'a, Option<(u64, Option<usize>)>> {
+    Box::pin(get_auth_user_by_api_key(self, raw_key))
+  }
+
+  fn get_api_key_info<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, Option<(String, String)>> {
+    Box::pin(get_api_key_info(self, user_id))
+  }
+
+  fn get_username_by_user_id<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, Option<String>> {
+    Box::pin(get_username_by_user_id(self, user_id))
+  }
 }
 
-// Initialized exactly once per thread lifecycle
-fn init_seed() -> u64 {
-  static THREAD_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-  let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
-
-  let id = THREAD_COUNTER.fetch_add(1, Ordering::Relaxed);
-  // Mix nanoseconds and unique thread counter
-  (nanos ^ id.wrapping_mul(0x9e37_79b9_7f4a_7c15)) | 1
+impl traits::LlmLogRepository for Database {
+  fn save_llm_log<'a>(&'a self, params: LlmLogParams<'a>) -> futures::future::BoxFuture<'a, ()> {
+    Box::pin(save_llm_log(self, params))
+  }
 }
 
 /// Generates a time-based ID: timestamp_millis * 1000 + sequence(0..999)
@@ -233,14 +309,15 @@ pub struct LlmLogParams<'a> {
   pub duration_ms: i64,
   pub is_success: bool,
   pub model_id: Option<i64>,
+  pub reasoning_effort: Option<&'a str>,
 }
 
 /// Persist an LLM call log entry (request + response or error).
 pub async fn save_llm_log(database: &Database, params: LlmLogParams<'_>) {
   let log_id = generate_time_id();
   const SQL: &str = r#"
-        INSERT INTO llm_logs (id, model_id, user_id, request_type, request_body, response_body, total_tokens, duration_ms, is_success)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        INSERT INTO llm_logs (id, model_id, user_id, request_type, request_body, response_body, total_tokens, duration_ms, is_success, reasoning_effort)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
         "#;
   let result = match database {
     Database::Sqlite(pool) => sqlx::query(SQL)
@@ -253,6 +330,7 @@ pub async fn save_llm_log(database: &Database, params: LlmLogParams<'_>) {
       .bind(params.total_tokens)
       .bind(params.duration_ms)
       .bind(params.is_success as i32)
+      .bind(params.reasoning_effort)
       .execute(pool)
       .await
       .map(|_| ())
@@ -271,6 +349,7 @@ pub async fn save_llm_log(database: &Database, params: LlmLogParams<'_>) {
             params.total_tokens.map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
             serde_json::json!(params.duration_ms),
             serde_json::json!(params.is_success as i32),
+            params.reasoning_effort.map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
           ],
         )
         .await
@@ -482,6 +561,7 @@ pub async fn is_api_key_current(database: &Database, key_hash: &str, user_id: u6
   }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UserSnapshotData {
   pub has_profile: bool,
   pub model: Option<u8>,
@@ -695,10 +775,26 @@ mod tests {
     assert_eq!(profile.llm_model.as_ref().map(|m| m.id()), Some(0));
     assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some("gemini-3.1-flash-lite"));
   }
+  use std::cell::Cell;
+
+  thread_local! {
+    static RNG_SEED: Cell<u64> = Cell::new(init_seed());
+  }
+
+  // Initialized exactly once per thread lifecycle
+  fn init_seed() -> u64 {
+    static THREAD_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
+
+    let id = THREAD_COUNTER.fetch_add(1, Ordering::Relaxed);
+    // Mix nanoseconds and unique thread counter
+    (nanos ^ id.wrapping_mul(0x9e37_79b9_7f4a_7c15)) | 1
+  }
 
   /// Generates a random u64 in ~1-2 nanoseconds without cross-core traffic.
   #[inline(always)]
-  pub fn fast_random_u64() -> u64 {
+  fn fast_random_u64() -> u64 {
     RNG_SEED.with(|cell| {
       // WyRand step:
       let seed = cell.get().wrapping_add(0xa076_1d64_78bd_642f);

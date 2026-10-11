@@ -1,8 +1,12 @@
-# Issue tracker: GitHub
+# Issue tracker: GitHub & Offline Fallback
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and specs for this repo live as GitHub issues when `gh` CLI is authenticated.
 
-## Conventions
+> [!IMPORTANT]
+> **Environment Check First**: Always run `which gh && gh auth status` before issuing tracker commands.
+> If `gh` is not installed or unauthenticated, **do not hunt for system binaries**. Immediately fall back to local Markdown tracking in `docs/issues/` (e.g. `docs/issues/issue-<n>.md` or `docs/issues/wayfinder-map.md`).
+
+## Conventions (Online: `gh` CLI)
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
 - **Read an issue**: `gh issue view <number> --json number,title,body,labels,comments`.
@@ -26,13 +30,21 @@ When set to `yes`, PRs run through the same labels and states as issues, using t
 
 GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to `gh issue view 42`.
 
+## Conventions (Offline Fallback: `docs/issues/`)
+
+When `gh` is unavailable:
+- **Map ticket**: create `docs/issues/wayfinder-map.md`.
+- **Child tickets**: create `docs/issues/issue-<number>-<slug>.md` with frontmatter (`title`, `status: open|closed`, `blocked_by: []`, `assignee`).
+- **Claim**: update `assignee: @me` in frontmatter.
+- **Resolve**: update `status: closed` and append decisions to `docs/issues/wayfinder-map.md`.
+
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue.
+Create a GitHub issue (or `docs/issues/issue-<n>.md` if offline).
 
 ## When a skill says "fetch the relevant ticket"
 
-Read it as in **Read an issue** above.
+Read it via `gh issue view` (or read `docs/issues/issue-<n>.md` if offline).
 
 ## Wayfinding operations
 

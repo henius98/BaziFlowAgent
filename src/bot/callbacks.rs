@@ -19,13 +19,12 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
   let user_id = q.from.id.0;
 
   // Concurrency & Rate Limiting Check
-  let rate_limit = state.get_user_rate_limit(user_id).await;
-  if !state.runtime.allow(user_id, rate_limit) {
-    return Ok(());
-  } // Ignore overly rapid clicks
-  let Some(guard) = crate::models::ProcessingGuard::acquire(state.clone(), user_id) else {
-    let _ = bot.answer_callback_query(q.id).text("⏳ Please wait, processing your previous request...").await;
-    return Ok(());
+  let guard = match crate::models::ProcessingGuard::try_acquire(state.clone(), user_id) {
+    Ok(guard) => guard,
+    Err(rejection) => {
+      let _ = bot.answer_callback_query(q.id).text(rejection.user_message()).await;
+      return Ok(());
+    }
   };
 
   // ── New Bazi Warning callbacks (newbazi:…) ────────────────────────────
@@ -414,11 +413,10 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         let msg_id = q.message.as_ref().map(|m| m.id());
         let bot_clone = bot.clone();
 
-        // Spawn a task to process the selection
         state.runtime.tasks.spawn(async move {
           let _guard = guard;
           let target = msg_id.map(command_actions::MessageTarget::Edit);
-          let _ = super::run(command_actions::process_pick_selection(bot_clone, chat_id, user_id, target)).await;
+          let _ = super::run(command_actions::process_pick_selection(bot_clone, chat_id, user_id, target, None)).await;
         });
       }
       PickActivityAction::Other => {
@@ -436,26 +434,37 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
 
   // ── Bazi analysis calendar callbacks (cal:…) ─────────────────────────
   if let Some(action) = CalendarAction::decode(data) {
-    // Answer the callback query immediately to stop the loading spinner on the button
-    // BEFORE starting the long LLM generation process.
     let _ = bot.answer_callback_query(q.id.clone()).await;
 
     match action {
       CalendarAction::SelectDate(date) => {
         let formatted_date = date.format("%Y-%m-%d").to_string();
-        command_actions::process_date_selection(&bot, &q, &formatted_date, crate::models::LlmRequestType::CalendarDate, "📝 盲派命理分析：").await?;
+        let bot_clone = bot.clone();
+        let q_clone = q.clone();
+        state.runtime.tasks.spawn(async move {
+          let _guard = guard;
+          let _ = command_actions::process_date_selection(&bot_clone, &q_clone, &formatted_date, crate::models::LlmRequestType::CalendarDate, "📝 盲派命理分析：", None).await;
+        });
       }
 
       CalendarAction::Today => {
-        let today = chrono::Utc::now().with_timezone(&state.config.app_timezone).date_naive();
-        let formatted_date = today.format("%Y-%m-%d").to_string();
-        command_actions::process_date_selection(&bot, &q, &formatted_date, crate::models::LlmRequestType::CalendarToday, "📝 今日盲派分析：").await?;
+        let today = chrono::Utc::now().with_timezone(&state.config.app_timezone).date_naive().format("%Y-%m-%d").to_string();
+        let bot_clone = bot.clone();
+        let q_clone = q.clone();
+        state.runtime.tasks.spawn(async move {
+          let _guard = guard;
+          let _ = command_actions::process_date_selection(&bot_clone, &q_clone, &today, crate::models::LlmRequestType::CalendarToday, "📝 盲派命理分析 (今日)：", None).await;
+        });
       }
 
       CalendarAction::Tomorrow => {
-        let tomorrow = chrono::Utc::now().with_timezone(&state.config.app_timezone).date_naive() + chrono::Duration::days(1);
-        let formatted_date = tomorrow.format("%Y-%m-%d").to_string();
-        command_actions::process_date_selection(&bot, &q, &formatted_date, crate::models::LlmRequestType::CalendarTomorrow, "📝 明日盲派分析：").await?;
+        let tomorrow = (chrono::Utc::now().with_timezone(&state.config.app_timezone).date_naive() + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+        let bot_clone = bot.clone();
+        let q_clone = q.clone();
+        state.runtime.tasks.spawn(async move {
+          let _guard = guard;
+          let _ = command_actions::process_date_selection(&bot_clone, &q_clone, &tomorrow, crate::models::LlmRequestType::CalendarTomorrow, "📝 盲派命理分析 (明日)：", None).await;
+        });
       }
 
       CalendarAction::PrevMonth { year, month } | CalendarAction::NextMonth { year, month } => {
@@ -465,6 +474,7 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         }
       }
     }
+    return Ok(());
   }
 
   Ok(())

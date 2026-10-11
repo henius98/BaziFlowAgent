@@ -25,19 +25,20 @@ pub struct StreamQuery {
 
 /// Helper to drain an LLM stream receiver into a single string.
 async fn collect_stream(mut rx: crate::models::LlmStream) -> crate::models::AppResult<String> {
-  let mut result = String::new();
+  let mut bytes = Vec::new();
   while let Some(chunk) = rx.recv().await {
-    result.push_str(&chunk);
+    bytes.extend_from_slice(&chunk);
   }
   rx.finish().await?;
-  Ok(result)
+  Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Helper to convert an LLM stream into SSE events.
 fn stream_to_sse(mut rx: crate::models::LlmStream) -> impl Stream<Item = Result<Event, std::convert::Infallible>> {
   async_stream::stream! {
       while let Some(chunk) = rx.recv().await {
-          yield Ok(Event::default().event("chunk").data(chunk));
+          let chunk_str = String::from_utf8_lossy(&chunk);
+          yield Ok(Event::default().event("chunk").data(chunk_str));
       }
       if rx.finish().await.is_ok() { yield Ok(Event::default().data("[DONE]")); }
       else { yield Ok(Event::default().event("error").data("Analysis interrupted")); }
@@ -82,120 +83,51 @@ pub async fn create_profile(auth: AuthUser, query: Query<StreamQuery>, Json(req)
   };
 
   let username = repos::get_username_by_user_id(&state.db_pool, user_id).await.unwrap_or_else(|| "api_user".to_string());
-
-  let params = services::bazi_service::BaziDataParams { user_id, username: &username, birth_date: &req.birth_date, birth_time, gender: req.gender, location: req.location };
-
-  let structured_data = match services::bazi_service::prepare_bazi_data(&state, params).await {
-    Ok(data) => data,
-    Err(e) => {
-      error!("API: Failed to prepare bazi data: {}", e);
-      return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Upstream service unavailable");
-    }
-  };
-  let structured_bazi = structured_data.to_string();
-
-  // A new chart invalidates every conversation turn derived from the old profile.
-  {
-    let mut ctx = state.user_contexts.entry(user_id).or_default();
-    ctx.messages.clear();
-    ctx.history_loaded = true;
-    ctx.last_active = chrono::Utc::now();
-  }
-  if let Err(e) = state.chat_cache_writer.clear(user_id).await {
-    error!("API: Failed to clear stale chat history for user {}: {}", user_id, e);
-  }
-
-  // Build and save HTML chart
-  services::bazi_service::build_and_save_bazi_html(&state, user_id, &username, &structured_data).await;
-
-  let chart_url = services::bazi_service::get_bazi_chart_url(&state, user_id).await.unwrap_or_else(|_| format!("{}/bazi_{}.html", state.config.base_url.trim_end_matches('/'), user_id));
-
   let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
   let llm_model = user_profile.llm_model;
 
-  if is_stream {
-    let structured_bazi_for_stream = structured_bazi.clone();
-    // SSE streaming mode
-    match services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model.clone()).await {
-      Ok(receiver) => {
-        let chart_url_clone = chart_url.clone();
-        let sse_stream = async_stream::stream! {
-            // First event: chart URL
-            yield Ok::<_, std::convert::Infallible>(Event::default().event("chart_url").data(&chart_url_clone));
+  let params = services::bazi_service::DestinyProfileParams { user_id, username: &username, birth_date: &req.birth_date, birth_time, gender: req.gender, location: req.location, llm_model };
 
-            // Stream analysis chunks
-            let mut rx = receiver;
-            let mut full_text = String::new();
-            while let Some(chunk) = rx.recv().await {
-                full_text.push_str(&chunk);
-                yield Ok(Event::default().event("analysis_chunk").data(&chunk));
-            }
-
-            if rx.finish().await.is_err() {
-              yield Ok(Event::default().event("error").data("Analysis interrupted"));
-              return;
-            }
-            // Save analysis to DB and generate summary before declaring completion.
-            if !full_text.is_empty() {
-                let state = models::get_state();
-                async move {
-                    repos::save_user_bazi_analysis(&state.db_pool, user_id, &full_text).await;
-
-                    if let Ok(summary) = services::bazi_service::generate_bazi_summary(
-                        &state,
-                        user_id,
-                        &structured_bazi_for_stream,
-                        &full_text,
-                        llm_model,
-                    ).await {
-                        repos::save_user_bazi_summary(&state.db_pool, user_id, &summary).await;
-                    }
-                }.await;
-            }
-            yield Ok(Event::default().data("[DONE]"));
-        };
-        return Sse::new(sse_stream).into_response();
-      }
-      Err(e) => {
-        error!("API: Failed to start bazi analysis stream: {}", e);
-        return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Upstream service unavailable");
-      }
-    }
-  }
-
-  // Non-streaming mode: collect full response
-  let analysis = match services::bazi_service::core_bazi_analysis(&state, user_id, &structured_data, llm_model.clone()).await {
-    Ok(receiver) => match collect_stream(receiver).await {
-      Ok(text) => text,
-      Err(_) => return api_error(StatusCode::BAD_GATEWAY, "Analysis interrupted"),
-    },
+  let profile_res = match services::bazi_service::create_destiny_profile(&state, params).await {
+    Ok(res) => res,
     Err(e) => {
-      error!("API: Failed to generate bazi analysis: {}", e);
+      error!("API: Failed to create destiny profile: {}", e);
       return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Upstream service unavailable");
     }
   };
 
-  if !analysis.is_empty() {
-    repos::save_user_bazi_analysis(&state.db_pool, user_id, &analysis).await;
+  if is_stream {
+    let chart_url_clone = profile_res.chart_url.clone();
+    let sse_stream = async_stream::stream! {
+        // First event: chart URL
+        yield Ok::<_, std::convert::Infallible>(Event::default().event("chart_url").data(&chart_url_clone));
+
+        // Stream analysis chunks
+        let mut rx = profile_res.stream;
+        while let Some(chunk) = rx.recv().await {
+            let chunk_str = String::from_utf8_lossy(&chunk);
+            yield Ok(Event::default().event("analysis_chunk").data(chunk_str));
+        }
+
+        if rx.finish().await.is_ok() {
+          yield Ok(Event::default().data("[DONE]"));
+        } else {
+          yield Ok(Event::default().event("error").data("Analysis interrupted"));
+        }
+    };
+    return Sse::new(sse_stream).into_response();
   }
 
-  // Generate summary
-  let summary = if !analysis.is_empty() {
-    match services::bazi_service::generate_bazi_summary(&state, user_id, &structured_bazi, &analysis, llm_model).await {
-      Ok(s) => {
-        repos::save_user_bazi_summary(&state.db_pool, user_id, &s).await;
-        Some(s)
-      }
-      Err(e) => {
-        error!("API: Failed to generate bazi summary: {}", e);
-        None
-      }
-    }
-  } else {
-    None
+  // Non-streaming mode: collect full response
+  let analysis = match collect_stream(profile_res.stream).await {
+    Ok(text) => text,
+    Err(_) => return api_error(StatusCode::BAD_GATEWAY, "Analysis interrupted"),
   };
 
-  Json(ApiResponse::ok(CreatedProfileData { chart_url, bazi_analysis: analysis, bazi_summary: summary })).into_response()
+  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
+  let summary = user_profile.bazi_summary;
+
+  Json(ApiResponse::ok(CreatedProfileData { chart_url: profile_res.chart_url, bazi_analysis: analysis, bazi_summary: summary })).into_response()
 }
 
 // ─────────────────────────────────────────────
@@ -210,8 +142,7 @@ pub async fn get_profile(auth: AuthUser) -> Response {
     return api_error(StatusCode::NOT_FOUND, "No Bazi profile found. Create one first via POST /api/v1/profile.");
   }
 
-  let bazi_raw = user_profile.bazi_four_pillars.as_deref().unwrap_or("");
-  let parsed = crate::utils::parse_user_bazi(Some(bazi_raw)).ok();
+  let parsed = services::paipan::models::StructuredBazi::from_json(user_profile.bazi_four_pillars.as_deref()).ok();
 
   let (gender_str, solar_date, lunar_date, birth_time_known, birth_location, pillars_json) = match &parsed {
     Some(structured) => (
@@ -290,9 +221,21 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
 
   let user_id = auth.user_id;
   // 1. Wait for Generate message, with a bounded initialization deadline.
-  let req_date = match tokio::time::timeout(std::time::Duration::from_secs(state.config.runtime.idle_seconds), socket.next()).await.ok().flatten() {
+  let (req_date, req_effort) = match tokio::time::timeout(std::time::Duration::from_secs(state.config.runtime.idle_seconds), socket.next()).await.ok().flatten() {
     Some(Ok(Message::Text(text))) => match serde_json::from_str::<ClientMessage>(&text) {
-      Ok(ClientMessage::Generate { date }) => date,
+      Ok(ClientMessage::Generate { date, reasoning_effort }) => {
+        let effort = match reasoning_effort {
+          Some(e) => match models::ReasoningEffortLevel::parse(&e) {
+            Some(level) => Some(level),
+            None => {
+              send_ws_msg(&mut socket, &ServerMessage::Error { message: "Invalid reasoning_effort: accepted values are none, minimal, low, medium, high, xhigh".into() }).await?;
+              return Ok(());
+            }
+          },
+          None => None,
+        };
+        (date, effort)
+      }
       _ => {
         send_ws_msg(&mut socket, &ServerMessage::Error { message: "Expected Generate action".into() }).await?;
         return Ok(());
@@ -313,16 +256,12 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
     send_ws_msg(&mut socket, &ServerMessage::Error { message: "Service busy".into() }).await?;
     return Ok(());
   };
-  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
-  let bazi_four_pillars = user_profile.bazi_four_pillars.as_deref().and_then(|raw| serde_json::from_str::<services::paipan::StructuredBazi>(raw).ok()).map(|b| b.to_string());
-
-  let Some(bazi_four_pillars) = bazi_four_pillars.as_deref() else {
-    send_ws_msg(&mut socket, &ServerMessage::Error { message: "No Bazi profile found".into() }).await?;
-    return Ok(());
-  };
-
-  let almanac_data = match services::almanac::fetch_and_format_almanac(&state.http_client, &req_date).await {
-    Ok(data) => data,
+  let fortune_result = match services::almanac::get_daily_fortune(&state, user_id, &req_date, true, models::LlmRequestType::ApiDateFortune, req_effort).await {
+    Ok(res) => res,
+    Err(models::AppError::ProfileNotFound) => {
+      send_ws_msg(&mut socket, &ServerMessage::Error { message: "No Bazi profile found".into() }).await?;
+      return Ok(());
+    }
     Err(_e) => {
       send_ws_msg(&mut socket, &ServerMessage::Error { message: "Almanac service unavailable".into() }).await?;
       return Ok(());
@@ -330,25 +269,11 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
   };
 
   // Send almanac data
-  let almanac_val = serde_json::to_value(&almanac_data)?;
+  let almanac_val = serde_json::to_value(&fortune_result.almanac_data)?;
   send_ws_msg(&mut socket, &ServerMessage::Almanac { data: almanac_val }).await?;
 
-  let bazi_summary = user_profile.bazi_summary.as_deref().unwrap_or_else(|| user_profile.bazi_analysis.as_deref().unwrap_or_default());
-
-  let llm_result = services::almanac::analysis_date_fortune(services::almanac::DateFortuneRequest {
-    target_date: &req_date,
-    almanac_data: &almanac_data,
-    bazi_four_pillars,
-    bazi_summary,
-    stream: true,
-    llm_model: user_profile.llm_model,
-    user_id: Some(user_id as i64),
-    request_type: models::LlmRequestType::ApiDateFortune,
-  })
-  .await;
-
-  match llm_result {
-    Ok(models::LlmResponse::Stream(mut receiver)) => {
+  match fortune_result.response {
+    models::LlmResponse::Stream(mut receiver) => {
       let mut credential_check = tokio::time::interval(std::time::Duration::from_secs((state.config.runtime.idle_seconds / 3).max(1)));
       credential_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
       loop {
@@ -379,7 +304,7 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
             chunk = receiver.recv() => {
                 match chunk {
                     Some(c) => {
-                        send_ws_msg(&mut socket, &ServerMessage::Chunk { data: c }).await?;
+                        send_ws_msg(&mut socket, &ServerMessage::Chunk { data: String::from_utf8_lossy(&c).into_owned() }).await?;
                     }
                     None => {
                         if receiver.finish().await.is_ok() { send_ws_msg(&mut socket, &ServerMessage::Done).await?; }
@@ -418,31 +343,32 @@ pub async fn pick_date(auth: AuthUser, query: Query<StreamQuery>, Json(req): Jso
     return api_error(StatusCode::BAD_REQUEST, "activity must not be empty");
   }
 
-  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
-  let bazi_four_pillars = user_profile.bazi_four_pillars.as_deref().and_then(|raw| serde_json::from_str::<services::paipan::StructuredBazi>(raw).ok()).map(|b| b.to_string());
-
-  let Some(bazi_four_pillars) = bazi_four_pillars.as_deref() else {
-    return api_error(StatusCode::BAD_REQUEST, "No Bazi profile found. Create one first via POST /api/v1/profile.");
+  let reasoning_effort = match req.reasoning_effort.as_deref() {
+    Some(e) => match models::ReasoningEffortLevel::parse(e) {
+      Some(level) => Some(level),
+      None => return api_error(StatusCode::BAD_REQUEST, "Invalid reasoning_effort: accepted values are none, minimal, low, medium, high, xhigh"),
+    },
+    None => None,
   };
 
-  let bazi_summary = user_profile.bazi_summary.as_deref().unwrap_or_else(|| user_profile.bazi_analysis.as_deref().unwrap_or_default());
-
-  match services::almanac::analysis_pick_selection(services::almanac::PickSelectionRequest {
+  let params = services::almanac::DateSelectionParams {
+    user_id,
     start_date: &req.start_date,
     end_date: &req.end_date,
     activity: &req.activity,
-    bazi_four_pillars,
-    bazi_summary,
     stream: is_stream,
-    llm_model: user_profile.llm_model,
-    user_id: Some(user_id as i64),
     request_type: models::LlmRequestType::ApiPickDate,
-  })
-  .await
-  {
-    Ok((models::LlmResponse::Stream(receiver), _)) if is_stream => Sse::new(stream_to_sse(receiver)).into_response(),
-    Ok((models::LlmResponse::Full(analysis), _)) => Json(ApiResponse::ok(PickData { analysis })).into_response(),
-    Ok(_) => api_error(StatusCode::INTERNAL_SERVER_ERROR, "Unexpected response type from LLM"),
+    reasoning_effort,
+  };
+
+  match services::almanac::pick_dates(&state, params).await {
+    Ok(result) => match result.response {
+      models::LlmResponse::Stream(receiver) if is_stream => Sse::new(stream_to_sse(receiver)).into_response(),
+      models::LlmResponse::Full(analysis) => Json(ApiResponse::ok(PickData { analysis })).into_response(),
+      _ => api_error(StatusCode::INTERNAL_SERVER_ERROR, "Unexpected response type from LLM"),
+    },
+    Err(models::AppError::ProfileNotFound) => api_error(StatusCode::BAD_REQUEST, "No Bazi profile found. Create one first via POST /api/v1/profile."),
+    Err(models::AppError::Message(msg)) => api_error(StatusCode::BAD_REQUEST, msg),
     Err(e) => {
       error!("API: Pick date error: {}", e);
       api_error(StatusCode::INTERNAL_SERVER_ERROR, "Upstream service unavailable")
@@ -537,112 +463,40 @@ pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<Cha
     return api_error(StatusCode::BAD_REQUEST, "message must not be empty");
   }
 
-  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
-  let Some(bazi_four_pillars) = user_profile.bazi_four_pillars.as_deref() else {
-    return api_error(StatusCode::BAD_REQUEST, "No Bazi profile found. Create one first via POST /api/v1/profile.");
-  };
-  let bazi_context = match crate::utils::build_bazi_context_message(bazi_four_pillars, user_profile.bazi_summary.as_deref()) {
-    Ok(message) => message,
-    Err(e) => {
-      error!("API: Failed to build Bazi context for user {}: {}", user_id, e);
-      return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Invalid Bazi profile");
-    }
+  let reasoning_effort = match req.reasoning_effort.as_deref() {
+    Some(e) => match models::ReasoningEffortLevel::parse(e) {
+      Some(level) => Some(level),
+      None => return api_error(StatusCode::BAD_REQUEST, "Invalid reasoning_effort: accepted values are none, minimal, low, medium, high, xhigh"),
+    },
+    None => None,
   };
 
-  // Restore from SQLite only after a memory expiry or process restart.
-  crate::utils::hydrate_chat_context(&state, user_id).await;
-
-  // Push user message to the in-memory fast path.
-  {
-    let mut ctx = state.user_contexts.entry(user_id).or_default();
-    ctx.push_message(format!("User: {}", req.message), state.config.max_context_messages);
-    ctx.last_active = chrono::Utc::now();
-  }
-  if let Err(e) = state.chat_cache_writer.save(user_id, "user", &req.message) {
-    error!("API: Failed to cache chat message for user {}: {}", user_id, e);
-  }
-
-  let system_prompt_text = include_str!("../../prompts/FollowUpAssistant.md");
-  let system_msg = match async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default().content(system_prompt_text).build() {
-    Ok(m) => m,
-    Err(e) => {
-      error!("API: Failed to build system message: {}", e);
-      return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to build prompt");
-    }
-  };
-
-  let mut messages: Vec<async_openai::types::chat::ChatCompletionRequestMessage> = vec![system_msg.into()];
-  messages.push(bazi_context);
-
-  if let Some(ctx) = state.user_contexts.get(&user_id) {
-    messages.extend(crate::utils::build_chat_messages(&ctx.messages));
-  }
-
-  let model_id = user_profile.llm_model.as_ref().map(|m| m.id() as i64);
-  let model_name = user_profile.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
-
-  let params = services::llm::LlmRequestParams {
-    stream: Some(is_stream),
-    temperature: Some(0.4),
-    user_id: Some(user_id as i64),
-    model_id,
-    ..services::llm::LlmRequestParams::new(model_name, messages, models::LlmRequestType::ApiChat)
-  };
-
-  match state.llm_service.call(params).await {
-    Ok(models::LlmResponse::Stream(mut receiver)) if is_stream => {
-      let sse_stream = async_stream::stream! {
-        let mut full_reply = String::new();
-        while let Some(chunk) = receiver.recv().await {
-          full_reply.push_str(&chunk);
-          yield Ok::<_, std::convert::Infallible>(Event::default().event("chunk").data(chunk));
-        }
-        if receiver.finish().await.is_err() {
-          yield Ok(Event::default().event("error").data("Analysis interrupted"));
-          return;
-        }
-        // Save assistant response to context after stream completes.
-        {
-          let mut ctx = state.user_contexts.entry(user_id).or_default();
-          ctx.push_message(format!("Assistant: {}", full_reply), state.config.max_context_messages);
-        }
-        if let Err(e) = state.chat_cache_writer.save(user_id, "assistant", &full_reply) {
-          error!("API: Failed to cache assistant response for user {}: {}", user_id, e);
-        }
-        yield Ok(Event::default().data("[DONE]"));
-      };
-      Sse::new(sse_stream).into_response()
-    }
-
-    Ok(models::LlmResponse::Full(reply)) => {
-      // Save assistant response to context
-      {
-        let mut ctx = state.user_contexts.entry(user_id).or_default();
-        ctx.push_message(format!("Assistant: {}", reply), state.config.max_context_messages);
-      }
-      if let Err(e) = state.chat_cache_writer.save(user_id, "assistant", &reply) {
-        error!("API: Failed to cache assistant response for user {}: {}", user_id, e);
-      }
-      Json(ApiResponse::ok(ChatData { reply })).into_response()
-    }
-    Ok(models::LlmResponse::Stream(receiver)) => {
-      // Streaming returned but not requested — collect it
-      let reply = match collect_stream(receiver).await {
-        Ok(reply) => reply,
-        Err(_) => return api_error(StatusCode::BAD_GATEWAY, "Analysis interrupted"),
-      };
-      {
-        let mut ctx = state.user_contexts.entry(user_id).or_default();
-        ctx.push_message(format!("Assistant: {}", reply), state.config.max_context_messages);
-      }
-      if let Err(e) = state.chat_cache_writer.save(user_id, "assistant", &reply) {
-        error!("API: Failed to cache assistant response for user {}: {}", user_id, e);
-      }
-      Json(ApiResponse::ok(ChatData { reply })).into_response()
+  let response = match services::conversation::submit_chat_turn(&state, user_id, &req.message, is_stream, models::LlmRequestType::ApiChat, reasoning_effort).await {
+    Ok(res) => res,
+    Err(models::AppError::ProfileNotFound) => {
+      return api_error(StatusCode::BAD_REQUEST, "No Bazi profile found. Create one first via POST /api/v1/profile.");
     }
     Err(e) => {
       error!("API: Chat error: {}", e);
-      api_error(StatusCode::INTERNAL_SERVER_ERROR, "Upstream service unavailable")
+      return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Upstream service unavailable");
     }
+  };
+
+  match response {
+    models::LlmResponse::Stream(mut rx) => {
+      let sse_stream = async_stream::stream! {
+        while let Some(chunk) = rx.recv().await {
+          let chunk_str = String::from_utf8_lossy(&chunk);
+          yield Ok::<_, std::convert::Infallible>(Event::default().event("chunk").data(chunk_str));
+        }
+        if rx.finish().await.is_ok() {
+          yield Ok(Event::default().data("[DONE]"));
+        } else {
+          yield Ok(Event::default().event("error").data("Analysis interrupted"));
+        }
+      };
+      Sse::new(sse_stream).into_response()
+    }
+    models::LlmResponse::Full(reply) => Json(ApiResponse::ok(ChatData { reply })).into_response(),
   }
 }
