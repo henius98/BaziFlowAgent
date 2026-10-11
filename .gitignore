@@ -2,7 +2,10 @@
 __pycache__/
 *.pyc
 logs/
-public/
+public/*
+# Whitelist specific files
+!public/generate_logo.py
+!public/logo_ai_bot.png
 
 # Rust
 target/
