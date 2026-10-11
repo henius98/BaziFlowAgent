@@ -3,7 +3,10 @@ use sqlx::{
   SqlitePool,
   sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
+use std::cell::Cell;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{error, info};
 
 pub mod chat_history_cache;
@@ -31,23 +34,38 @@ impl Database {
   }
 }
 
+thread_local! {
+  static RNG_SEED: Cell<u64> = Cell::new(init_seed());
+}
+
+// Initialized exactly once per thread lifecycle
+fn init_seed() -> u64 {
+  static THREAD_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+  let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
+
+  let id = THREAD_COUNTER.fetch_add(1, Ordering::Relaxed);
+  // Mix nanoseconds and unique thread counter
+  (nanos ^ id.wrapping_mul(0x9e37_79b9_7f4a_7c15)) | 1
+}
+
 /// Generates a time-based ID: timestamp_millis * 1000 + sequence(0..999)
 /// Guarantees monotonic ordering and collision resistance under bursts.
+#[inline]
 pub fn generate_time_id() -> i64 {
-  use std::sync::Mutex;
-  static STATE: Mutex<(i64, u32)> = Mutex::new((0, 0));
+  static LAST_ID: AtomicU64 = AtomicU64::new(0);
 
-  let now_ms = chrono::Utc::now().timestamp_millis();
-  let mut state = STATE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+  let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+  let base_id = now_ms.saturating_mul(1000);
 
-  if now_ms <= state.0 {
-    state.1 = (state.1 + 1) % 1000;
-  } else {
-    state.0 = now_ms;
-    state.1 = 0;
+  let mut current = LAST_ID.load(Ordering::Relaxed);
+  loop {
+    let next = if base_id > current { base_id } else { current + 1 };
+    match LAST_ID.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Relaxed) {
+      Ok(_) => return next as i64,
+      Err(actual) => current = actual,
+    }
   }
-
-  state.0 * 1000 + (state.1 as i64)
 }
 
 pub async fn init_db(db_url: &str) -> Result<SqlitePool, sqlx::Error> {
@@ -676,5 +694,27 @@ mod tests {
     let profile = get_user_profile(&database, user_id).await;
     assert_eq!(profile.llm_model.as_ref().map(|m| m.id()), Some(0));
     assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some("gemini-3.1-flash-lite"));
+  }
+
+  /// Generates a random u64 in ~1-2 nanoseconds without cross-core traffic.
+  #[inline(always)]
+  pub fn fast_random_u64() -> u64 {
+    RNG_SEED.with(|cell| {
+      // WyRand step:
+      let seed = cell.get().wrapping_add(0xa076_1d64_78bd_642f);
+      cell.set(seed);
+
+      let mul = (seed as u128).wrapping_mul((seed ^ 0xe703_7ed1_a0b4_28db) as u128);
+      ((mul >> 64) ^ mul) as u64
+    })
+  }
+
+  #[test]
+  fn fast_random_u64_produces_non_zero_distinct_values() {
+    let r1 = fast_random_u64();
+    let r2 = fast_random_u64();
+    assert_ne!(r1, 0);
+    assert_ne!(r2, 0);
+    assert_ne!(r1, r2);
   }
 }

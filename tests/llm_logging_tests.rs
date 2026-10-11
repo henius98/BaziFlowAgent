@@ -29,11 +29,7 @@ async fn api_error_log_keeps_request_and_provider_details() {
     .await;
 
   let message = ChatCompletionRequestUserMessageArgs::default().content("private test prompt").build().expect("test message should build");
-  let params = LlmRequestParams {
-    user_id: Some(1),
-    model_id: Some(1),
-    ..LlmRequestParams::new("models/gemini-2.5-flash", vec![message.into()], LlmRequestType::ApiPickDate)
-  };
+  let params = LlmRequestParams { user_id: Some(1), model_id: Some(1), ..LlmRequestParams::new("models/gemini-2.5-flash", vec![message.into()], LlmRequestType::ApiPickDate) };
 
   let database = Database::Sqlite(pool.clone());
   let runtime = Runtime::new(&RuntimeConfig::default());
@@ -66,17 +62,13 @@ async fn successful_stream_log_keeps_complete_text() {
     .mock("POST", "/chat/completions")
     .with_status(200)
     .with_header("content-type", "text/event-stream")
-    .with_body("data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":1694268190,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"First \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":1694268190,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"second\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+    .with_body("data: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":1694268190,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"First \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":1694268190,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"second\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"1\",\"object\":\"chat.completion.chunk\",\"created\":1694268190,\"model\":\"gpt-4o\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":32,\"total_tokens\":42}}\n\ndata: [DONE]\n\n")
     .expect(1)
     .create_async()
     .await;
 
   let message = ChatCompletionRequestUserMessageArgs::default().content("private stream prompt").build().expect("test message should build");
-  let params = LlmRequestParams {
-    user_id: Some(1),
-    stream: Some(true),
-    ..LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::BaziAnalysis)
-  };
+  let params = LlmRequestParams { user_id: Some(1), stream: Some(true), ..LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::BaziAnalysis) };
   let database = Database::Sqlite(pool.clone());
   let runtime = Runtime::new(&RuntimeConfig::default());
   let config = LlmClientConfig { api_key: "test".into(), api_base: server.url(), timeout_seconds: 5, http_client: None };
@@ -92,13 +84,15 @@ async fn successful_stream_log_keeps_complete_text() {
   assert_eq!(content, "First second");
   upstream.assert_async().await;
 
-  let (request_body, response_body, is_success): (String, String, i64) =
-    sqlx::query_as("SELECT request_body, response_body, is_success FROM llm_logs").fetch_one(&pool).await.expect("stream should be logged");
+  let (request_body, response_body, is_success, total_tokens): (String, String, i64, Option<i64>) =
+    sqlx::query_as("SELECT request_body, response_body, is_success, total_tokens FROM llm_logs").fetch_one(&pool).await.expect("stream should be logged");
   let request: serde_json::Value = serde_json::from_str(&request_body).expect("request log should be JSON");
   assert_eq!(request["messages"][0]["content"], "private stream prompt");
+  assert_eq!(request["stream_options"]["include_usage"], true);
   let response: serde_json::Value = serde_json::from_str(&response_body).expect("response log should be JSON");
   assert_eq!(response["content"], "First second");
   assert_eq!(is_success, 1);
+  assert_eq!(total_tokens, Some(42));
 
   repos::Database::Sqlite(pool).close().await;
 }
@@ -117,11 +111,7 @@ async fn failed_stream_start_logs_provider_error() {
     .await;
 
   let message = ChatCompletionRequestUserMessageArgs::default().content("private Bazi chart").build().expect("test message should build");
-  let params = LlmRequestParams {
-    user_id: Some(1),
-    stream: Some(true),
-    ..LlmRequestParams::new("models/gemini-2.5-flash", vec![message.into()], LlmRequestType::BaziAnalysis)
-  };
+  let params = LlmRequestParams { user_id: Some(1), stream: Some(true), ..LlmRequestParams::new("models/gemini-2.5-flash", vec![message.into()], LlmRequestType::BaziAnalysis) };
   let database = Database::Sqlite(pool.clone());
   let runtime = Runtime::new(&RuntimeConfig::default());
   let config = LlmClientConfig { api_key: "test".into(), api_base: server.url(), timeout_seconds: 5, http_client: None };
@@ -157,10 +147,7 @@ async fn successful_full_response_is_logged() {
     .await;
 
   let message = ChatCompletionRequestUserMessageArgs::default().content("private full prompt").build().expect("test message should build");
-  let params = LlmRequestParams {
-    user_id: Some(1),
-    ..LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::GenerateBaziSummary)
-  };
+  let params = LlmRequestParams { user_id: Some(1), ..LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::GenerateBaziSummary) };
   let database = Database::Sqlite(pool.clone());
   let runtime = Runtime::new(&RuntimeConfig::default());
   let config = LlmClientConfig { api_key: "test".into(), api_base: server.url(), timeout_seconds: 5, http_client: None };
@@ -196,11 +183,7 @@ async fn interrupted_stream_log_keeps_partial_text_and_error() {
     .await;
 
   let message = ChatCompletionRequestUserMessageArgs::default().content("private prompt").build().expect("test message should build");
-  let params = LlmRequestParams {
-    user_id: Some(1),
-    stream: Some(true),
-    ..LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::BaziAnalysis)
-  };
+  let params = LlmRequestParams { user_id: Some(1), stream: Some(true), ..LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::BaziAnalysis) };
   let database = Database::Sqlite(pool.clone());
   let runtime = Runtime::new(&RuntimeConfig::default());
   let config = LlmClientConfig { api_key: "test".into(), api_base: server.url(), timeout_seconds: 5, http_client: None };

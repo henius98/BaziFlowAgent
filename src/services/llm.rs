@@ -2,7 +2,10 @@ use crate::models::{AppResult, LlmRequestType, LogErrorExt};
 use async_openai::{
   Client,
   config::OpenAIConfig,
-  types::chat::{ChatCompletionRequestMessage, ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools, CreateChatCompletionRequest, CreateChatCompletionRequestArgs, ResponseFormat},
+  types::chat::{
+    ChatCompletionRequestMessage, ChatCompletionStreamOptions, ChatCompletionTool, ChatCompletionToolChoiceOption, ChatCompletionTools, CreateChatCompletionRequest, CreateChatCompletionRequestArgs,
+    ResponseFormat,
+  },
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info};
@@ -193,6 +196,7 @@ fn build_chat_request(params: LlmRequestParams) -> AppResult<CreateChatCompletio
   }
   if let Some(true) = params.stream {
     builder.stream(true);
+    builder.stream_options(ChatCompletionStreamOptions { include_usage: Some(true), include_obfuscation: None });
   }
   if let Some(n) = params.n {
     builder.n(n);
