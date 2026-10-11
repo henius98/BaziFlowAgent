@@ -92,12 +92,16 @@ pub async fn core_bazi_analysis(
   let system_message = async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default().content(system_prompt).build()?;
   let user_message = async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default().content(full_user_content).build()?;
 
-  let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
-  let mut params = crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()], crate::models::LlmRequestType::BaziAnalysis);
-  params.temperature = Some(0.2);
-  params.top_p = Some(0.75);
-  params.stream = Some(true);
-  params.user_id = Some(user_id as i64);
+  let model_id = llm_model.as_ref().map(|m| m.id() as i64);
+  let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let params = crate::services::llm::LlmRequestParams {
+    temperature: Some(0.2),
+    top_p: Some(0.75),
+    stream: Some(true),
+    user_id: Some(user_id as i64),
+    model_id,
+    ..crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()], crate::models::LlmRequestType::BaziAnalysis)
+  };
 
   match state.llm_service.call(params).await {
     Ok(crate::models::LlmResponse::Stream(receiver)) => Ok(receiver),
@@ -119,12 +123,16 @@ pub async fn generate_bazi_summary(
   let system_message = async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default().content(system_prompt).build()?;
   let user_message = async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default().content(full_user_content).build()?;
 
-  let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
-  let mut params = crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()], crate::models::LlmRequestType::GenerateBaziSummary);
-  params.temperature = Some(0.1);
-  params.top_p = Some(0.7);
-  params.stream = Some(false);
-  params.user_id = Some(user_id as i64);
+  let model_id = llm_model.as_ref().map(|m| m.id() as i64);
+  let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let params = crate::services::llm::LlmRequestParams {
+    temperature: Some(0.1),
+    top_p: Some(0.7),
+    stream: Some(false),
+    user_id: Some(user_id as i64),
+    model_id,
+    ..crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()], crate::models::LlmRequestType::GenerateBaziSummary)
+  };
 
   match state.llm_service.call(params).await {
     Ok(crate::models::LlmResponse::Full(summary)) => validate_bazi_summary(&summary),

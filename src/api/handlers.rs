@@ -578,12 +578,16 @@ pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<Cha
     messages.extend(crate::utils::build_chat_messages(&ctx.messages));
   }
 
-  let model_name = user_profile.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
+  let model_id = user_profile.llm_model.as_ref().map(|m| m.id() as i64);
+  let model_name = user_profile.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
 
-  let mut params = services::llm::LlmRequestParams::new(model_name, messages, models::LlmRequestType::ApiChat);
-  params.stream = Some(is_stream);
-  params.temperature = Some(0.4);
-  params.user_id = Some(user_id as i64);
+  let params = services::llm::LlmRequestParams {
+    stream: Some(is_stream),
+    temperature: Some(0.4),
+    user_id: Some(user_id as i64),
+    model_id,
+    ..services::llm::LlmRequestParams::new(model_name, messages, models::LlmRequestType::ApiChat)
+  };
 
   match state.llm_service.call(params).await {
     Ok(models::LlmResponse::Stream(mut receiver)) if is_stream => {

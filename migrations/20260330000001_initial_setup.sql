@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT, -- Telegram @handle, nullable (not all users set one)
   gender INTEGER CHECK (gender IN (0, 1)), -- 0=female, 1=male; NULL until /new flow completes
   birth_datetime TEXT, -- ISO8601 "YYYY-MM-DD HH:MM:SS"; NULL until /new flow completes
-  llm_model INTEGER REFERENCES llm_models (model_id) ON DELETE SET NULL, -- See llm_models for active mapping; NULL=fallback to .env LLM_MODEL_NAME
+  llm_model INTEGER REFERENCES llm_models (model_id) ON DELETE SET NULL, -- See llm_models for active mapping; NULL=fallback to default model (model_id=0)
   schedule TEXT, -- cron for user receive scheduled daily date fortune analysis report; if NULL then disable schedule for this user
   bazi_four_pillars BLOB, -- JSON stored via jsonb(); BLOB affinity matches binary format
   bazi_analysis TEXT, -- LLM-generated destiny text
@@ -53,7 +53,7 @@ FROM
 -- 2. Available LLM Models
 -- ==============================================================================
 -- Operator-managed availability settings for the LLM models known to this release.
--- users.llm_model keeps the selected model ID; unavailable selections fall back to LLM_MODEL_NAME.
+-- users.llm_model keeps the selected model ID; unavailable selections fall back to default model (model_id=0).
 CREATE TABLE IF NOT EXISTS llm_models (
   model_id INTEGER PRIMARY KEY AUTOINCREMENT,
   model_name TEXT NOT NULL UNIQUE,
@@ -62,10 +62,11 @@ CREATE TABLE IF NOT EXISTS llm_models (
 
 -- Seed the models supported by the application as the single source of truth.
 INSERT OR IGNORE INTO
-  llm_models (model_name, is_enabled)
+  llm_models (model_id, model_name, is_enabled)
 VALUES
-  ('google/gemini-3.8-flash', 1),
-  ('google/gemini-3.1-pro-preview', 1);
+  (0, 'gemini-3.1-flash-lite', 1),
+  (1, 'gemini-3.8-flash', 1),
+  (2, 'gemini-3.1-pro-preview', 1);
 
 -- ==============================================================================
 -- 3. API Keys
@@ -87,13 +88,12 @@ CREATE TABLE IF NOT EXISTS llm_logs (
   id INTEGER PRIMARY KEY, -- timestamp_millis * 1000 + random(0..999)
   user_id INTEGER NOT NULL,
   request_type TEXT,
-  model TEXT NOT NULL,
+  model_id INTEGER,
   request_body TEXT NOT NULL, -- Full LlmRequestParams serialized as JSON
   response_body TEXT NOT NULL, -- JSON response on success, error message on failure
   total_tokens INTEGER, -- Extracted from response usage (NULL on failure)
   duration_ms INTEGER NOT NULL, -- Wall-clock time of the API call
-  is_success INTEGER NOT NULL DEFAULT 1, -- 0 = failed, 1 = success
-  model_id INTEGER REFERENCES llm_models (model_id) ON DELETE SET NULL
+  is_success INTEGER NOT NULL DEFAULT 1 -- 0 = failed, 1 = success
 );
 
 -- Add an index on llm_logs user_id for faster lookups or user data purging

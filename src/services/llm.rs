@@ -95,6 +95,8 @@ pub struct LlmRequestParams {
   pub user_id: Option<i64>,
   #[serde(skip_serializing)]
   pub request_type: LlmRequestType,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub model_id: Option<i64>,
 }
 
 impl LlmRequestParams {
@@ -137,6 +139,7 @@ impl LlmRequestParams {
       // Tracking
       user_id: None,
       request_type,
+      model_id: None,
     }
   }
 }
@@ -260,9 +263,9 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
   info!("Initializing LLM client for model: {} (streaming: {})", params.model, is_stream);
 
   // Capture tracking fields before params are consumed by the request builder.
-  let model_for_log = params.model.clone();
   let user_id_log = params.user_id;
   let request_type_log = params.request_type;
+  let model_id_log = params.model_id;
 
   // Reuse the pre-built HTTP client from config (initialized once at startup)
   let http_client = match config.http_client.clone() {
@@ -289,7 +292,6 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
       Err(e) => {
         let err_msg = error_response_body(&e);
         let params = crate::repos::LlmLogParams {
-          model: &model_for_log,
           user_id: user_id_log,
           request_type: request_type_log.as_str(),
           request_body: &request_body_json,
@@ -297,7 +299,7 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
           total_tokens: None,
           duration_ms: start.elapsed().as_millis() as i64,
           is_success: false,
-          model_id: None,
+          model_id: model_id_log,
         };
         crate::repos::save_llm_log(pool, params).await;
         return Err(e).log_err_msg("Failed to create LLM stream");
@@ -362,7 +364,6 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
       // Keep the complete text and any error after the stream has ended.
       let response_body = serde_json::json!({ "content": response_text, "error": stream_error }).to_string();
       let params = crate::repos::LlmLogParams {
-        model: &model_for_log,
         user_id: user_id_log,
         request_type: request_type_log.as_str(),
         request_body: &request_body_json,
@@ -370,7 +371,7 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
         total_tokens,
         duration_ms,
         is_success: succeeded,
-        model_id: None,
+        model_id: model_id_log,
       };
       crate::repos::save_llm_log(&pool_clone, params).await;
       let _ = completion.send(succeeded);
@@ -392,7 +393,6 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
       Err(e) => (error_response_body(e), None, false),
     };
     let params = crate::repos::LlmLogParams {
-      model: &model_for_log,
       user_id: user_id_log,
       request_type: request_type_log.as_str(),
       request_body: &request_body_json,
@@ -400,7 +400,7 @@ pub async fn call_llm(pool: &crate::repos::Database, config: &LlmClientConfig, p
       total_tokens,
       duration_ms,
       is_success,
-      model_id: None,
+      model_id: model_id_log,
     };
     crate::repos::save_llm_log(pool, params).await;
 

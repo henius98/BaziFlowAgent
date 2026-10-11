@@ -100,11 +100,15 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
     messages.extend(crate::utils::build_chat_messages(&ctx.messages));
   }
 
-  let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
-  let mut params = crate::services::llm::LlmRequestParams::new(model_name, messages, crate::models::LlmRequestType::FollowUpChat);
-  params.stream = Some(true);
-  params.temperature = Some(0.4);
-  params.user_id = Some(user_id as i64);
+  let model_id = llm_model.as_ref().map(|m| m.id() as i64);
+  let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let params = crate::services::llm::LlmRequestParams {
+    stream: Some(true),
+    temperature: Some(0.4),
+    user_id: Some(user_id as i64),
+    model_id,
+    ..crate::services::llm::LlmRequestParams::new(model_name, messages, crate::models::LlmRequestType::FollowUpChat)
+  };
 
   match state.llm_service.call(params).await {
     Ok(crate::models::LlmResponse::Stream(receiver)) => {

@@ -154,7 +154,7 @@ pub async fn get_user_profile(database: &Database, user_id: u64) -> UserProfileD
             users.rate_limit
         FROM users
         LEFT JOIN llm_models
-            ON llm_models.model_id = users.llm_model
+            ON llm_models.model_id = COALESCE(users.llm_model, 0)
             AND llm_models.is_enabled = 1
         WHERE users.user_id = ?1
         "#;
@@ -207,7 +207,6 @@ pub async fn get_all_scheduled_users(database: &Database) -> Vec<(u64, String)> 
 }
 
 pub struct LlmLogParams<'a> {
-  pub model: &'a str,
   pub user_id: Option<i64>,
   pub request_type: &'a str,
   pub request_body: &'a str,
@@ -222,13 +221,13 @@ pub struct LlmLogParams<'a> {
 pub async fn save_llm_log(database: &Database, params: LlmLogParams<'_>) {
   let log_id = generate_time_id();
   const SQL: &str = r#"
-        INSERT INTO llm_logs (id, model, user_id, request_type, request_body, response_body, total_tokens, duration_ms, is_success, model_id)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        INSERT INTO llm_logs (id, model_id, user_id, request_type, request_body, response_body, total_tokens, duration_ms, is_success)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         "#;
   let result = match database {
     Database::Sqlite(pool) => sqlx::query(SQL)
       .bind(log_id)
-      .bind(params.model)
+      .bind(params.model_id)
       .bind(params.user_id)
       .bind(params.request_type)
       .bind(params.request_body)
@@ -236,7 +235,6 @@ pub async fn save_llm_log(database: &Database, params: LlmLogParams<'_>) {
       .bind(params.total_tokens)
       .bind(params.duration_ms)
       .bind(params.is_success as i32)
-      .bind(params.model_id)
       .execute(pool)
       .await
       .map(|_| ())
@@ -247,7 +245,7 @@ pub async fn save_llm_log(database: &Database, params: LlmLogParams<'_>) {
           SQL,
           vec![
             serde_json::json!(log_id),
-            serde_json::json!(params.model),
+            params.model_id.map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
             params.user_id.map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
             serde_json::json!(params.request_type),
             serde_json::json!(params.request_body),
@@ -255,7 +253,6 @@ pub async fn save_llm_log(database: &Database, params: LlmLogParams<'_>) {
             params.total_tokens.map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
             serde_json::json!(params.duration_ms),
             serde_json::json!(params.is_success as i32),
-            params.model_id.map_or(serde_json::Value::Null, |value| serde_json::json!(value)),
           ],
         )
         .await
@@ -570,7 +567,7 @@ mod tests {
     assert!(matches!(database, Database::Sqlite(_)));
     update_user_llm_model(&database, 42, 1).await.expect("SQLite fallback should accept writes");
     let profile = get_user_profile(&database, 42).await;
-    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some("google/gemini-3.8-flash"));
+    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some("gemini-3.8-flash"));
   }
 
   #[tokio::test]
@@ -579,15 +576,17 @@ mod tests {
     let database = Database::Sqlite(pool.clone());
 
     let models = get_llm_models(&database).await.expect("available models");
-    assert_eq!(models.len(), 2);
-    assert_eq!(models[0].id(), 1);
-    assert_eq!(models[0].as_str(), "google/gemini-3.8-flash");
-    assert_eq!(models[1].id(), 2);
-    assert_eq!(models[1].as_str(), "google/gemini-3.1-pro-preview");
+    assert_eq!(models.len(), 3);
+    assert_eq!(models[0].id(), 0);
+    assert_eq!(models[0].as_str(), "gemini-3.1-flash-lite");
+    assert_eq!(models[1].id(), 1);
+    assert_eq!(models[1].as_str(), "gemini-3.8-flash");
+    assert_eq!(models[2].id(), 2);
+    assert_eq!(models[2].as_str(), "gemini-3.1-pro-preview");
 
     update_user_llm_model(&database, 42, 1).await.expect("enabled model should be saved");
     let profile = get_user_profile(&database, 42).await;
-    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some("google/gemini-3.8-flash"));
+    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some("gemini-3.8-flash"));
 
     sqlx::query("UPDATE llm_models SET is_enabled = 0 WHERE model_id = 1").execute(&pool).await.expect("disable model");
 
@@ -665,5 +664,17 @@ mod tests {
     let formatted = get_user_last_active_formatted(&database, user_id).await.expect("fetch formatted").expect("formatted string exists");
     assert_eq!(crate::utils::format_timestamp_utc8(ts), Some(formatted.clone()));
     assert_eq!(crate::utils::parse_timestamp_utc8(&formatted), Some(ts));
+  }
+
+  #[tokio::test]
+  async fn unset_user_llm_model_defaults_to_model_0_from_db() {
+    let pool = init_db("sqlite::memory:").await.expect("database");
+    let database = Database::Sqlite(pool.clone());
+    let user_id = 777;
+
+    sqlx::query("INSERT INTO users (user_id) VALUES (?1)").bind(user_id as i64).execute(&pool).await.expect("insert user");
+    let profile = get_user_profile(&database, user_id).await;
+    assert_eq!(profile.llm_model.as_ref().map(|m| m.id()), Some(0));
+    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some("gemini-3.1-flash-lite"));
   }
 }

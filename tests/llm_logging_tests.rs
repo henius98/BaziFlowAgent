@@ -29,8 +29,11 @@ async fn api_error_log_keeps_request_and_provider_details() {
     .await;
 
   let message = ChatCompletionRequestUserMessageArgs::default().content("private test prompt").build().expect("test message should build");
-  let mut params = LlmRequestParams::new("models/gemini-2.5-flash", vec![message.into()], LlmRequestType::ApiPickDate);
-  params.user_id = Some(1);
+  let params = LlmRequestParams {
+    user_id: Some(1),
+    model_id: Some(1),
+    ..LlmRequestParams::new("models/gemini-2.5-flash", vec![message.into()], LlmRequestType::ApiPickDate)
+  };
 
   let database = Database::Sqlite(pool.clone());
   let runtime = Runtime::new(&RuntimeConfig::default());
@@ -41,10 +44,11 @@ async fn api_error_log_keeps_request_and_provider_details() {
   runtime.tasks.wait().await;
   upstream.assert_async().await;
 
-  let (request_type, is_success, request_body, response_body): (String, i64, String, String) =
-    sqlx::query_as("SELECT request_type, is_success, request_body, response_body FROM llm_logs").fetch_one(&pool).await.expect("failed API call should be logged");
+  let (request_type, is_success, model_id, request_body, response_body): (String, i64, Option<i64>, String, String) =
+    sqlx::query_as("SELECT request_type, is_success, model_id, request_body, response_body FROM llm_logs").fetch_one(&pool).await.expect("failed API call should be logged");
   assert_eq!(request_type, LlmRequestType::ApiPickDate.as_str());
   assert_eq!(is_success, 0);
+  assert_eq!(model_id, Some(1));
   let request: serde_json::Value = serde_json::from_str(&request_body).expect("request log should be JSON");
   assert_eq!(request["model"], "models/gemini-2.5-flash");
   assert_eq!(request["messages"][0]["content"], "private test prompt");
@@ -68,9 +72,11 @@ async fn successful_stream_log_keeps_complete_text() {
     .await;
 
   let message = ChatCompletionRequestUserMessageArgs::default().content("private stream prompt").build().expect("test message should build");
-  let mut params = LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::BaziAnalysis);
-  params.user_id = Some(1);
-  params.stream = Some(true);
+  let params = LlmRequestParams {
+    user_id: Some(1),
+    stream: Some(true),
+    ..LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::BaziAnalysis)
+  };
   let database = Database::Sqlite(pool.clone());
   let runtime = Runtime::new(&RuntimeConfig::default());
   let config = LlmClientConfig { api_key: "test".into(), api_base: server.url(), timeout_seconds: 5, http_client: None };
@@ -111,9 +117,11 @@ async fn failed_stream_start_logs_provider_error() {
     .await;
 
   let message = ChatCompletionRequestUserMessageArgs::default().content("private Bazi chart").build().expect("test message should build");
-  let mut params = LlmRequestParams::new("models/gemini-2.5-flash", vec![message.into()], LlmRequestType::BaziAnalysis);
-  params.user_id = Some(1);
-  params.stream = Some(true);
+  let params = LlmRequestParams {
+    user_id: Some(1),
+    stream: Some(true),
+    ..LlmRequestParams::new("models/gemini-2.5-flash", vec![message.into()], LlmRequestType::BaziAnalysis)
+  };
   let database = Database::Sqlite(pool.clone());
   let runtime = Runtime::new(&RuntimeConfig::default());
   let config = LlmClientConfig { api_key: "test".into(), api_base: server.url(), timeout_seconds: 5, http_client: None };
@@ -149,8 +157,10 @@ async fn successful_full_response_is_logged() {
     .await;
 
   let message = ChatCompletionRequestUserMessageArgs::default().content("private full prompt").build().expect("test message should build");
-  let mut params = LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::GenerateBaziSummary);
-  params.user_id = Some(1);
+  let params = LlmRequestParams {
+    user_id: Some(1),
+    ..LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::GenerateBaziSummary)
+  };
   let database = Database::Sqlite(pool.clone());
   let runtime = Runtime::new(&RuntimeConfig::default());
   let config = LlmClientConfig { api_key: "test".into(), api_base: server.url(), timeout_seconds: 5, http_client: None };
@@ -186,9 +196,11 @@ async fn interrupted_stream_log_keeps_partial_text_and_error() {
     .await;
 
   let message = ChatCompletionRequestUserMessageArgs::default().content("private prompt").build().expect("test message should build");
-  let mut params = LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::BaziAnalysis);
-  params.user_id = Some(1);
-  params.stream = Some(true);
+  let params = LlmRequestParams {
+    user_id: Some(1),
+    stream: Some(true),
+    ..LlmRequestParams::new("gpt-4o", vec![message.into()], LlmRequestType::BaziAnalysis)
+  };
   let database = Database::Sqlite(pool.clone());
   let runtime = Runtime::new(&RuntimeConfig::default());
   let config = LlmClientConfig { api_key: "test".into(), api_base: server.url(), timeout_seconds: 5, http_client: None };

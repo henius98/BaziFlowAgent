@@ -11,7 +11,6 @@ pub fn test_config(mock_url: String) -> AppConfig {
     telegram_webhook_enabled: false,
     telegram_webhook_path: "/telegram/webhook".into(),
     llm_client_config: baziflow_agent::services::llm::LlmClientConfig { api_key: "test".into(), api_base: mock_url, timeout_seconds: 30, http_client: None },
-    llm_model_name: "gpt-4o".into(),
     database_url: "sqlite::memory:".into(),
     d1: None,
     chat_cache_database_url: "sqlite::memory:".into(),

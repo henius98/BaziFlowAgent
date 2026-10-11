@@ -22,7 +22,6 @@ pub struct AppConfig {
   pub telegram_webhook_enabled: bool,
   pub telegram_webhook_path: String,
   pub llm_client_config: crate::services::llm::LlmClientConfig,
-  pub llm_model_name: String,
   pub database_url: String,
   /// Cloudflare D1 durable database. When absent, `database_url` is used.
   pub d1: Option<D1Config>,
@@ -66,7 +65,6 @@ impl AppConfig {
       http_client: None,
     };
     llm_client_config.init_http_client().context("Failed to build LLM HTTP client")?;
-    let llm_model_name = env::var("LLM_MODEL_NAME").context("LLM_MODEL_NAME must be set in .env")?;
 
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://baziflow_agent.db".to_string());
     let d1_database_id = env::var("D1_DATABASE_ID").ok().filter(|value| !value.trim().is_empty());
@@ -139,7 +137,6 @@ impl AppConfig {
       telegram_webhook_enabled,
       telegram_webhook_path,
       llm_client_config,
-      llm_model_name,
       database_url,
       d1,
       chat_cache_database_url,

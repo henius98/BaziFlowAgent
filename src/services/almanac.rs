@@ -59,13 +59,16 @@ pub async fn analysis_date_fortune(req: DateFortuneRequest<'_>) -> AppResult<Llm
   debug!("Built fortune prompt");
   let user_message = ChatCompletionRequestUserMessageArgs::default().content(user_content).build()?;
 
-  let model_name = req.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
-  let mut params = crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()], req.request_type);
-  params.temperature = Some(0.2);
-  params.top_p = Some(0.75);
-
-  params.stream = Some(stream);
-  params.user_id = req.user_id;
+  let model_id = req.llm_model.as_ref().map(|m| m.id() as i64);
+  let model_name = req.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let params = crate::services::llm::LlmRequestParams {
+    stream: Some(stream),
+    temperature: Some(0.2),
+    top_p: Some(0.75),
+    user_id: req.user_id,
+    model_id,
+    ..crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()], req.request_type)
+  };
 
   info!("Sending request to LLM (Model: {}, stream: {})...", model_name, stream);
   state.llm_service.call(params).await
@@ -501,12 +504,16 @@ pub async fn analysis_pick_selection(req: PickSelectionRequest<'_>) -> AppResult
   tracing::debug!("Built date selection prompt");
   let user_message = ChatCompletionRequestUserMessageArgs::default().content(user_content).build()?;
 
-  let model_name = req.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| state.config.llm_model_name.clone());
-  let mut params = crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()], req.request_type);
-  params.temperature = Some(0.2); // Low temperature for factual analysis
-  params.top_p = Some(0.75);
-  params.stream = Some(stream);
-  params.user_id = req.user_id;
+  let model_id = req.llm_model.as_ref().map(|m| m.id() as i64);
+  let model_name = req.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let params = crate::services::llm::LlmRequestParams {
+    temperature: Some(0.2), // Low temperature for factual analysis
+    top_p: Some(0.75),
+    stream: Some(stream),
+    user_id: req.user_id,
+    model_id,
+    ..crate::services::llm::LlmRequestParams::new(model_name.clone(), vec![system_message.into(), user_message.into()], req.request_type)
+  };
 
   tracing::info!("Sending request to LLM for Date Selection (Model: {}, stream: {})...", model_name, stream);
   let resp = state.llm_service.call(params).await?;
