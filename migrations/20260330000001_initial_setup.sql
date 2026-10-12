@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS llm_models (
 INSERT OR IGNORE INTO
   llm_models (model_id, model_name, is_enabled)
 VALUES
-  (0, 'gemini-3.1-flash-lite', 1),
-  (1, 'gemini-3.8-flash', 1),
+  (0, 'gemini-3.8-flash', 1),
+  (1, 'gemini-3.1-flash-lite', 1),
   (2, 'gemini-3.1-pro-preview', 1);
 
 -- ==============================================================================

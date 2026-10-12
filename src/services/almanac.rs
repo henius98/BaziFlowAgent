@@ -53,8 +53,9 @@ pub async fn get_daily_fortune(
   debug!("Built fortune prompt");
   let user_message = ChatCompletionRequestUserMessageArgs::default().content(user_content).build()?;
 
-  let model_id = user_profile.llm_model.as_ref().map(|m| m.id() as i64);
-  let model_name = user_profile.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let model = state.user_repo.resolve_llm_model(user_profile.llm_model).await?;
+  let model_id = Some(model.id() as i64);
+  let model_name = model.as_str().to_string();
 
   let params = crate::services::llm::LlmRequestParams {
     stream: Some(stream),
@@ -542,8 +543,9 @@ pub async fn pick_dates(state: &Arc<AppState>, params: DateSelectionParams<'_>) 
   debug!("Built date selection prompt");
   let user_message = ChatCompletionRequestUserMessageArgs::default().content(user_content).build()?;
 
-  let model_id = user_profile.llm_model.as_ref().map(|m| m.id() as i64);
-  let model_name = user_profile.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let model = state.user_repo.resolve_llm_model(user_profile.llm_model).await?;
+  let model_id = Some(model.id() as i64);
+  let model_name = model.as_str().to_string();
 
   let llm_params = crate::services::llm::LlmRequestParams {
     temperature: Some(0.2),

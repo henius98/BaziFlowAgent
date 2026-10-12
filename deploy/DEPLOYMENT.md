@@ -72,7 +72,7 @@ This repository includes a GitHub Action that automatically cross-compiles a sta
 To install or update the bot on your Raspberry Pi, simply SSH into your DietPi terminal and run this one-liner:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/henius98/BaziFlowAgent/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/henius98/BaziFlowAgent/main/deploy/install.sh | bash
 ```
 
 The script will automatically:

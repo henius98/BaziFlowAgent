@@ -22,6 +22,17 @@ pub trait UserRepository: Send + Sync + std::fmt::Debug {
   fn get_user_last_active_formatted<'a>(&'a self, user_id: u64) -> BoxFuture<'a, AppResult<Option<String>>>;
   fn touch_user_last_active<'a>(&'a self, user_id: u64) -> BoxFuture<'a, AppResult<()>>;
   fn get_llm_models<'a>(&'a self) -> BoxFuture<'a, AppResult<Vec<LlmModel>>>;
+  fn get_default_llm_model<'a>(&'a self) -> BoxFuture<'a, AppResult<LlmModel>> {
+    Box::pin(async move { self.get_llm_models().await?.into_iter().next().ok_or_else(|| crate::models::AppError::Message("No enabled LLM models available in database".into())) })
+  }
+  fn resolve_llm_model<'a>(&'a self, preferred: Option<LlmModel>) -> BoxFuture<'a, AppResult<LlmModel>> {
+    Box::pin(async move {
+      match preferred {
+        Some(m) => Ok(m),
+        None => self.get_default_llm_model().await,
+      }
+    })
+  }
   fn update_user_llm_model<'a>(&'a self, user_id: u64, llm_model: u8) -> BoxFuture<'a, AppResult<LlmModel>>;
   fn create_api_key<'a>(&'a self, user_id: u64) -> BoxFuture<'a, AppResult<String>>;
   fn get_auth_user_by_api_key<'a>(&'a self, raw_key: &'a str) -> BoxFuture<'a, Option<(u64, Option<usize>)>>;

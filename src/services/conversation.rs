@@ -163,8 +163,9 @@ pub async fn submit_chat_turn(
     messages.extend(build_chat_messages(&ctx.messages));
   }
 
-  let model_id = user_profile.llm_model.as_ref().map(|m| m.id() as i64);
-  let model_name = user_profile.llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let model = state.user_repo.resolve_llm_model(user_profile.llm_model).await?;
+  let model_id = Some(model.id() as i64);
+  let model_name = model.as_str().to_string();
   let params = crate::services::llm::LlmRequestParams {
     stream: Some(stream),
     temperature: Some(0.4),

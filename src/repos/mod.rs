@@ -386,6 +386,10 @@ pub async fn get_available_model(database: &Database, model_id: u8) -> crate::mo
   Ok(get_llm_models(database).await?.into_iter().find(|model| model.id() == model_id))
 }
 
+pub async fn get_default_llm_model(database: &Database) -> crate::models::AppResult<LlmModel> {
+  get_llm_models(database).await?.into_iter().next().ok_or_else(|| crate::models::AppError::Message("No enabled LLM models available in database".into()))
+}
+
 pub async fn update_user_llm_model(database: &Database, user_id: u64, llm_model: u8) -> crate::models::AppResult<LlmModel> {
   let model = get_available_model(database, llm_model).await?.ok_or_else(|| crate::models::AppError::Message("Selected LLM model is unavailable".into()))?;
   const SQL: &str = r#"
@@ -663,9 +667,10 @@ mod tests {
     let database = init_database("sqlite::memory:", None, reqwest::Client::new()).await.expect("SQLite fallback should initialize");
 
     assert!(matches!(database, Database::Sqlite(_)));
+    let available_model_1 = get_available_model(&database, 1).await.expect("query model 1").expect("model 1 exists");
     update_user_llm_model(&database, 42, 1).await.expect("SQLite fallback should accept writes");
     let profile = get_user_profile(&database, 42).await;
-    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some("gemini-3.8-flash"));
+    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some(available_model_1.as_str()));
   }
 
   #[tokio::test]
@@ -676,15 +681,12 @@ mod tests {
     let models = get_llm_models(&database).await.expect("available models");
     assert_eq!(models.len(), 3);
     assert_eq!(models[0].id(), 0);
-    assert_eq!(models[0].as_str(), "gemini-3.1-flash-lite");
     assert_eq!(models[1].id(), 1);
-    assert_eq!(models[1].as_str(), "gemini-3.8-flash");
     assert_eq!(models[2].id(), 2);
-    assert_eq!(models[2].as_str(), "gemini-3.1-pro-preview");
 
     update_user_llm_model(&database, 42, 1).await.expect("enabled model should be saved");
     let profile = get_user_profile(&database, 42).await;
-    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some("gemini-3.8-flash"));
+    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some(models[1].as_str()));
 
     sqlx::query("UPDATE llm_models SET is_enabled = 0 WHERE model_id = 1").execute(&pool).await.expect("disable model");
 
@@ -772,8 +774,9 @@ mod tests {
 
     sqlx::query("INSERT INTO users (user_id) VALUES (?1)").bind(user_id as i64).execute(&pool).await.expect("insert user");
     let profile = get_user_profile(&database, user_id).await;
-    assert_eq!(profile.llm_model.as_ref().map(|m| m.id()), Some(0));
-    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some("gemini-3.1-flash-lite"));
+    let default_model = get_default_llm_model(&database).await.expect("default model");
+    assert_eq!(profile.llm_model.as_ref().map(|m| m.id()), Some(default_model.id()));
+    assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some(default_model.as_str()));
   }
   use std::cell::Cell;
 

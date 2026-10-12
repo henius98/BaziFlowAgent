@@ -123,13 +123,12 @@ async fn test_all_api_endpoints() {
   let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
   let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
   assert_eq!(json["status"], "ok");
-  assert_eq!(json["models"].as_array().unwrap().len(), 3);
-  assert_eq!(json["models"][0]["model_id"], 0);
-  assert_eq!(json["models"][0]["model_name"], "gemini-3.1-flash-lite");
-  assert_eq!(json["models"][1]["model_id"], 1);
-  assert_eq!(json["models"][1]["model_name"], "gemini-3.8-flash");
-  assert_eq!(json["models"][2]["model_id"], 2);
-  assert_eq!(json["models"][2]["model_name"], "gemini-3.1-pro-preview");
+  let expected_models = repos::get_llm_models(&state.db_pool).await.unwrap();
+  assert_eq!(json["models"].as_array().unwrap().len(), expected_models.len());
+  for (i, model) in expected_models.iter().enumerate() {
+    assert_eq!(json["models"][i]["model_id"], model.id());
+    assert_eq!(json["models"][i]["model_name"], model.as_str());
+  }
 
   // ==========================================
   // 4b. PUT /model

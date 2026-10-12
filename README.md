@@ -44,6 +44,7 @@ BaziFlowAgent/
 ├── deploy/                       # Deployment configs & guides
 │   ├── BaziFlowAgent.service     # Systemd unit file
 │   ├── DEPLOYMENT.md             # ARM/Raspberry Pi deployment guide
+│   ├── install.sh                # One-step auto-deployment script
 │   └── nginx.conf.example        # Nginx reverse proxy template
 ├── prompts/                      # Embedded system prompts
 │   ├── BaziHuangLiAssistant.md   # System prompt for daily readings

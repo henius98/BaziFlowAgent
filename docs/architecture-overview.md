@@ -35,7 +35,7 @@ Detailed reference document disclosing codebase layout, component maps, and quic
 ### `bot/` — Telegram Bot Handlers & UI
 
 - **`mod.rs`**: Module declarations and `Command` re-export.
-- **`commands.rs`**: Command definitions (`/new`, `/date`, `/pick`, `/profile`, `/model`, `/schedule`, `/apikey`) and dispatch.
+- **`commands.rs`**: Command definitions (`/new` [alias `/start`], `/date`, `/pick`, `/profile`, `/model`, `/schedule`, `/apikey`) and dispatch.
 - **`callbacks.rs`**: Inline keyboard callback dispatcher across 9 namespaces.
 - **`messages.rs`**: Free-text conversation message handler.
 - **`command_actions.rs`**: Telegram UI orchestration for birthdate input and user profile display.

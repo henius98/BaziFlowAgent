@@ -11,7 +11,7 @@ use super::keyboards;
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase", description = "Available commands:")]
 pub enum Command {
-  #[command(description = "✨ 输入八字 (New Profile): Create a Bazi profile; birth time and location may be skipped")]
+  #[command(description = "✨ 输入八字 (New Profile): Create a Bazi profile; birth time and location may be skipped", alias = "start")]
   New,
   #[command(description = "📅 每日分析 (Daily Fortune): Choose a specific date to receive its detailed Bazi analysis")]
   Date,
@@ -173,4 +173,18 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
     }
   }
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_start_command_aliases_to_new() {
+    let parsed_start = Command::parse("/start", "").expect("parse /start should succeed");
+    assert!(matches!(parsed_start, Command::New));
+
+    let parsed_new = Command::parse("/new", "").expect("parse /new should succeed");
+    assert!(matches!(parsed_new, Command::New));
+  }
 }

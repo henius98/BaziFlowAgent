@@ -156,8 +156,9 @@ pub async fn core_bazi_analysis(
   let system_message = async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default().content(system_prompt).build()?;
   let user_message = async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default().content(full_user_content).build()?;
 
-  let model_id = llm_model.as_ref().map(|m| m.id() as i64);
-  let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let model = state.user_repo.resolve_llm_model(llm_model).await?;
+  let model_id = Some(model.id() as i64);
+  let model_name = model.as_str().to_string();
   let params = crate::services::llm::LlmRequestParams {
     temperature: Some(0.2),
     top_p: Some(0.75),
@@ -187,8 +188,9 @@ pub async fn generate_bazi_summary(
   let system_message = async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default().content(system_prompt).build()?;
   let user_message = async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default().content(full_user_content).build()?;
 
-  let model_id = llm_model.as_ref().map(|m| m.id() as i64);
-  let model_name = llm_model.map(|m| m.as_str().to_string()).unwrap_or_else(|| "gemini-3.1-flash-lite".to_string());
+  let model = state.user_repo.resolve_llm_model(llm_model).await?;
+  let model_id = Some(model.id() as i64);
+  let model_name = model.as_str().to_string();
   let params = crate::services::llm::LlmRequestParams {
     temperature: Some(0.1),
     top_p: Some(0.7),
