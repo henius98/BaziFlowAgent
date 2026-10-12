@@ -41,8 +41,10 @@ BaziFlowAgent/
 ├── .env                          # App secrets (never commit)
 ├── .env.example                  # Template for required env vars
 ├── Cargo.toml                    # Cargo config and dependency tree
-├── DEPLOYMENT.md                 # ARM/Raspberry Pi deployment guide
-├── BaziFlowAgent.service         # Systemd unit file
+├── deploy/                       # Deployment configs & guides
+│   ├── BaziFlowAgent.service     # Systemd unit file
+│   ├── DEPLOYMENT.md             # ARM/Raspberry Pi deployment guide
+│   └── nginx.conf.example        # Nginx reverse proxy template
 ├── prompts/                      # Embedded system prompts
 │   ├── BaziHuangLiAssistant.md   # System prompt for daily readings
 │   ├── BaziSummaryAssistant.md   # System prompt for Bazi summarization
@@ -133,7 +135,7 @@ cargo run --release
 
 ## ⚙️ Deployment
 
-Are you deploying on an ARM-based edge device like a **Raspberry Pi 4B (DietPi OS)**? Check out the comprehensive **[DEPLOYMENT.md](./DEPLOYMENT.md)** guide to cleanly install, cross-compile, and set up your systemd daemon!
+Are you deploying on an ARM-based edge device like a **Raspberry Pi 4B (DietPi OS)**? Check out the comprehensive **[DEPLOYMENT.md](./deploy/DEPLOYMENT.md)** guide to cleanly install, cross-compile, and set up your systemd daemon!
 
 ## 🧠 Native LLM Prompt Design
 

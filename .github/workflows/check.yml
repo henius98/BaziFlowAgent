@@ -3,13 +3,22 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags:
+      - "v*"
+  workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

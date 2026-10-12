@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -38,7 +38,7 @@ jobs:
           key: aarch64-unknown-linux-gnu
 
       - name: Build release binary
-        run: cross build --release --target aarch64-unknown-linux-gnu
+        run: cross build --release --target aarch64-unknown-linux-gnu --locked
 
       - name: Prepare release assets
         run: |
@@ -46,9 +46,10 @@ jobs:
           sha256sum baziflow-agent > baziflow-agent.sha256
 
       - name: Publish Permanent Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
+          target_commitish: ${{ github.sha }}
           name: ${{ github.ref_type == 'tag' && github.ref_name || 'Latest Auto-Build' }}
           prerelease: ${{ github.ref_type != 'tag' }}
           make_latest: ${{ github.ref_type == 'tag' }}
@@ -56,5 +57,5 @@ jobs:
             target/aarch64-unknown-linux-gnu/release/baziflow-agent
             target/aarch64-unknown-linux-gnu/release/baziflow-agent.sha256
             .env.example
-            BaziFlowAgent.service
+            deploy/BaziFlowAgent.service
           generate_release_notes: true

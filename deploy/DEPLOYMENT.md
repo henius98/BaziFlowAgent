@@ -127,14 +127,14 @@ The bot requires multiple environment variables (LLM API Keys, Database URL, Cro
 
 ## Step 6: Set Up Systemd Service (Auto-start)
 
-The repository includes a pre-configured `BaziFlowAgent.service` file. We will use this instead of creating a new one.
+The repository includes a pre-configured `deploy/BaziFlowAgent.service` file. We will use this instead of creating a new one.
 
 1. **Verify paths in service file**:
-   Check `BaziFlowAgent.service` to ensure `WorkingDirectory` and `ExecStart` match your setup (default is `/home/dietpi/BaziFlowAgent`).
+   Check `deploy/BaziFlowAgent.service` to ensure `WorkingDirectory` and `ExecStart` match your setup (default is `/home/dietpi/BaziFlowAgent`).
 
 2. **Copy service file to systemd** (requires sudo/root):
    ```bash
-   sudo cp BaziFlowAgent.service /etc/systemd/system/BaziFlowAgent.service
+   sudo cp deploy/BaziFlowAgent.service /etc/systemd/system/BaziFlowAgent.service
    ```
 
 3. **Enable and Start**:

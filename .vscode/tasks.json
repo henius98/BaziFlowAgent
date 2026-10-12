@@ -4,7 +4,7 @@
     {
       "label": "Sync bashrc to env",
       "type": "shell",
-      "command": "sed -n '/# region BaziFlowAgent/,/# endregion BaziFlowAgent/p' ~/.bashrc | sed -n 's/^export //p' > ${workspaceFolder}/.env",
+      "command": "[ -f \"${workspaceFolder}/.env\" ] && exit 0; sed -n '/# region BaziFlowAgent/,/# endregion BaziFlowAgent/p' ~/.bashrc | sed -n 's/^export //p' > \"${workspaceFolder}/.env\"",
       "options": {
         "shell": {
           "executable": "/bin/bash",
