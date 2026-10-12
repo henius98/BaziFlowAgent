@@ -150,7 +150,7 @@ pub struct AdmissionController {
 - Rejections fail fast without memory queueing:
   - `ServerShuttingDown`: HTTP 503 / Telegram maintenance message.
   - `MaxRequestsExceeded`: HTTP 429 (`Retry-After: 5`) / Telegram protection notice.
-  - `RateLimitExceeded`: HTTP 429 (`Retry-After: 60`) / Telegram cooldown notice.
+  - `RateLimitExceeded`: HTTP 429 (`Retry-After: 3600`) / Telegram cooldown notice.
   - `UserAlreadyProcessing`: HTTP 429 (`Retry-After: 2`) / Telegram in-progress notice.
 - `AdmittedResponseStream` wraps response streams and holds `AdmissionPermit` until stream termination or disconnect, guaranteeing leak-free permit reclamation.
 

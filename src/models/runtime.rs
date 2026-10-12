@@ -53,20 +53,23 @@ pub struct AdmissionController {
 }
 
 impl AdmissionController {
+  pub const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(3600 * 5); // 5 hours
+  pub const RATE_LIMIT_RETRY_AFTER: &'static str = "18000";
+
   pub fn new(requests: Arc<Semaphore>, shutdown: CancellationToken) -> Self {
     Self { requests, active_users: Arc::new(dashmap::DashMap::new()), rates: Arc::new(dashmap::DashMap::new()), shutdown }
   }
 
   pub fn allow_at(&self, user_id: u64, limit: usize, now: Instant) -> bool {
     if self.rates.len() >= 4096 {
-      self.rates.retain(|_, (start, _)| now.duration_since(*start) < Duration::from_secs(60));
+      self.rates.retain(|_, (start, _)| now.duration_since(*start) < Self::RATE_LIMIT_WINDOW);
       if self.rates.len() >= 4096 && !self.rates.contains_key(&user_id) {
         return false;
       }
     }
     let mut rate_entry = self.rates.entry(user_id).or_insert((now, 0));
     let (window_start, count) = rate_entry.value_mut();
-    if now.duration_since(*window_start) >= Duration::from_secs(60) {
+    if now.duration_since(*window_start) >= Self::RATE_LIMIT_WINDOW {
       *window_start = now;
       *count = 0;
     }
@@ -212,7 +215,7 @@ mod tests {
     assert!(runtime.allow_at(1, 2, now));
     assert!(!runtime.allow_at(1, 2, now));
     assert!(runtime.allow_at(2, 2, now));
-    assert!(runtime.allow_at(1, 2, now + Duration::from_secs(60)));
+    assert!(runtime.allow_at(1, 2, now + AdmissionController::RATE_LIMIT_WINDOW));
   }
 
   #[test]

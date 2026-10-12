@@ -1,6 +1,6 @@
 # Unified Multi-Transport Admission Control and Fail-Fast Load Shedding
 
-Concurrency semaphores, per-user rate limiters, and processing guards were previously fragmented between Axum middleware and ad-hoc Telegram bot handlers. We decided to centralize admission control inside `AdmissionController` within `Runtime`, enforcing unified concurrency, 60-second sliding rate windows, single-flight user locks, and a strict fail-fast load-shedding policy across HTTP, WebSocket, and Telegram transports.
+Concurrency semaphores, per-user rate limiters, and processing guards were previously fragmented between Axum middleware and ad-hoc Telegram bot handlers. We decided to centralize admission control inside `AdmissionController` within `Runtime`, enforcing unified concurrency, 1-hour sliding rate windows, single-flight user locks, and a strict fail-fast load-shedding policy across HTTP, WebSocket, and Telegram transports.
 
 ## Status
 

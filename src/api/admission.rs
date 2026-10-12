@@ -32,7 +32,7 @@ pub async fn admit(request: Request, next: Next) -> Response {
       return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "5")]).into_response();
     }
     Err(AdmissionRejection::RateLimitExceeded) => {
-      return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "60")]).into_response();
+      return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, crate::models::runtime::AdmissionController::RATE_LIMIT_RETRY_AFTER)]).into_response();
     }
     Err(AdmissionRejection::UserAlreadyProcessing) => {
       return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "2")]).into_response();
