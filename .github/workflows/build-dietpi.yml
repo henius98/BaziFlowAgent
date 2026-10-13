@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -45,14 +47,52 @@ jobs:
           cd target/aarch64-unknown-linux-gnu/release
           sha256sum baziflow-agent > baziflow-agent.sha256
 
+      - name: Prepare release metadata
+        id: release_meta
+        run: |
+          git fetch --tags --force origin
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG_NAME="${GITHUB_REF_NAME}"
+            RELEASE_NAME="${GITHUB_REF_NAME}"
+            BODY="Release ${GITHUB_REF_NAME}"
+            PREV_TAG=$(git describe --tags --abbrev=0 --match "v*" "${GITHUB_SHA}^" 2>/dev/null || true)
+            if [[ "${TAG_NAME}" == *-* ]]; then
+              PRERELEASE="true"
+              MAKE_LATEST="false"
+            else
+              PRERELEASE="false"
+              MAKE_LATEST="true"
+            fi
+          else
+            TAG_NAME="latest"
+            RELEASE_NAME="Latest Auto-Build"
+            BODY="Automated build from commit ${GITHUB_SHA}"
+            PREV_TAG=$(git describe --tags --abbrev=0 --match "v*" "${GITHUB_SHA}" 2>/dev/null || true)
+            PRERELEASE="true"
+            MAKE_LATEST="false"
+            git tag -f latest "${GITHUB_SHA}"
+            git push origin refs/tags/latest --force
+          fi
+          {
+            echo "tag_name=${TAG_NAME}"
+            echo "release_name=${RELEASE_NAME}"
+            echo "body=${BODY}"
+            echo "previous_tag=${PREV_TAG}"
+            echo "prerelease=${PRERELEASE}"
+            echo "make_latest=${MAKE_LATEST}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Publish Permanent Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
+          tag_name: ${{ steps.release_meta.outputs.tag_name }}
           target_commitish: ${{ github.sha }}
-          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Latest Auto-Build' }}
-          prerelease: ${{ github.ref_type != 'tag' }}
-          make_latest: ${{ github.ref_type == 'tag' }}
+          name: ${{ steps.release_meta.outputs.release_name }}
+          body: ${{ steps.release_meta.outputs.body }}
+          previous_tag: ${{ steps.release_meta.outputs.previous_tag }}
+          prerelease: ${{ steps.release_meta.outputs.prerelease }}
+          make_latest: ${{ steps.release_meta.outputs.make_latest }}
+          fail_on_unmatched_files: true
           files: |
             target/aarch64-unknown-linux-gnu/release/baziflow-agent
             target/aarch64-unknown-linux-gnu/release/baziflow-agent.sha256
