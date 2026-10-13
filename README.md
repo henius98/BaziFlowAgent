@@ -1,9 +1,11 @@
 # BaziFlowAgent ☯️🤖
 
+> ⚠️ For traditional cultural exploration and leisure entertainment only — not a basis for major life decisions. 仅供参考娱乐，不应作为人生重大决策的依据。
+
 **Try the live demo on Telegram:** [@BaziFlowAgent_bot](https://t.me/BaziFlowAgent_bot)
 
 <p align="center">
-  <img src="./logo_ai_bot.png" alt="BaziFlowAgent Logo" width="300" />
+  <img src="./public/logo_ai_bot.png" alt="BaziFlowAgent Logo" width="300" />
 </p>
 
 [![Rust](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
