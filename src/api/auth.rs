@@ -49,7 +49,7 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthUser {
 
     let state = crate::models::get_state();
     let (user_id, user_limit) = repos::get_auth_user_by_api_key(&state.db_pool, token).await.ok_or(AuthError::InvalidToken)?;
-    let rate_limit = user_limit.unwrap_or(state.config.runtime.requests_per_minute);
+    let rate_limit = user_limit.unwrap_or(state.config.runtime.rate_limit);
     state.runtime.set_cached_limit(user_id, rate_limit);
 
     use sha2::{Digest, Sha256};

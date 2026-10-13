@@ -65,7 +65,7 @@ Events are ephemeral, best effort, and not replayed. Reconnect, authenticate, su
 | Expensive application operations / upstream LLM requests |     16 each | `APP_MAX_WORK`             |
 | HTTP JSON body / WS frame and assembled message          |      16 KiB | `API_MAX_MESSAGE_BYTES`    |
 | Notification queue per connection                        |          32 | `WS_QUEUE_CAPACITY`        |
-| Requests/frames per owner per 60-second window           |         120 | `API_REQUESTS_PER_MINUTE`  |
+| Rate limit (requests/frames per owner per window)        |           9 | `API_RATE_LIMIT`           |
 | Pending application commands per socket                  |           1 | Sequential execution       |
 | Subscriptions per socket                                 |           1 | Owner profile notification |
 | Heartbeat timeout                                        |  60 seconds | `WS_IDLE_SECONDS`          |

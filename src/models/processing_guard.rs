@@ -18,7 +18,7 @@ impl ProcessingGuard {
     if state.user_contexts.len() >= state.config.runtime.max_contexts && !state.user_contexts.contains_key(&user_id) {
       return Err(AdmissionRejection::MaxRequestsExceeded);
     }
-    let admission_permit = state.runtime.admission.try_admit(user_id, state.config.runtime.requests_per_minute, true)?;
+    let admission_permit = state.runtime.admission.try_admit(user_id, state.config.runtime.rate_limit, true)?;
     {
       let mut ctx = state.user_contexts.entry(user_id).or_default();
       if ctx.is_processing {

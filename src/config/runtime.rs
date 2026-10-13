@@ -10,7 +10,7 @@ pub struct RuntimeConfig {
   pub max_contexts: usize,
   pub max_message_bytes: usize,
   pub queue_capacity: usize,
-  pub requests_per_minute: usize,
+  pub rate_limit: usize,
   pub idle_seconds: u64,
   pub send_seconds: u64,
   pub work_seconds: u64,
@@ -27,7 +27,7 @@ impl Default for RuntimeConfig {
       max_contexts: 256,
       max_message_bytes: 16_384,
       queue_capacity: 32,
-      requests_per_minute: 9,
+      rate_limit: 9,
       idle_seconds: 60,
       send_seconds: 5,
       work_seconds: 180,
@@ -56,7 +56,7 @@ impl RuntimeConfig {
     setting!(max_work, "APP_MAX_WORK", 256);
     setting!(max_message_bytes, "API_MAX_MESSAGE_BYTES", 65_536);
     setting!(queue_capacity, "WS_QUEUE_CAPACITY", 256);
-    setting!(requests_per_minute, "API_REQUESTS_PER_MINUTE", 6000);
+    setting!(rate_limit, "API_RATE_LIMIT", 6000);
     setting!(idle_seconds, "WS_IDLE_SECONDS", 300);
     setting!(send_seconds, "WS_SEND_SECONDS", 30);
     setting!(work_seconds, "APP_WORK_SECONDS", 600);
