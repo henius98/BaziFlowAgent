@@ -40,9 +40,11 @@ pub fn api_router(config: Arc<crate::config::AppConfig>) -> Router {
     .route("/api/v1/schedule", put(handlers::update_schedule))
     .route("/api/v1/chat", post(handlers::chat))
     .layer(axum::extract::DefaultBodyLimit::max(config.runtime.max_message_bytes))
-    .layer(axum::middleware::from_fn(admission::admit))
+    .route_layer(axum::middleware::from_fn(admission::admit))
     .layer(cors_layer)
-    .layer(TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<axum::body::Body>| tracing::info_span!("http_request", method = %request.method(), path = request.uri().path())))
+    .route_layer(
+      TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<axum::body::Body>| tracing::info_span!("http_request", method = %request.method(), path = request.uri().path())),
+    )
 }
 
 /// Low-latency sockets for request/response and incremental streaming workloads.

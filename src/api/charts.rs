@@ -1,4 +1,5 @@
 use axum::{
+  body::Bytes,
   extract::Path,
   http::{StatusCode, header},
   response::{IntoResponse, Response},
@@ -10,6 +11,14 @@ pub async fn chart(Path(token): Path<String>) -> Response {
   let Ok(_permit) = state.runtime.requests.clone().try_acquire_owned() else {
     return StatusCode::TOO_MANY_REQUESTS.into_response();
   };
+
+  if token == "logo_ai_bot.png" {
+    static LOGO: tokio::sync::OnceCell<Bytes> = tokio::sync::OnceCell::const_new();
+    let Ok(bytes) = LOGO.get_or_try_init(|| async { tokio::fs::read("public/logo_ai_bot.png").await.map(Bytes::from) }).await else {
+      return StatusCode::NOT_FOUND.into_response();
+    };
+    return ([(header::CONTENT_TYPE, "image/png"), (header::CACHE_CONTROL, "public, max-age=86400, immutable")], bytes.clone()).into_response();
+  }
 
   // Stateless AES-256-GCM verification skips database lookup.
   let Some(user) = crate::services::chart_token::verify_chart_token(&token, &state.config.chart_token_secret) else {
@@ -23,10 +32,7 @@ pub async fn chart(Path(token): Path<String>) -> Response {
       (header::CONTENT_TYPE, "text/html; charset=utf-8"),
       (header::CACHE_CONTROL, "no-store"),
       (header::REFERRER_POLICY, "no-referrer"),
-      (
-        header::CONTENT_SECURITY_POLICY,
-        "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
-      ),
+      (header::CONTENT_SECURITY_POLICY, "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"),
     ],
     html,
   )

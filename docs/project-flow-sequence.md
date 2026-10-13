@@ -239,7 +239,7 @@ Shutdown has a configured total drain deadline. Deadline expiry is logged and re
 
 LLM producers stop on receiver cancellation, shutdown, output/event limits, or blocked-send deadlines. Completed-stream acknowledgement is required before persistence or success. Telegram handler errors/timeouts send a clean best-effort warning. The installer stages and verifies downloads before atomically replacing the executable, preserves a previous binary, and restores it when the immediate restart check fails; it does not perform an end-to-end application health check.
 
-Local chart retrieval resolves a stateless AES-256-GCM capability token in memory without database lookups and serves the corresponding escaped HTML with no-store and no-referrer headers. It does not expose the filesystem directory. Caches are disposable; oversized history turns and full cache queues are rejected observably.
+Local chart retrieval resolves a stateless AES-256-GCM capability token in memory without database lookups and serves the corresponding escaped HTML with no-store and no-referrer headers (alongside the static `logo_ai_bot.png` asset from `public/logo_ai_bot.png`). It does not expose arbitrary filesystem directory entries. Caches are disposable; oversized history turns and full cache queues are rejected observably.
 
 ## Maintenance rule
 

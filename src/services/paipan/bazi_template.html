@@ -2,20 +2,19 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>Bazi Flow Chart - {{NAME}}</title>
+    <link rel="icon" type="image/png" href="logo_ai_bot.png" />
     <meta property="og:title" content="八字命盘 (Bazi Chart) - {{NAME}}" />
-    <meta property="og:description" content="Click to view detailed Bazi chart and interactions." />
+    <meta
+      property="og:description"
+      content="Click to view detailed Bazi chart and interactions."
+    />
     <meta property="og:type" content="article" />
     <meta property="og:site_name" content="BaziFlowAgent" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap"
-      rel="stylesheet"
-      media="print"
-      onload="this.media='all'"
-    />
     <style>
       :root {
         --bg-body: #f5f6fa;
@@ -29,7 +28,7 @@
         --earth: #d84315;
         --metal: #f57c00;
         --water: #1e88e5;
-        
+
         --text-main: #333333;
         --text-muted: #888888;
         --text-light: #bbbbbb;
@@ -42,7 +41,9 @@
       }
 
       body {
-        font-family: "Inter", "Noto Sans SC", -apple-system, sans-serif;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
         background: var(--bg-body);
         color: var(--text-main);
         min-height: 100vh;
@@ -72,6 +73,13 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
+      }
+      .header-logo {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        object-fit: cover;
+        flex-shrink: 0;
       }
       .case-name {
         font-size: 1.2rem;
@@ -183,12 +191,24 @@
       }
 
       /* Colors */
-      .color-wood { color: var(--wood); }
-      .color-fire { color: var(--fire); }
-      .color-earth { color: var(--earth); }
-      .color-metal { color: var(--metal); }
-      .color-water { color: var(--water); }
-      .color-any { color: var(--text-main); }
+      .color-wood {
+        color: var(--wood);
+      }
+      .color-fire {
+        color: var(--fire);
+      }
+      .color-earth {
+        color: var(--earth);
+      }
+      .color-metal {
+        color: var(--metal);
+      }
+      .color-water {
+        color: var(--water);
+      }
+      .color-any {
+        color: var(--text-main);
+      }
 
       /* Interactions footer */
       .interactions-footer {
@@ -216,17 +236,21 @@
         color: var(--text-main);
         line-height: 1.5;
       }
-      
+
       @media (min-width: 768px) {
         .container {
-           margin-top: 2rem;
-           margin-bottom: 2rem;
-           border-radius: 8px;
-           overflow: hidden;
-           border: 1px solid var(--border-color);
+          margin-top: 2rem;
+          margin-bottom: 2rem;
+          border-radius: 8px;
+          overflow: hidden;
+          border: 1px solid var(--border-color);
         }
         .header {
-           padding: 1.5rem 2rem;
+          padding: 1.5rem 2rem;
+        }
+        .header-logo {
+          width: 36px;
+          height: 36px;
         }
         .row-gan-zhi {
           font-size: 2rem;
@@ -234,10 +258,18 @@
         .grid-cell {
           padding: 1rem 0.5rem;
         }
-        .hidden-stem { font-size: 1.2rem; }
-        .hidden-god { font-size: 0.8rem; }
-        .row-ten-god { font-size: 1rem; }
-        .row-extra { font-size: 0.9rem; }
+        .hidden-stem {
+          font-size: 1.2rem;
+        }
+        .hidden-god {
+          font-size: 0.8rem;
+        }
+        .row-ten-god {
+          font-size: 1rem;
+        }
+        .row-extra {
+          font-size: 0.9rem;
+        }
       }
     </style>
     <script>
@@ -265,6 +297,11 @@
     <div class="container">
       <div class="header">
         <div class="title-section">
+          <img
+            src="logo_ai_bot.png"
+            alt="BaziFlowAgent Logo"
+            class="header-logo"
+          />
           <div class="case-name">
             {{NAME}} <span class="gender-suffix">{{GENDER_SUFFIX}}</span>
           </div>
@@ -281,7 +318,7 @@
 
       <div class="chart-grid">
         <!-- Row: Label -->
-        <div class="grid-cell label-cell">日期</div>
+        <div class="grid-cell label-cell">四柱</div>
         <div class="grid-cell">流年</div>
         <div class="grid-cell luck-sep">大运</div>
         <div class="grid-cell">年柱</div>
@@ -366,15 +403,25 @@
         <div class="grid-cell row-extra">{{HOUR_NAYIN}}</div>
 
         <!-- Row: Symbolic Stars -->
-        <div class="grid-cell label-cell" style="border-bottom: none;">神煞</div>
-        <div class="grid-cell row-shensha" style="border-bottom: none;">{{YEAR_SHENSHA_CURRENT}}</div>
-        <div class="grid-cell row-shensha luck-sep" style="border-bottom: none;">
+        <div class="grid-cell label-cell" style="border-bottom: none">神煞</div>
+        <div class="grid-cell row-shensha" style="border-bottom: none">
+          {{YEAR_SHENSHA_CURRENT}}
+        </div>
+        <div class="grid-cell row-shensha luck-sep" style="border-bottom: none">
           {{LUCK_SHENSHA_CURRENT}}
         </div>
-        <div class="grid-cell row-shensha" style="border-bottom: none;">{{YEAR_SHENSHA}}</div>
-        <div class="grid-cell row-shensha" style="border-bottom: none;">{{MONTH_SHENSHA}}</div>
-        <div class="grid-cell row-shensha" style="border-bottom: none;">{{DAY_SHENSHA}}</div>
-        <div class="grid-cell row-shensha" style="border-bottom: none;">{{HOUR_SHENSHA}}</div>
+        <div class="grid-cell row-shensha" style="border-bottom: none">
+          {{YEAR_SHENSHA}}
+        </div>
+        <div class="grid-cell row-shensha" style="border-bottom: none">
+          {{MONTH_SHENSHA}}
+        </div>
+        <div class="grid-cell row-shensha" style="border-bottom: none">
+          {{DAY_SHENSHA}}
+        </div>
+        <div class="grid-cell row-shensha" style="border-bottom: none">
+          {{HOUR_SHENSHA}}
+        </div>
       </div>
 
       <div class="interactions-footer">

@@ -37,6 +37,17 @@ async fn test_all_api_endpoints() {
   let (app, mut server, state, api_key) = setup_test_app().await;
 
   // ==========================================
+  // 0. Unmatched route returns 404 without auth; matched route without auth returns 401
+  // ==========================================
+  let favicon_req = Request::builder().method("GET").uri("/favicon.ico").body(Body::empty()).unwrap();
+  let favicon_res = app.clone().oneshot(favicon_req).await.unwrap();
+  assert_eq!(favicon_res.status(), StatusCode::NOT_FOUND);
+
+  let unauth_req = Request::builder().method("GET").uri("/api/v1/profile").body(Body::empty()).unwrap();
+  let unauth_res = app.clone().oneshot(unauth_req).await.unwrap();
+  assert_eq!(unauth_res.status(), StatusCode::UNAUTHORIZED);
+
+  // ==========================================
   // 1. GET /profile (Not Found)
   // ==========================================
   let req = Request::builder().method("GET").uri("/api/v1/profile").header(header::AUTHORIZATION, format!("Bearer {}", api_key)).body(Body::empty()).unwrap();

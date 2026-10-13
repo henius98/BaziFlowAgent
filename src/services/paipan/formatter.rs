@@ -202,7 +202,7 @@ fn render_bazi_html(chart: &StructuredBazi, name: &str) -> String {
   html = html.replace("{{NAME}}", name);
   html = html.replace("{{GENDER_SUFFIX}}", &chart.info.gender);
   html = html.replace("{{lunisolar_date}}", &chart.info.lunisolar_date);
-  let solar_date = if chart.info.birth_time_known { chart.info.solar_date.clone() } else { format!("{}(出生时间未知,12:00仅为参考)", chart.info.solar_date) };
+  let solar_date = if chart.info.birth_time_known { chart.info.solar_date.clone() + "(真太阳时)" } else { format!("{}(出生时间未知,12:00仅为参考)", chart.info.solar_date) };
   html = html.replace("{{SOLAR_DATE}}", &solar_date);
 
   // Current Luck columns (流年 + 大运)
