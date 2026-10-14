@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <title>Bazi Flow Chart - {{NAME}}</title>
-    <link rel="icon" type="image/png" href="logo_ai_bot.png" />
+    <link rel="icon" type="image/png" href="logo_ai_bot.png?v=1" />
     <meta property="og:title" content="八字命盘 (Bazi Chart) - {{NAME}}" />
     <meta
       property="og:description"
@@ -75,8 +75,8 @@
         gap: 0.5rem;
       }
       .header-logo {
-        width: 32px;
-        height: 32px;
+        width: 48px;
+        height: 48px;
         border-radius: 50%;
         overflow: hidden;
         object-fit: cover;
@@ -251,8 +251,8 @@
           padding: 1.5rem 2rem;
         }
         .header-logo {
-          width: 36px;
-          height: 36px;
+          width: 56px;
+          height: 56px;
         }
         .row-gan-zhi {
           font-size: 2rem;
@@ -280,7 +280,7 @@
       <div class="header">
         <div class="title-section">
           <img
-            src="logo_ai_bot.png"
+            src="logo_ai_bot.png?v=1"
             alt="BaziFlowAgent Logo"
             class="header-logo"
           />
@@ -320,9 +320,7 @@
         <!-- Row: Heaven Stem -->
         <div class="grid-cell label-cell">天干</div>
         <div class="grid-cell row-gan-zhi">{{YEAR_PILLAR_0}}</div>
-        <div class="grid-cell row-gan-zhi luck-sep">
-          {{LUCK_PILLAR_0}}
-        </div>
+        <div class="grid-cell row-gan-zhi luck-sep">{{LUCK_PILLAR_0}}</div>
         <div class="grid-cell row-gan-zhi">{{YEAR_STEM}}</div>
         <div class="grid-cell row-gan-zhi">{{MONTH_STEM}}</div>
         <div class="grid-cell row-gan-zhi">{{DAY_STEM}}</div>
@@ -331,9 +329,7 @@
         <!-- Row: Earthly Branch -->
         <div class="grid-cell label-cell">地支</div>
         <div class="grid-cell row-gan-zhi">{{YEAR_PILLAR_1}}</div>
-        <div class="grid-cell row-gan-zhi luck-sep">
-          {{LUCK_PILLAR_1}}
-        </div>
+        <div class="grid-cell row-gan-zhi luck-sep">{{LUCK_PILLAR_1}}</div>
         <div class="grid-cell row-gan-zhi">{{YEAR_BRANCH}}</div>
         <div class="grid-cell row-gan-zhi">{{MONTH_BRANCH}}</div>
         <div class="grid-cell row-gan-zhi">{{DAY_BRANCH}}</div>
