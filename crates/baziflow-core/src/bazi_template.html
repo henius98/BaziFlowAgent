@@ -78,8 +78,10 @@
         width: 32px;
         height: 32px;
         border-radius: 50%;
+        overflow: hidden;
         object-fit: cover;
         flex-shrink: 0;
+        display: block;
       }
       .case-name {
         font-size: 1.2rem;
@@ -272,26 +274,6 @@
         }
       }
     </style>
-    <script>
-      document.addEventListener("DOMContentLoaded", () => {
-        const getColorClass = (char) => {
-          if (["甲", "乙", "寅", "卯"].includes(char)) return "color-wood";
-          if (["丙", "丁", "巳", "午"].includes(char)) return "color-fire";
-          if (["戊", "己", "辰", "戌", "丑", "未"].includes(char))
-            return "color-earth";
-          if (["庚", "辛", "申", "酉"].includes(char)) return "color-metal";
-          if (["壬", "癸", "亥", "子"].includes(char)) return "color-water";
-          return "color-any";
-        };
-
-        document
-          .querySelectorAll(".row-gan-zhi span, .hidden-stem")
-          .forEach((el) => {
-            const char = el.textContent.trim().charAt(0);
-            el.className = getColorClass(char);
-          });
-      });
-    </script>
   </head>
   <body>
     <div class="container">
@@ -337,25 +319,25 @@
 
         <!-- Row: Heaven Stem -->
         <div class="grid-cell label-cell">天干</div>
-        <div class="grid-cell row-gan-zhi"><span>{{YEAR_PILLAR_0}}</span></div>
+        <div class="grid-cell row-gan-zhi">{{YEAR_PILLAR_0}}</div>
         <div class="grid-cell row-gan-zhi luck-sep">
-          <span>{{LUCK_PILLAR_0}}</span>
+          {{LUCK_PILLAR_0}}
         </div>
-        <div class="grid-cell row-gan-zhi"><span>{{YEAR_STEM}}</span></div>
-        <div class="grid-cell row-gan-zhi"><span>{{MONTH_STEM}}</span></div>
-        <div class="grid-cell row-gan-zhi"><span>{{DAY_STEM}}</span></div>
-        <div class="grid-cell row-gan-zhi"><span>{{HOUR_STEM}}</span></div>
+        <div class="grid-cell row-gan-zhi">{{YEAR_STEM}}</div>
+        <div class="grid-cell row-gan-zhi">{{MONTH_STEM}}</div>
+        <div class="grid-cell row-gan-zhi">{{DAY_STEM}}</div>
+        <div class="grid-cell row-gan-zhi">{{HOUR_STEM}}</div>
 
         <!-- Row: Earthly Branch -->
         <div class="grid-cell label-cell">地支</div>
-        <div class="grid-cell row-gan-zhi"><span>{{YEAR_PILLAR_1}}</span></div>
+        <div class="grid-cell row-gan-zhi">{{YEAR_PILLAR_1}}</div>
         <div class="grid-cell row-gan-zhi luck-sep">
-          <span>{{LUCK_PILLAR_1}}</span>
+          {{LUCK_PILLAR_1}}
         </div>
-        <div class="grid-cell row-gan-zhi"><span>{{YEAR_BRANCH}}</span></div>
-        <div class="grid-cell row-gan-zhi"><span>{{MONTH_BRANCH}}</span></div>
-        <div class="grid-cell row-gan-zhi"><span>{{DAY_BRANCH}}</span></div>
-        <div class="grid-cell row-gan-zhi"><span>{{HOUR_BRANCH}}</span></div>
+        <div class="grid-cell row-gan-zhi">{{YEAR_BRANCH}}</div>
+        <div class="grid-cell row-gan-zhi">{{MONTH_BRANCH}}</div>
+        <div class="grid-cell row-gan-zhi">{{DAY_BRANCH}}</div>
+        <div class="grid-cell row-gan-zhi">{{HOUR_BRANCH}}</div>
 
         <!-- Row: Hidden Stems -->
         <div class="grid-cell label-cell">藏干</div>

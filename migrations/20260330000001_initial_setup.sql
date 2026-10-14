@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   bazi_four_pillars BLOB, -- JSON stored via jsonb(); BLOB affinity matches binary format
   bazi_analysis TEXT, -- LLM-generated destiny text
   bazi_summary TEXT, -- main essential keypoint life for improve user date fortune analysis + save token
-  rate_limit INTEGER, -- Per-user rate limit (requests per minute). NULL defaults to global config API_REQUESTS_PER_MINUTE
+  rate_limit INTEGER, -- Per-user rate limit (requests per minute). NULL defaults to global config API_RATE_LIMIT
   last_active_at INTEGER NOT NULL DEFAULT (UNIXEPOCH())
 );
 

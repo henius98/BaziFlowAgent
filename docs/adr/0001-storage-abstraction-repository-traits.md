@@ -4,7 +4,7 @@ BaziFlowAgent previously coupled relational data access, disposable chat history
 
 ## Status
 
-accepted
+Superseded — Single-impl repository traits (UserRepository, ChatCacheRepository, LlmLogRepository, LlmService) consolidated to concrete Database enum and ChatHistoryCache structs to eliminate BoxFuture heap allocation overhead. Multi-backend BlobStore retained.
 
 ## Considered Options
 

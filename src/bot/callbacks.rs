@@ -9,8 +9,7 @@ use crate::repos;
 // ─────────────────────────────────────────────
 // Callback handler (calendar + time picker)
 // ─────────────────────────────────────────────
-pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
-  let state = crate::models::get_state();
+pub async fn handle_callback(bot: Bot, state: std::sync::Arc<crate::models::AppState>, q: CallbackQuery) -> ResponseResult<()> {
   let data = match q.data.as_deref() {
     Some(d) => d,
     None => return Ok(()),
@@ -31,12 +30,14 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
   if let Some(action) = super::keyboards::NewBaziWarningAction::decode(data) {
     match action {
       super::keyboards::NewBaziWarningAction::Continue => {
+        state.profile_wizards.insert(user_id, crate::models::state::ProfileState::default());
         let markup = keyboards::build_gender_picker();
         if let Some(msg) = &q.message {
           let _ = bot.edit_message_text(msg.chat().id, msg.id(), "📅 Step 1/6 — Select your gender:\n\nThis is required for accurate Bazi calculation.").reply_markup(markup).await;
         }
       }
       super::keyboards::NewBaziWarningAction::Cancel => {
+        state.profile_wizards.remove(&user_id);
         if let Some(msg) = &q.message {
           let _ = bot.edit_message_text(msg.chat().id, msg.id(), "✅ Operation cancelled. Your existing Bazi profile is safe.").await;
         }
@@ -53,7 +54,6 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
       return Ok(());
     }
     let user_id = q.from.id.0;
-    let state = crate::models::get_state();
     match repos::create_api_key(&state.db_pool, user_id).await {
       Ok(raw_key) => {
         if let Some(msg) = &q.message {
@@ -94,7 +94,11 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
       GenderAction::SelectMale | GenderAction::SelectFemale => {
         let gender_val = if matches!(action, GenderAction::SelectMale) { 1 } else { 0 };
         let user_id = q.from.id.0;
-        state.user_contexts.entry(user_id).or_default().profile_state.gender = Some(gender_val);
+        {
+          let mut wizard = state.profile_wizards.entry(user_id).or_default();
+          wizard.gender = Some(gender_val);
+          wizard.last_active = std::time::Instant::now();
+        }
 
         let markup = keyboards::build_year_picker(1996);
         if let Some(msg) = &q.message {
@@ -108,6 +112,9 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
 
   // ── Birthdate calendar callbacks (bdcal:…) ────────────────────────────
   if let Some(action) = BirthdateCalAction::decode(data) {
+    if let Some(mut wizard) = state.profile_wizards.get_mut(&user_id) {
+      wizard.last_active = std::time::Instant::now();
+    }
     match action {
       BirthdateCalAction::ViewYears { start_year } => {
         let markup = keyboards::build_year_picker(start_year);
@@ -131,11 +138,12 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         let date_str = date.format("%Y-%m-%d").to_string();
         let user_id = q.from.id.0;
         {
-          let mut ctx = state.user_contexts.entry(user_id).or_default();
-          ctx.profile_state.birthdate = Some(date_str.clone());
-          ctx.profile_state.hour = None;
-          ctx.profile_state.minute = None;
-          ctx.profile_state.location = None;
+          let mut wizard = state.profile_wizards.entry(user_id).or_default();
+          wizard.birthdate = Some(date_str.clone());
+          wizard.hour = None;
+          wizard.minute = None;
+          wizard.location = None;
+          wizard.last_active = std::time::Instant::now();
         }
 
         let markup = keyboards::build_birth_time_picker();
@@ -163,15 +171,20 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
       LocationAction::Skip => None,
     };
 
-    state.user_contexts.entry(user_id).or_default().profile_state.location = loc;
+    {
+      let mut wizard = state.profile_wizards.entry(user_id).or_default();
+      wizard.location = loc;
+      wizard.last_active = std::time::Instant::now();
+    }
 
     let chat_id = q.message.as_ref().map(|m| m.chat().id).unwrap_or(ChatId(0));
     let msg_id = q.message.as_ref().map(|m| m.id());
     let bot_clone = bot.clone();
+    let state_clone = state.clone();
     let username = get_username(&q.from);
     state.runtime.tasks.spawn(async move {
       let _guard = guard;
-      let _ = super::run(command_actions::perform_bazi_analysis(bot_clone, chat_id, user_id, username, msg_id)).await;
+      let _ = super::run(state_clone.clone(), command_actions::perform_bazi_analysis(bot_clone, &state_clone, chat_id, user_id, username, msg_id)).await;
     });
     bot.answer_callback_query(q.id).await?;
     return Ok(());
@@ -183,9 +196,10 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
       TimeAction::SelectHour(hour) => {
         let user_id = q.from.id.0;
         {
-          let mut ctx = state.user_contexts.entry(user_id).or_default();
-          ctx.profile_state.hour = Some(hour as u8);
-          ctx.profile_state.minute = None;
+          let mut wizard = state.profile_wizards.entry(user_id).or_default();
+          wizard.hour = Some(hour as u8);
+          wizard.minute = None;
+          wizard.last_active = std::time::Instant::now();
         }
         let markup = keyboards::build_minute_picker(hour, |h, m| keyboards::TimeAction::SelectMinute { hour: h, minute: m }.encode(), || keyboards::TimeAction::BackToHour.encode());
         if let Some(msg) = &q.message {
@@ -195,9 +209,10 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
       TimeAction::SelectMinute { hour, minute } => {
         let user_id = q.from.id.0;
         {
-          let mut ctx = state.user_contexts.entry(user_id).or_default();
-          ctx.profile_state.hour = Some(hour as u8);
-          ctx.profile_state.minute = Some(minute as u8);
+          let mut wizard = state.profile_wizards.entry(user_id).or_default();
+          wizard.hour = Some(hour as u8);
+          wizard.minute = Some(minute as u8);
+          wizard.last_active = std::time::Instant::now();
         }
 
         let markup = keyboards::build_location_picker();
@@ -211,7 +226,10 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
       TimeAction::BackToHour => {
         let markup = keyboards::build_birth_time_picker();
         let user_id = q.from.id.0;
-        let date_str = state.user_contexts.get(&user_id).and_then(|c| c.profile_state.birthdate.clone()).unwrap_or_else(|| "Selected Date".to_string());
+        if let Some(mut wizard) = state.profile_wizards.get_mut(&user_id) {
+          wizard.last_active = std::time::Instant::now();
+        }
+        let date_str = state.profile_wizards.get(&user_id).and_then(|c| c.birthdate.clone()).unwrap_or_else(|| "Selected Date".to_string());
 
         if let Some(msg) = &q.message {
           let _ =
@@ -221,9 +239,10 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
       TimeAction::Skip => {
         let user_id = q.from.id.0;
         {
-          let mut ctx = state.user_contexts.entry(user_id).or_default();
-          ctx.profile_state.hour = None;
-          ctx.profile_state.minute = None;
+          let mut wizard = state.profile_wizards.entry(user_id).or_default();
+          wizard.hour = None;
+          wizard.minute = None;
+          wizard.last_active = std::time::Instant::now();
         }
 
         let markup = keyboards::build_location_picker();
@@ -288,7 +307,7 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         }
 
         // Update scheduler
-        crate::scheduler::add_or_update_user_schedule(bot.clone(), user_id, schedule_val.as_deref().unwrap_or_default()).await;
+        crate::scheduler::add_or_update_user_schedule(&state, user_id, schedule_val.as_deref().unwrap_or_default()).await;
         if let Some(msg) = &q.message {
           let _ = bot.edit_message_text(msg.chat().id, msg.id(), format!("✅ Schedule updated to daily at: {}", time_str)).await;
         }
@@ -308,7 +327,7 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
           bot.answer_callback_query(q.id).await?;
           return Ok(());
         }
-        crate::scheduler::remove_user_daily_job(user_id).await;
+        crate::scheduler::remove_user_daily_job(&state, user_id).await;
         if let Some(msg) = &q.message {
           let _ = bot.edit_message_text(msg.chat().id, msg.id(), "✅ Daily schedule disabled.").await;
         }
@@ -322,6 +341,9 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
   use super::keyboards::PickCalendarAction;
   use chrono::Datelike;
   if let Some(action) = PickCalendarAction::decode(data) {
+    if let Some(mut wizard) = state.pick_wizards.get_mut(&user_id) {
+      wizard.last_active = std::time::Instant::now();
+    }
     match action {
       PickCalendarAction::SelectDate(_) | PickCalendarAction::Today | PickCalendarAction::Tomorrow => {
         let date = match action {
@@ -335,12 +357,13 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
         let date_str = date.format("%Y-%m-%d").to_string();
 
         let start_date = {
-          let mut ctx = state.user_contexts.entry(user_id).or_default();
-          if ctx.pick_state.start_date.is_none() {
-            ctx.pick_state.start_date = Some(date_str.clone());
+          let mut wizard = state.pick_wizards.entry(user_id).or_default();
+          wizard.last_active = std::time::Instant::now();
+          if wizard.start_date.is_none() {
+            wizard.start_date = Some(date_str.clone());
             None
           } else {
-            ctx.pick_state.start_date.clone()
+            wizard.start_date.clone()
           }
         };
 
@@ -376,7 +399,11 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
             }
           } else {
             // Valid end date
-            state.user_contexts.entry(user_id).or_default().pick_state.end_date = Some(date_str.clone());
+            {
+              let mut wizard = state.pick_wizards.entry(user_id).or_default();
+              wizard.end_date = Some(date_str.clone());
+              wizard.last_active = std::time::Instant::now();
+            }
             let markup = keyboards::build_activity_picker();
             if let Some(msg) = &q.message {
               let _ = bot.edit_message_text(msg.chat().id, msg.id(), format!("🎯 Step 3/3 — Date Range: {} to {}\n\nSelect your target activity:", start, date_str)).reply_markup(markup).await;
@@ -407,21 +434,30 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
     match action {
       PickActivityAction::Select(activity) => {
         let user_id = q.from.id.0;
-        state.user_contexts.entry(user_id).or_default().pick_state.activity = Some(activity.clone());
+        {
+          let mut wizard = state.pick_wizards.entry(user_id).or_default();
+          wizard.activity = Some(activity.clone());
+          wizard.last_active = std::time::Instant::now();
+        }
 
         let chat_id = q.message.as_ref().map(|m| m.chat().id).unwrap_or(ChatId(0));
         let msg_id = q.message.as_ref().map(|m| m.id());
         let bot_clone = bot.clone();
+        let state_clone = state.clone();
 
         state.runtime.tasks.spawn(async move {
           let _guard = guard;
           let target = msg_id.map(command_actions::MessageTarget::Edit);
-          let _ = super::run(command_actions::process_pick_selection(bot_clone, chat_id, user_id, target, None)).await;
+          let _ = super::run(state_clone.clone(), command_actions::process_pick_selection(bot_clone, &state_clone, chat_id, user_id, target, None)).await;
         });
       }
       PickActivityAction::Other => {
         let user_id = q.from.id.0;
-        state.user_contexts.entry(user_id).or_default().pick_state.waiting_for_text = true;
+        {
+          let mut wizard = state.pick_wizards.entry(user_id).or_default();
+          wizard.waiting_for_text = true;
+          wizard.last_active = std::time::Instant::now();
+        }
 
         if let Some(msg) = &q.message {
           let _ = bot.edit_message_text(msg.chat().id, msg.id(), "📝 Please type your target activity in the chat (e.g. 'Meeting with client', 'Surgery', 'Buying house'):").await;
@@ -440,30 +476,33 @@ pub async fn handle_callback(bot: Bot, q: CallbackQuery) -> ResponseResult<()> {
       CalendarAction::SelectDate(date) => {
         let formatted_date = date.format("%Y-%m-%d").to_string();
         let bot_clone = bot.clone();
+        let state_clone = state.clone();
         let q_clone = q.clone();
         state.runtime.tasks.spawn(async move {
           let _guard = guard;
-          let _ = command_actions::process_date_selection(&bot_clone, &q_clone, &formatted_date, crate::models::LlmRequestType::CalendarDate, "📝 盲派命理分析：", None).await;
+          let _ = command_actions::process_date_selection(&bot_clone, &state_clone, &q_clone, &formatted_date, crate::models::LlmRequestType::CalendarDate, "📝 盲派命理分析：", None).await;
         });
       }
 
       CalendarAction::Today => {
         let today = chrono::Utc::now().with_timezone(&state.config.app_timezone).date_naive().format("%Y-%m-%d").to_string();
         let bot_clone = bot.clone();
+        let state_clone = state.clone();
         let q_clone = q.clone();
         state.runtime.tasks.spawn(async move {
           let _guard = guard;
-          let _ = command_actions::process_date_selection(&bot_clone, &q_clone, &today, crate::models::LlmRequestType::CalendarToday, "📝 盲派命理分析 (今日)：", None).await;
+          let _ = command_actions::process_date_selection(&bot_clone, &state_clone, &q_clone, &today, crate::models::LlmRequestType::CalendarToday, "📝 盲派命理分析 (今日)：", None).await;
         });
       }
 
       CalendarAction::Tomorrow => {
         let tomorrow = (chrono::Utc::now().with_timezone(&state.config.app_timezone).date_naive() + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
         let bot_clone = bot.clone();
+        let state_clone = state.clone();
         let q_clone = q.clone();
         state.runtime.tasks.spawn(async move {
           let _guard = guard;
-          let _ = command_actions::process_date_selection(&bot_clone, &q_clone, &tomorrow, crate::models::LlmRequestType::CalendarTomorrow, "📝 盲派命理分析 (明日)：", None).await;
+          let _ = command_actions::process_date_selection(&bot_clone, &state_clone, &q_clone, &tomorrow, crate::models::LlmRequestType::CalendarTomorrow, "📝 盲派命理分析 (明日)：", None).await;
         });
       }
 

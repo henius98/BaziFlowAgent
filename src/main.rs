@@ -35,34 +35,38 @@ async fn main() -> anyhow::Result<()> {
   let db_pool = repos::init_database(&config.database_url, config.d1.as_ref(), http_client.clone()).await.context("Failed to initialize database")?;
   let chat_cache = repos::chat_history_cache::init_chat_history_cache(&config.chat_cache_database_url, config.chat_cache_max_messages).await.context("Failed to initialize chat history cache")?;
 
-  // Shared state
-  let state = Arc::new(AppState::new(http_client, db_pool, chat_cache.pool, chat_cache.writer, config.clone())?);
-  baziflow_agent::models::state::GLOBAL_STATE.set(state.clone()).map_err(|_| anyhow::anyhow!("Failed to set GLOBAL_STATE"))?;
-
   // Set bot commands
   bot.set_my_commands(bot::Command::bot_commands()).await.context("Failed to set bot commands")?;
 
-  // Initialize and start scheduler
-  let scheduler_config = Arc::new(scheduler::SchedulerConfig { bot: bot.clone() });
+  // Initialize background job scheduler
+  let mut scheduler = tokio_cron_scheduler::JobScheduler::new().await.context("Failed to create job scheduler")?;
 
-  let mut scheduler = scheduler::start_scheduler(scheduler_config, config.user_contexts_expiration_minutes).await.map_err(|e| anyhow::anyhow!(e)).context("Failed to start scheduler")?;
+  // Shared state with injected bot and scheduler
+  let state = Arc::new(AppState::new(http_client, db_pool, chat_cache.pool, chat_cache.writer, config.clone(), Some(bot.clone()), Some(scheduler.clone()))?);
+
+  // Initialize and start scheduler
+  scheduler::start_scheduler(state.clone(), config.user_contexts_expiration_minutes).await.map_err(|e| anyhow::anyhow!(e)).context("Failed to start scheduler")?;
   debug!("BaziFlowAgent starting services...");
 
   // 1. Build the Telegram bot dispatcher
   let handler = dptree::entry()
-    .branch(Update::filter_callback_query().endpoint(|bot: bot::Bot, q: CallbackQuery| async move { bot::run(bot::callbacks::handle_callback(bot, q)).await }))
     .branch(
-      Update::filter_message().filter_command::<bot::Command>().endpoint(|bot: bot::Bot, msg: Message, cmd: bot::Command| async move { bot::run(bot::commands::handle_command(bot, msg, cmd)).await }),
+      Update::filter_callback_query().endpoint(|bot: bot::Bot, state: Arc<AppState>, q: CallbackQuery| async move { bot::run(state.clone(), bot::callbacks::handle_callback(bot, state, q)).await }),
     )
-    .branch(Update::filter_message().endpoint(|bot: bot::Bot, msg: Message| async move { bot::run(bot::messages::handle_message(bot, msg)).await }));
+    .branch(
+      Update::filter_message()
+        .filter_command::<bot::Command>()
+        .endpoint(|bot: bot::Bot, state: Arc<AppState>, msg: Message, cmd: bot::Command| async move { bot::run(state.clone(), bot::commands::handle_command(bot, state, msg, cmd)).await }),
+    )
+    .branch(Update::filter_message().endpoint(|bot: bot::Bot, state: Arc<AppState>, msg: Message| async move { bot::run(state.clone(), bot::messages::handle_message(bot, state, msg)).await }));
 
-  let mut bot_dispatcher = Dispatcher::builder(bot.clone(), handler).build();
+  let mut bot_dispatcher = Dispatcher::builder(bot.clone(), handler).dependencies(dptree::deps![state.clone()]).build();
 
   // Ensure public directory exists for static charts
   let _ = tokio::fs::create_dir_all("public").await;
 
   // Start web server with API routes + static file serving for Instant View / Web view
-  let mut app = baziflow_agent::api::api_router(config.clone()).route("/charts/{token}", axum::routing::get(baziflow_agent::api::charts::chart));
+  let mut app = baziflow_agent::api::api_router(state.clone());
 
   let addr = config.runtime.bind;
   info!("Starting web server on http://{}", addr);
@@ -114,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
     }
     state.runtime.tasks.close();
     state.runtime.tasks.wait().await;
-    let _ = state.chat_cache_writer.flush().await;
+    state.chat_cache.shutdown().await;
     state.chat_cache_pool.close().await;
     state.db_pool.close().await;
   };

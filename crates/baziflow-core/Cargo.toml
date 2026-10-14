@@ -1,0 +1,11 @@
+[package]
+name = "baziflow-core"
+version = "0.1.0"
+edition = "2024"
+description = "Pure domain logic and astrology calculations for BaziFlowAgent"
+
+[dependencies]
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

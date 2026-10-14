@@ -25,9 +25,9 @@ pub fn get_username(user: &teloxide::types::User) -> String {
 ///
 /// If the final text exceeds 4096 chars, the first message is trimmed and overflow
 /// is sent as separate messages.
-pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, mut receiver: crate::models::LlmStream) -> String {
-  let mut accumulated_bytes = Vec::new();
+pub async fn stream_to_telegram(bot: &Bot, state: &crate::models::AppState, chat_id: ChatId, initial_text: &str, mut receiver: crate::models::LlmStream) -> String {
   let mut accumulated = String::new();
+  let mut decoder = crate::utils::Utf8ChunkDecoder::new();
   let edit_interval = std::time::Duration::from_millis(1000);
   // Allow the first chunk to be flushed immediately
   let mut last_edit = std::time::Instant::now().checked_sub(edit_interval).unwrap_or_else(std::time::Instant::now);
@@ -35,11 +35,11 @@ pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, 
 
   // Generate a unique draft ID for this streaming session
   let draft_id = (uuid::Uuid::now_v7().as_u128() & i64::MAX as u128) as i64 | 1;
-  let client = crate::models::get_state().http_client.clone();
+  let client = &state.http_client;
   let token = bot.inner().token();
 
   // Show the custom initial placeholder immediately as a draft
-  flush_draft(&client, token, chat_id, draft_id, initial_text, true).await;
+  flush_draft(client, state, token, chat_id, draft_id, initial_text, true).await;
 
   loop {
     let sleep_dur = edit_interval.saturating_sub(last_edit.elapsed());
@@ -48,15 +48,16 @@ pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, 
         chunk_opt = receiver.recv() => {
             match chunk_opt {
                 Some(chunk) => {
-                    accumulated_bytes.extend_from_slice(&chunk);
-                    accumulated = String::from_utf8_lossy(&accumulated_bytes).into_owned();
-                    pending = true;
+                    if let Some(chunk_str) = decoder.decode_chunk(&chunk) {
+                        accumulated.push_str(&chunk_str);
+                        pending = true;
 
-                    // Throttle: flush immediately if enough time has passed
-                    if last_edit.elapsed() >= edit_interval {
-                        flush_draft(&client, token, chat_id, draft_id, &accumulated, false).await;
-                        last_edit = std::time::Instant::now();
-                        pending = false;
+                        // Throttle: flush immediately if enough time has passed
+                        if last_edit.elapsed() >= edit_interval {
+                            flush_draft(client, state, token, chat_id, draft_id, &accumulated, false).await;
+                            last_edit = std::time::Instant::now();
+                            pending = false;
+                        }
                     }
                 }
                 None => {
@@ -67,11 +68,15 @@ pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, 
         }
         _ = tokio::time::sleep(sleep_dur), if pending => {
             // Time to flush pending content
-            flush_draft(&client, token, chat_id, draft_id, &accumulated, false).await;
+            flush_draft(client, state, token, chat_id, draft_id, &accumulated, false).await;
             last_edit = std::time::Instant::now();
             pending = false;
         }
     }
+  }
+
+  if let Some(trailing) = decoder.finish() {
+    accumulated.push_str(&trailing);
   }
 
   if receiver.finish().await.is_err() {
@@ -96,8 +101,7 @@ pub async fn stream_to_telegram(bot: &Bot, chat_id: ChatId, initial_text: &str, 
 }
 
 /// Send a throttled draft edit using the sendMessageDraft API.
-async fn flush_draft(client: &reqwest::Client, token: &str, chat_id: ChatId, draft_id: i64, text: &str, is_initial: bool) {
-  let state = crate::models::get_state();
+async fn flush_draft(client: &reqwest::Client, state: &crate::models::AppState, token: &str, chat_id: ChatId, draft_id: i64, text: &str, is_initial: bool) {
   if !state.runtime.allow_draft() {
     return;
   }

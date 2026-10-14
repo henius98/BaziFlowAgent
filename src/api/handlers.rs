@@ -1,7 +1,7 @@
 use axum::{
   Json,
   extract::{
-    Query,
+    Query, State,
     ws::{Message, WebSocket, WebSocketUpgrade},
   },
   http::StatusCode,
@@ -12,6 +12,7 @@ use axum::{
 };
 use futures::{StreamExt, stream::Stream};
 use serde::Deserialize;
+use std::sync::Arc;
 use tracing::error;
 
 use super::auth::AuthUser;
@@ -36,9 +37,14 @@ async fn collect_stream(mut rx: crate::models::LlmStream) -> crate::models::AppR
 /// Helper to convert an LLM stream into SSE events.
 fn stream_to_sse(mut rx: crate::models::LlmStream) -> impl Stream<Item = Result<Event, std::convert::Infallible>> {
   async_stream::stream! {
+      let mut decoder = crate::utils::Utf8ChunkDecoder::new();
       while let Some(chunk) = rx.recv().await {
-          let chunk_str = String::from_utf8_lossy(&chunk);
-          yield Ok(Event::default().event("chunk").data(chunk_str));
+          if let Some(chunk_str) = decoder.decode_chunk(&chunk) {
+              yield Ok(Event::default().event("chunk").data(chunk_str));
+          }
+      }
+      if let Some(trailing) = decoder.finish() {
+          yield Ok(Event::default().event("chunk").data(trailing));
       }
       if rx.finish().await.is_ok() { yield Ok(Event::default().data("[DONE]")); }
       else { yield Ok(Event::default().event("error").data("Analysis interrupted")); }
@@ -53,8 +59,7 @@ fn api_error(status: StatusCode, msg: impl Into<String>) -> Response {
 // ─────────────────────────────────────────────
 // POST /api/v1/profile
 // ─────────────────────────────────────────────
-pub async fn create_profile(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<CreateProfileRequest>) -> Response {
-  let state = models::get_state();
+pub async fn create_profile(State(state): State<Arc<models::AppState>>, auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<CreateProfileRequest>) -> Response {
   let user_id = auth.user_id;
   let is_stream = query.stream.unwrap_or(false);
 
@@ -83,7 +88,13 @@ pub async fn create_profile(auth: AuthUser, query: Query<StreamQuery>, Json(req)
   };
 
   let username = repos::get_username_by_user_id(&state.db_pool, user_id).await.unwrap_or_else(|| "api_user".to_string());
-  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
+  let user_profile = match repos::get_user_profile(&state.db_pool, user_id).await {
+    Ok(p) => p,
+    Err(e) => {
+      error!("API: Failed to get user profile: {}", e);
+      return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error");
+    }
+  };
   let llm_model = user_profile.llm_model;
 
   let params = services::bazi_service::DestinyProfileParams { user_id, username: &username, birth_date: &req.birth_date, birth_time, gender: req.gender, location: req.location, llm_model };
@@ -104,9 +115,14 @@ pub async fn create_profile(auth: AuthUser, query: Query<StreamQuery>, Json(req)
 
         // Stream analysis chunks
         let mut rx = profile_res.stream;
+        let mut decoder = crate::utils::Utf8ChunkDecoder::new();
         while let Some(chunk) = rx.recv().await {
-            let chunk_str = String::from_utf8_lossy(&chunk);
-            yield Ok(Event::default().event("analysis_chunk").data(chunk_str));
+            if let Some(chunk_str) = decoder.decode_chunk(&chunk) {
+                yield Ok(Event::default().event("analysis_chunk").data(chunk_str));
+            }
+        }
+        if let Some(trailing) = decoder.finish() {
+            yield Ok(Event::default().event("analysis_chunk").data(trailing));
         }
 
         if rx.finish().await.is_ok() {
@@ -124,7 +140,13 @@ pub async fn create_profile(auth: AuthUser, query: Query<StreamQuery>, Json(req)
     Err(_) => return api_error(StatusCode::BAD_GATEWAY, "Analysis interrupted"),
   };
 
-  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
+  let user_profile = match repos::get_user_profile(&state.db_pool, user_id).await {
+    Ok(p) => p,
+    Err(e) => {
+      error!("API: Failed to get user profile: {}", e);
+      return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error");
+    }
+  };
   let summary = user_profile.bazi_summary;
 
   Json(ApiResponse::ok(CreatedProfileData { chart_url: profile_res.chart_url, bazi_analysis: analysis, bazi_summary: summary })).into_response()
@@ -133,10 +155,15 @@ pub async fn create_profile(auth: AuthUser, query: Query<StreamQuery>, Json(req)
 // ─────────────────────────────────────────────
 // GET /api/v1/profile
 // ─────────────────────────────────────────────
-pub async fn get_profile(auth: AuthUser) -> Response {
-  let state = models::get_state();
+pub async fn get_profile(State(state): State<Arc<models::AppState>>, auth: AuthUser) -> Response {
   let user_id = auth.user_id;
-  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
+  let user_profile = match repos::get_user_profile(&state.db_pool, user_id).await {
+    Ok(p) => p,
+    Err(e) => {
+      error!("API: Failed to get user profile: {}", e);
+      return api_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error");
+    }
+  };
 
   if user_profile.bazi_four_pillars.is_none() {
     return api_error(StatusCode::NOT_FOUND, "No Bazi profile found. Create one first via POST /api/v1/profile.");
@@ -181,8 +208,7 @@ pub async fn get_profile(auth: AuthUser) -> Response {
 // ─────────────────────────────────────────────
 // POST /api/v1/date-fortune
 // ─────────────────────────────────────────────
-pub async fn date_fortune(auth: AuthUser, headers: axum::http::HeaderMap, ws: WebSocketUpgrade) -> Response {
-  let state = models::get_state();
+pub async fn date_fortune(State(state): State<Arc<models::AppState>>, auth: AuthUser, headers: axum::http::HeaderMap, ws: WebSocketUpgrade) -> Response {
   if !super::gateway::origin_allowed(&headers, &state.config.cors_allowed_origin) {
     return StatusCode::FORBIDDEN.into_response();
   }
@@ -194,6 +220,7 @@ pub async fn date_fortune(auth: AuthUser, headers: axum::http::HeaderMap, ws: We
   };
   let tracked = state.runtime.tasks.token();
   let limit = state.config.runtime.max_message_bytes;
+  let state_clone = state.clone();
   super::gateway::configure(ws, limit).on_upgrade(move |socket| async move {
     let _tracked = tracked;
     let _permit = permit;
@@ -201,24 +228,22 @@ pub async fn date_fortune(auth: AuthUser, headers: axum::http::HeaderMap, ws: We
     tokio::select! {
       _ = state.runtime.shutdown.cancelled() => {},
       _ = tokio::time::sleep(std::time::Duration::from_secs(state.config.runtime.work_seconds)) => {},
-      result = handle_socket(socket, auth) => if let Err(e) = result {
+      result = handle_socket(socket, auth, state_clone) => if let Err(e) = result {
       tracing::error!("WebSocket connection error: {}", e);
       }
     }
   })
 }
 
-async fn send_ws_msg(socket: &mut WebSocket, msg: &ServerMessage) -> crate::models::AppResult<()> {
+async fn send_ws_msg(socket: &mut WebSocket, state: &models::AppState, msg: &ServerMessage) -> crate::models::AppResult<()> {
   let text = serde_json::to_string(msg)?;
-  if !super::gateway::send(socket, Message::Text(text.into()), models::get_state().config.runtime.send_seconds).await {
+  if !super::gateway::send(socket, Message::Text(text.into()), state.config.runtime.send_seconds).await {
     return Err(anyhow::anyhow!("WebSocket send timed out or closed").into());
   }
   Ok(())
 }
 
-async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::AppResult<()> {
-  let state = models::get_state();
-
+async fn handle_socket(mut socket: WebSocket, auth: AuthUser, state: Arc<models::AppState>) -> crate::models::AppResult<()> {
   let user_id = auth.user_id;
   // 1. Wait for Generate message, with a bounded initialization deadline.
   let (req_date, req_effort) = match tokio::time::timeout(std::time::Duration::from_secs(state.config.runtime.idle_seconds), socket.next()).await.ok().flatten() {
@@ -228,7 +253,7 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
           Some(e) => match models::ReasoningEffortLevel::parse(&e) {
             Some(level) => Some(level),
             None => {
-              send_ws_msg(&mut socket, &ServerMessage::Error { message: "Invalid reasoning_effort: accepted values are none, minimal, low, medium, high, xhigh".into() }).await?;
+              send_ws_msg(&mut socket, &state, &ServerMessage::Error { message: "Invalid reasoning_effort: accepted values are none, minimal, low, medium, high, xhigh".into() }).await?;
               return Ok(());
             }
           },
@@ -237,7 +262,7 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
         (date, effort)
       }
       _ => {
-        send_ws_msg(&mut socket, &ServerMessage::Error { message: "Expected Generate action".into() }).await?;
+        send_ws_msg(&mut socket, &state, &ServerMessage::Error { message: "Expected Generate action".into() }).await?;
         return Ok(());
       }
     },
@@ -245,42 +270,43 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
   };
 
   if !auth.is_current(&state).await {
-    send_ws_msg(&mut socket, &ServerMessage::Error { message: "Credential revoked".into() }).await?;
+    send_ws_msg(&mut socket, &state, &ServerMessage::Error { message: "Credential revoked".into() }).await?;
     return Ok(());
   }
   if chrono::NaiveDate::parse_from_str(&req_date, "%Y-%m-%d").is_err() {
-    send_ws_msg(&mut socket, &ServerMessage::Error { message: "Invalid date".into() }).await?;
+    send_ws_msg(&mut socket, &state, &ServerMessage::Error { message: "Invalid date".into() }).await?;
     return Ok(());
   }
   let Some(_guard) = crate::models::ProcessingGuard::acquire(state.clone(), user_id) else {
-    send_ws_msg(&mut socket, &ServerMessage::Error { message: "Service busy".into() }).await?;
+    send_ws_msg(&mut socket, &state, &ServerMessage::Error { message: "Service busy".into() }).await?;
     return Ok(());
   };
   let fortune_result = match services::almanac::get_daily_fortune(&state, user_id, &req_date, true, models::LlmRequestType::ApiDateFortune, req_effort).await {
     Ok(res) => res,
     Err(models::AppError::ProfileNotFound) => {
-      send_ws_msg(&mut socket, &ServerMessage::Error { message: "No Bazi profile found".into() }).await?;
+      send_ws_msg(&mut socket, &state, &ServerMessage::Error { message: "No Bazi profile found".into() }).await?;
       return Ok(());
     }
     Err(_e) => {
-      send_ws_msg(&mut socket, &ServerMessage::Error { message: "Almanac service unavailable".into() }).await?;
+      send_ws_msg(&mut socket, &state, &ServerMessage::Error { message: "Almanac service unavailable".into() }).await?;
       return Ok(());
     }
   };
 
   // Send almanac data
   let almanac_val = serde_json::to_value(&fortune_result.almanac_data)?;
-  send_ws_msg(&mut socket, &ServerMessage::Almanac { data: almanac_val }).await?;
+  send_ws_msg(&mut socket, &state, &ServerMessage::Almanac { data: almanac_val }).await?;
 
   match fortune_result.response {
     models::LlmResponse::Stream(mut receiver) => {
+      let mut decoder = crate::utils::Utf8ChunkDecoder::new();
       let mut credential_check = tokio::time::interval(std::time::Duration::from_secs((state.config.runtime.idle_seconds / 3).max(1)));
       credential_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
       loop {
         tokio::select! {
             _ = credential_check.tick() => {
               if !auth.is_current(&state).await {
-                send_ws_msg(&mut socket, &ServerMessage::Error { message: "Credential revoked".into() }).await?;
+                send_ws_msg(&mut socket, &state, &ServerMessage::Error { message: "Credential revoked".into() }).await?;
                 break;
               }
             }
@@ -304,11 +330,16 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
             chunk = receiver.recv() => {
                 match chunk {
                     Some(c) => {
-                        send_ws_msg(&mut socket, &ServerMessage::Chunk { data: String::from_utf8_lossy(&c).into_owned() }).await?;
+                        if let Some(chunk_str) = decoder.decode_chunk(&c) {
+                            send_ws_msg(&mut socket, &state, &ServerMessage::Chunk { data: chunk_str }).await?;
+                        }
                     }
                     None => {
-                        if receiver.finish().await.is_ok() { send_ws_msg(&mut socket, &ServerMessage::Done).await?; }
-                        else { send_ws_msg(&mut socket, &ServerMessage::Error { message: "Analysis interrupted".into() }).await?; }
+                        if let Some(trailing) = decoder.finish() {
+                            send_ws_msg(&mut socket, &state, &ServerMessage::Chunk { data: trailing }).await?;
+                        }
+                        if receiver.finish().await.is_ok() { send_ws_msg(&mut socket, &state, &ServerMessage::Done).await?; }
+                        else { send_ws_msg(&mut socket, &state, &ServerMessage::Error { message: "Analysis interrupted".into() }).await?; }
                         break;
                     }
                 }
@@ -317,7 +348,7 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
       }
     }
     _ => {
-      send_ws_msg(&mut socket, &ServerMessage::Error { message: "Expected stream".into() }).await?;
+      send_ws_msg(&mut socket, &state, &ServerMessage::Error { message: "Expected stream".into() }).await?;
     }
   }
 
@@ -327,8 +358,7 @@ async fn handle_socket(mut socket: WebSocket, auth: AuthUser) -> crate::models::
 // ─────────────────────────────────────────────
 // POST /api/v1/pick-date
 // ─────────────────────────────────────────────
-pub async fn pick_date(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<PickDateRequest>) -> Response {
-  let state = models::get_state();
+pub async fn pick_date(State(state): State<Arc<models::AppState>>, auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<PickDateRequest>) -> Response {
   let user_id = auth.user_id;
   let is_stream = query.stream.unwrap_or(false);
 
@@ -379,8 +409,7 @@ pub async fn pick_date(auth: AuthUser, query: Query<StreamQuery>, Json(req): Jso
 // ─────────────────────────────────────────────
 // GET /api/v1/models
 // ─────────────────────────────────────────────
-pub async fn get_models(_auth: AuthUser) -> Response {
-  let state = models::get_state();
+pub async fn get_models(State(state): State<Arc<models::AppState>>, _auth: AuthUser) -> Response {
   match repos::get_llm_models(&state.db_pool).await {
     Ok(models) => Json(ApiResponse::ok(ModelsData { models })).into_response(),
     Err(e) => {
@@ -393,8 +422,7 @@ pub async fn get_models(_auth: AuthUser) -> Response {
 // ─────────────────────────────────────────────
 // PUT /api/v1/model
 // ─────────────────────────────────────────────
-pub async fn update_model(auth: AuthUser, Json(req): Json<UpdateModelRequest>) -> Response {
-  let state = models::get_state();
+pub async fn update_model(State(state): State<Arc<models::AppState>>, auth: AuthUser, Json(req): Json<UpdateModelRequest>) -> Response {
   let user_id = auth.user_id;
 
   let model = match services::integration::set_model(&state, user_id, req.model).await {
@@ -409,8 +437,7 @@ pub async fn update_model(auth: AuthUser, Json(req): Json<UpdateModelRequest>) -
 // ─────────────────────────────────────────────
 // PUT /api/v1/schedule
 // ─────────────────────────────────────────────
-pub async fn update_schedule(auth: AuthUser, Json(req): Json<UpdateScheduleRequest>) -> Response {
-  let state = models::get_state();
+pub async fn update_schedule(State(state): State<Arc<models::AppState>>, auth: AuthUser, Json(req): Json<UpdateScheduleRequest>) -> Response {
   let user_id = auth.user_id;
 
   let schedule_val = match &req.time {
@@ -441,11 +468,9 @@ pub async fn update_schedule(auth: AuthUser, Json(req): Json<UpdateScheduleReque
   // Schedule runtime updates use the initialized scheduler's shared bot instance.
   // The durable schedule is restored on restart as well as updated immediately.
   // Telegram /schedule and HTTP settings therefore use the same scheduler.
-  if let Some(bot) = crate::scheduler::GLOBAL_BOT.get() {
-    match &schedule_val {
-      Some(cron) => crate::scheduler::add_or_update_user_schedule(bot.clone(), user_id, cron).await,
-      None => crate::scheduler::remove_user_daily_job(user_id).await,
-    }
+  match &schedule_val {
+    Some(cron) => crate::scheduler::add_or_update_user_schedule(&state, user_id, cron).await,
+    None => crate::scheduler::remove_user_daily_job(&state, user_id).await,
   }
 
   Json(ApiResponse::ok(ScheduleData { schedule: req.time })).into_response()
@@ -454,8 +479,7 @@ pub async fn update_schedule(auth: AuthUser, Json(req): Json<UpdateScheduleReque
 // ─────────────────────────────────────────────
 // POST /api/v1/chat
 // ─────────────────────────────────────────────
-pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<ChatRequest>) -> Response {
-  let state = models::get_state();
+pub async fn chat(State(state): State<Arc<models::AppState>>, auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<ChatRequest>) -> Response {
   let user_id = auth.user_id;
   let is_stream = query.stream.unwrap_or(false);
 
@@ -485,9 +509,14 @@ pub async fn chat(auth: AuthUser, query: Query<StreamQuery>, Json(req): Json<Cha
   match response {
     models::LlmResponse::Stream(mut rx) => {
       let sse_stream = async_stream::stream! {
+        let mut decoder = crate::utils::Utf8ChunkDecoder::new();
         while let Some(chunk) = rx.recv().await {
-          let chunk_str = String::from_utf8_lossy(&chunk);
-          yield Ok::<_, std::convert::Infallible>(Event::default().event("chunk").data(chunk_str));
+          if let Some(chunk_str) = decoder.decode_chunk(&chunk) {
+            yield Ok::<_, std::convert::Infallible>(Event::default().event("chunk").data(chunk_str));
+          }
+        }
+        if let Some(trailing) = decoder.finish() {
+          yield Ok(Event::default().event("chunk").data(trailing));
         }
         if rx.finish().await.is_ok() {
           yield Ok(Event::default().data("[DONE]"));

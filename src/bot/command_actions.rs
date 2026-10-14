@@ -5,16 +5,11 @@ use tracing::{error, info};
 use crate::repos;
 use crate::utils;
 
-pub async fn perform_bazi_analysis(bot: Bot, chat_id: ChatId, user_id: u64, username: String, message_id: Option<MessageId>) -> ResponseResult<()> {
-  let state = crate::models::get_state();
-  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
+pub async fn perform_bazi_analysis(bot: Bot, state: &std::sync::Arc<crate::models::AppState>, chat_id: ChatId, user_id: u64, username: String, message_id: Option<MessageId>) -> ResponseResult<()> {
+  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await.unwrap_or_default();
   let llm_model = user_profile.llm_model;
-  let profile_state = match state.user_contexts.get_mut(&user_id) {
-    Some(mut ctx) => {
-      let profile_state = ctx.profile_state.clone();
-      ctx.profile_state = crate::models::state::ProfileState::default();
-      profile_state
-    }
+  let profile_state = match state.profile_wizards.remove(&user_id) {
+    Some((_, profile_state)) => profile_state,
     None => {
       error!("Missing user context data for user_id: {}", user_id);
       let msg = "⚠️ Session expired or missing data. Please start again with /new.";
@@ -85,7 +80,7 @@ pub async fn perform_bazi_analysis(bot: Bot, chat_id: ChatId, user_id: u64, user
 
   let params = crate::services::bazi_service::DestinyProfileParams { user_id, username: &username, birth_date: &birth_date, birth_time, gender, location, llm_model };
 
-  let profile_res = match crate::services::bazi_service::create_destiny_profile(&state, params).await {
+  let profile_res = match crate::services::bazi_service::create_destiny_profile(state, params).await {
     Ok(res) => res,
     Err(e) => {
       error!("Failed to create destiny profile: {}", e);
@@ -96,15 +91,21 @@ pub async fn perform_bazi_analysis(bot: Bot, chat_id: ChatId, user_id: u64, user
 
   let _ = bot.send_message(chat_id, format!("📊 <b>Bazi Chart Diagram</b>\n\nView your chart here:\n{}", profile_res.chart_url)).parse_mode(teloxide::types::ParseMode::Html).await;
 
-  super::helpers::stream_to_telegram(&bot, chat_id, "🔮 Generating bazi analysis...", profile_res.stream).await;
+  super::helpers::stream_to_telegram(&bot, state, chat_id, "🔮 Generating bazi analysis...", profile_res.stream).await;
 
   Ok(())
 }
 
 /// Query and display the user's Bazi profile and destiny reading.
-pub async fn display_user_profile(bot: Bot, chat_id: ChatId, user_id: u64) -> ResponseResult<()> {
-  let state = crate::models::get_state();
-  let user_profile = repos::get_user_profile(&state.db_pool, user_id).await;
+pub async fn display_user_profile(bot: Bot, state: &std::sync::Arc<crate::models::AppState>, chat_id: ChatId, user_id: u64) -> ResponseResult<()> {
+  let user_profile = match repos::get_user_profile(&state.db_pool, user_id).await {
+    Ok(p) => p,
+    Err(e) => {
+      error!("Failed to fetch user profile: {}", e);
+      bot.send_message(chat_id, "⚠️ Database error fetching profile. Please try again later.").await?;
+      return Ok(());
+    }
+  };
 
   let structured = match crate::services::paipan::models::StructuredBazi::from_json(user_profile.bazi_four_pillars.as_deref()) {
     Ok(s) => s,
@@ -141,7 +142,7 @@ pub async fn display_user_profile(bot: Bot, chat_id: ChatId, user_id: u64) -> Re
       ));
     }
 
-    let chart_url = match crate::services::bazi_service::get_bazi_chart_url(&state, user_id).await {
+    let chart_url = match crate::services::bazi_service::get_bazi_chart_url(state, user_id).await {
       Ok(url) => url,
       Err(e) => {
         error!("Failed to generate bazi chart URL: {}", e);
@@ -195,13 +196,13 @@ pub enum MessageTarget {
 
 pub async fn process_date_selection(
   bot: &Bot,
+  state: &std::sync::Arc<crate::models::AppState>,
   q: &CallbackQuery,
   formatted_date: &str,
   request_type: crate::models::LlmRequestType,
   response_prefix: &str,
   reasoning_effort: Option<crate::models::ReasoningEffortLevel>,
 ) -> ResponseResult<()> {
-  let state = crate::models::get_state();
   let user = &q.from;
   let user_id = user.id.0;
   info!("User {} selected date: {}", user_id, formatted_date);
@@ -211,13 +212,13 @@ pub async fn process_date_selection(
     let msg_id = msg.id();
     let _ = bot.edit_message_text(chat_id, msg_id, format!("Processing date: {}", formatted_date)).await;
 
-    match crate::services::almanac::get_daily_fortune(&state, user_id, formatted_date, true, request_type, reasoning_effort).await {
+    match crate::services::almanac::get_daily_fortune(state, user_id, formatted_date, true, request_type, reasoning_effort).await {
       Ok(fortune) => {
         let _ = bot.send_message(chat_id, format!("📅 【{} 黄历信息】\n\n{}", formatted_date, fortune.almanac_data)).await;
 
         match fortune.response {
           crate::models::LlmResponse::Stream(receiver) => {
-            super::helpers::stream_to_telegram(bot, chat_id, response_prefix, receiver).await;
+            super::helpers::stream_to_telegram(bot, state, chat_id, response_prefix, receiver).await;
           }
           _ => {
             error!("Expected stream response from LLM, got non-stream variant");
@@ -237,12 +238,16 @@ pub async fn process_date_selection(
   Ok(())
 }
 
-pub async fn process_pick_selection(bot: Bot, chat_id: ChatId, user_id: u64, target: Option<MessageTarget>, reasoning_effort: Option<crate::models::ReasoningEffortLevel>) -> ResponseResult<()> {
-  let state = crate::models::get_state();
-
-  let ctx = state.user_contexts.get(&user_id);
-  let (start_date, end_date, activity) = match ctx {
-    Some(c) => (c.pick_state.start_date.clone().unwrap_or_default(), c.pick_state.end_date.clone().unwrap_or_default(), c.pick_state.activity.clone().unwrap_or_default()),
+pub async fn process_pick_selection(
+  bot: Bot,
+  state: &std::sync::Arc<crate::models::AppState>,
+  chat_id: ChatId,
+  user_id: u64,
+  target: Option<MessageTarget>,
+  reasoning_effort: Option<crate::models::ReasoningEffortLevel>,
+) -> ResponseResult<()> {
+  let (start_date, end_date, activity) = match state.pick_wizards.remove(&user_id) {
+    Some((_, c)) => (c.start_date.unwrap_or_default(), c.end_date.unwrap_or_default(), c.activity.unwrap_or_default()),
     None => return Ok(()),
   };
 
@@ -276,10 +281,10 @@ pub async fn process_pick_selection(bot: Bot, chat_id: ChatId, user_id: u64, tar
     reasoning_effort,
   };
 
-  match crate::services::almanac::pick_dates(&state, params).await {
+  match crate::services::almanac::pick_dates(state, params).await {
     Ok(result) => match result.response {
       crate::models::LlmResponse::Stream(receiver) => {
-        super::helpers::stream_to_telegram(&bot, chat_id, &placeholder_text, receiver).await;
+        super::helpers::stream_to_telegram(&bot, state, chat_id, &placeholder_text, receiver).await;
       }
       _ => {
         tracing::error!("Expected stream response from LLM, got non-stream variant");

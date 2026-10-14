@@ -19,9 +19,9 @@ pub fn generate_chart_token(user_id: u64, secret: &[u8; 32]) -> Result<String, c
 
   let ciphertext_and_tag = cipher.encrypt(&nonce, user_id.to_be_bytes().as_ref()).map_err(|e| crate::models::AppError::Message(format!("Failed to encrypt chart token: {e}")))?;
 
-  let mut payload = Vec::with_capacity(PAYLOAD_LEN);
-  payload.extend_from_slice(&nonce_bytes);
-  payload.extend_from_slice(&ciphertext_and_tag);
+  let mut payload = [0u8; PAYLOAD_LEN];
+  payload[..NONCE_LEN].copy_from_slice(&nonce_bytes);
+  payload[NONCE_LEN..].copy_from_slice(&ciphertext_and_tag);
 
   Ok(hex::encode(payload))
 }

@@ -9,6 +9,7 @@ public/*
 
 # Rust
 target/
+**/target/
 
 # Local LLDB backend with LZMA support
 .debugger/

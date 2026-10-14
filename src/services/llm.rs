@@ -124,20 +124,28 @@ fn build_chat_request(params: LlmRequestParams) -> AppResult<CreateChatCompletio
   Ok(builder.build()?)
 }
 
+use futures::future::BoxFuture;
+
+/// Abstract service contract for Large Language Model completions.
 pub trait LlmService: Send + Sync + std::fmt::Debug {
-  fn call<'a>(&'a self, params: LlmRequestParams) -> std::pin::Pin<Box<dyn std::future::Future<Output = AppResult<crate::models::LlmResponse>> + Send + 'a>>;
+  fn call<'a>(&'a self, pool: &'a crate::repos::Database, params: LlmRequestParams, runtime: &'a crate::models::runtime::Runtime) -> BoxFuture<'a, AppResult<crate::models::LlmResponse>>;
 }
 
+/// Default production LLM service implementation.
 #[derive(Debug, Clone)]
 pub struct DefaultLlmService {
-  pub runtime: std::sync::Arc<crate::models::runtime::Runtime>,
-  pub pool: crate::repos::Database,
   pub config: LlmClientConfig,
 }
 
+impl DefaultLlmService {
+  pub fn new(config: LlmClientConfig) -> Self {
+    Self { config }
+  }
+}
+
 impl LlmService for DefaultLlmService {
-  fn call<'a>(&'a self, params: LlmRequestParams) -> std::pin::Pin<Box<dyn std::future::Future<Output = AppResult<crate::models::LlmResponse>> + Send + 'a>> {
-    Box::pin(call_llm(&self.pool, &self.config, params, &self.runtime))
+  fn call<'a>(&'a self, pool: &'a crate::repos::Database, params: LlmRequestParams, runtime: &'a crate::models::runtime::Runtime) -> BoxFuture<'a, AppResult<crate::models::LlmResponse>> {
+    Box::pin(call_llm(pool, &self.config, params, runtime))
   }
 }
 

@@ -12,13 +12,12 @@ use axum::{
 use futures::StreamExt;
 use std::time::Duration;
 
-pub async fn admit(request: Request, next: Next) -> Response {
-  let state = crate::models::get_state();
+pub async fn admit(axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::models::AppState>>, request: Request, next: Next) -> Response {
   if state.runtime.shutdown.is_cancelled() {
     return StatusCode::SERVICE_UNAVAILABLE.into_response();
   }
   let (mut parts, body) = request.into_parts();
-  let auth = match tokio::time::timeout(Duration::from_secs(5), AuthUser::from_request_parts(&mut parts, &())).await {
+  let auth = match tokio::time::timeout(Duration::from_secs(5), AuthUser::from_request_parts(&mut parts, &state)).await {
     Ok(Ok(auth)) => auth,
     Ok(Err(error)) => return error.into_response(),
     Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),

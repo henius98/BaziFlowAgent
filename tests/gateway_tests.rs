@@ -3,7 +3,7 @@ use axum::{
   body::Body,
   http::{Request, StatusCode, header},
 };
-use baziflow_agent::{api, models::state::GLOBAL_STATE, repos};
+use baziflow_agent::{api, repos};
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
@@ -53,7 +53,6 @@ async fn integration_boundary_lifecycle_and_authorization() {
   config.cors_allowed_origin = "https://allowed.example".into();
   let config = Arc::new(config);
   let state = test_helpers::test_state(config.clone(), pool.clone()).await;
-  GLOBAL_STATE.set(state.clone()).unwrap();
   let guard = baziflow_agent::models::ProcessingGuard::acquire(state.clone(), 4).unwrap();
   assert!(baziflow_agent::models::ProcessingGuard::acquire(state.clone(), 4).is_none());
   let (ready, started) = tokio::sync::oneshot::channel();
@@ -67,7 +66,7 @@ async fn integration_boundary_lifecycle_and_authorization() {
   assert!(task.await.unwrap_err().is_cancelled());
   assert!(!state.user_contexts.get(&4).unwrap().is_processing);
   assert_eq!(state.runtime.work.available_permits(), state.config.runtime.max_work);
-  let app = api::api_router(config);
+  let app = api::api_router(state.clone());
   let response = app.clone().oneshot(Request::builder().uri("/api/v1/profile").body(Body::empty()).unwrap()).await.unwrap();
   assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
   let response = app.clone().oneshot(Request::builder().uri(format!("/api/v1/ws?token={key}")).body(Body::empty()).unwrap()).await.unwrap();

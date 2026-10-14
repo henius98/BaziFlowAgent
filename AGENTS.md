@@ -15,7 +15,7 @@ Detailed reference is disclosed across dedicated documents to minimize turn cont
 
 - **Architecture, Code Map & Tech Stack**: See [docs/architecture-overview.md](docs/architecture-overview.md).
 - **Project Flow & Request Sequences**: See [docs/project-flow-sequence.md](docs/project-flow-sequence.md).
-- **Architectural Decision Records**: See [docs/adr/](docs/adr/) (ADR 0001 Storage Traits, ADR 0002 Zero-Copy, ADR 0003 Admission Control).
+- **Architectural Decision Records**: See [docs/adr/](docs/adr/) (ADR 0001 Storage Traits, ADR 0002 Zero-Copy, ADR 0003 Admission Control, ADR 0004 Workspace & Trait Seams).
 - **Domain Terminology**: See [GLOSSARY.md](GLOSSARY.md) and [docs/agents/domain.md](docs/agents/domain.md).
 - **Issue Tracker & Offline Fallback**: See [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
 - **Triage Labels**: See [docs/agents/triage-labels.md](docs/agents/triage-labels.md).
@@ -28,7 +28,7 @@ Detailed reference is disclosed across dedicated documents to minimize turn cont
    - Always `.clone()` `Arc` bindings, SQLite pools, and `DashMap` instances before moving into `async` closures. Use `DashMap` to avoid `Mutex` deadlocks across high-traffic Telegram handlers.
 
 2. **Storage & Decoupling:**
-   - Storage access must go through repository traits in `src/repos/traits.rs` (`UserRepository`, `LlmLogRepository`, `ChatCacheRepository`, `BlobStore`). Never couple domain handlers directly to raw pool primitives.
+   - Relational database access uses concrete `Database` enum and `ChatHistoryCache` directly, while object storage uses `BlobStore`. Never couple domain handlers directly to raw pool primitives.
 
 3. **Database Migrations:**
    - New schema changes require a new file in `./migrations/`. Use `sqlx::query!` compile-time macros where possible.

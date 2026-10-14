@@ -21,12 +21,7 @@ async fn hydrate_chat_context(state: &AppState, user_id: u64) {
       if !ctx.history_loaded {
         ctx.clear_messages();
         for record in history {
-          let role = match record.role.as_str() {
-            "assistant" => crate::models::ChatRole::Assistant,
-            "tool" => crate::models::ChatRole::Tool,
-            _ => crate::models::ChatRole::User,
-          };
-          ctx.push_turn(role, record.content, state.config.max_context_messages);
+          ctx.push_turn(record.role, record.content, state.config.max_context_messages);
         }
         ctx.history_loaded = true;
       }
@@ -93,7 +88,7 @@ pub async fn persist_turn_response(state: &AppState, user_id: u64, tool_msg: Opt
 
 /// Accumulates streaming chunks from an `LlmStream` in the background, forwarding
 /// them immediately to an output stream and invoking `on_success` once fully complete.
-pub fn wrap_persisted_stream<F, Fut>(raw_stream: LlmStream, on_success: F) -> LlmStream
+pub fn wrap_persisted_stream<F, Fut>(tasks: &tokio_util::task::TaskTracker, raw_stream: LlmStream, on_success: F) -> LlmStream
 where
   F: FnOnce(String) -> Fut + Send + 'static,
   Fut: std::future::Future<Output = ()> + Send + 'static,
@@ -101,7 +96,7 @@ where
   let (out_tx, out_rx) = tokio::sync::mpsc::channel(16);
   let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
 
-  tokio::spawn(async move {
+  tasks.spawn(async move {
     let mut rx = raw_stream;
     let mut reply_bytes = Vec::new();
     let mut send_failed = false;
@@ -115,7 +110,7 @@ where
     drop(out_tx);
 
     let reply = String::from_utf8_lossy(&reply_bytes).into_owned();
-    if ok && !send_failed && !reply.trim().is_empty() {
+    if ok && !reply.trim().is_empty() {
       on_success(reply).await;
     }
     let _ = finish_tx.send(ok && !send_failed);
@@ -137,7 +132,7 @@ pub async fn submit_chat_turn(
   request_type: LlmRequestType,
   reasoning_effort: Option<crate::models::ReasoningEffortLevel>,
 ) -> AppResult<LlmResponse> {
-  let user_profile = state.user_repo.get_user_profile(user_id).await;
+  let user_profile = crate::repos::get_user_profile(&state.db_pool, user_id).await?;
   let bazi_four_pillars = user_profile.bazi_four_pillars.as_deref().ok_or(AppError::ProfileNotFound)?;
 
   let bazi_context = build_bazi_context_message(bazi_four_pillars, user_profile.bazi_summary.as_deref())?;
@@ -163,7 +158,7 @@ pub async fn submit_chat_turn(
     messages.extend(build_chat_messages(&ctx.messages));
   }
 
-  let model = state.user_repo.resolve_llm_model(user_profile.llm_model).await?;
+  let model = crate::repos::resolve_llm_model(&state.db_pool, user_profile.llm_model).await?;
   let model_id = Some(model.id() as i64);
   let model_name = model.as_str().to_string();
   let params = crate::services::llm::LlmRequestParams {
@@ -175,12 +170,12 @@ pub async fn submit_chat_turn(
     ..crate::services::llm::LlmRequestParams::new(model_name, messages, request_type)
   };
 
-  let response = state.llm_service.call(params).await?;
+  let response = state.llm_service.call(&state.db_pool, params, &state.runtime).await?;
 
   match response {
     LlmResponse::Stream(raw_stream) => {
       let state_clone = state.clone();
-      let stream = wrap_persisted_stream(raw_stream, move |reply| async move {
+      let stream = wrap_persisted_stream(&state.runtime.tasks, raw_stream, move |reply| async move {
         persist_turn_response(&state_clone, user_id, None, &reply).await;
       });
       Ok(LlmResponse::Stream(stream))
@@ -189,5 +184,78 @@ pub async fn submit_chat_turn(
       persist_turn_response(state, user_id, None, &reply).await;
       Ok(LlmResponse::Full(reply))
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use tokio_util::bytes::Bytes;
+  use tokio_util::task::TaskTracker;
+
+  #[tokio::test]
+  async fn wrap_persisted_stream_persists_even_when_downstream_disconnects() {
+    let tasks = TaskTracker::new();
+    let (tx, rx) = tokio::sync::mpsc::channel(16);
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    let raw_stream = LlmStream::new(rx, done_rx);
+
+    let (persisted_tx, persisted_rx) = tokio::sync::oneshot::channel();
+
+    let wrapped = wrap_persisted_stream(&tasks, raw_stream, |reply| async move {
+      let _ = persisted_tx.send(reply);
+    });
+
+    // Send first chunk
+    tx.send(Bytes::from("hello ")).await.unwrap();
+
+    // Downstream disconnects by dropping `wrapped`
+    drop(wrapped);
+
+    // Upstream continues producing remaining chunks and finishes
+    tx.send(Bytes::from("world")).await.unwrap();
+    drop(tx);
+    done_tx.send(true).unwrap();
+
+    // Verify persisted_rx receives the completed text
+    let persisted = tokio::time::timeout(std::time::Duration::from_secs(2), persisted_rx).await.expect("must not time out").expect("persistence callback must be called");
+    assert_eq!(persisted, "hello world");
+
+    tasks.close();
+    tasks.wait().await;
+  }
+
+  #[tokio::test]
+  async fn wrap_persisted_stream_handles_multibyte_utf8_split_across_chunks() {
+    let tasks = TaskTracker::new();
+    let (tx, rx) = tokio::sync::mpsc::channel(16);
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    let raw_stream = LlmStream::new(rx, done_rx);
+
+    let (persisted_tx, persisted_rx) = tokio::sync::oneshot::channel();
+
+    let mut wrapped = wrap_persisted_stream(&tasks, raw_stream, |reply| async move {
+      let _ = persisted_tx.send(reply);
+    });
+
+    // "你" in UTF-8 is [0xe4, 0xbd, 0xa0] (3 bytes).
+    // Split across chunk boundaries: [0xe4, 0xbd] in chunk 1, [0xa0] in chunk 2.
+    tx.send(Bytes::from_static(&[0xe4, 0xbd])).await.unwrap();
+    tx.send(Bytes::from_static(&[0xa0])).await.unwrap();
+    drop(tx);
+    done_tx.send(true).unwrap();
+
+    let mut forwarded = Vec::new();
+    while let Some(chunk) = wrapped.recv().await {
+      forwarded.extend_from_slice(&chunk);
+    }
+    wrapped.finish().await.expect("wrapped finish succeeds");
+
+    let persisted = tokio::time::timeout(std::time::Duration::from_secs(2), persisted_rx).await.expect("must not time out").expect("persisted");
+    assert_eq!(persisted, "你");
+    assert_eq!(String::from_utf8(forwarded).unwrap(), "你");
+
+    tasks.close();
+    tasks.wait().await;
   }
 }

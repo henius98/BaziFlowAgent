@@ -7,7 +7,7 @@ use sqlx::{
   SqlitePool,
   sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
-use std::{collections::HashSet, str::FromStr};
+use std::{collections::HashSet, str::FromStr, sync::Arc};
 use tokio::sync::mpsc;
 use tracing::error;
 
@@ -32,6 +32,7 @@ pub struct ChatHistoryCache {
 #[derive(Clone, Debug)]
 pub struct ChatHistoryWriter {
   sender: mpsc::Sender<ChatHistoryOperation>,
+  handle: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -46,9 +47,10 @@ pub enum ChatHistoryQueueError {
 
 #[derive(Debug)]
 enum ChatHistoryOperation {
-  Save { user_id: u64, role: String, content: String },
+  Save { user_id: u64, role: crate::models::ChatRole, content: String },
   Clear { user_id: u64 },
   Flush(tokio::sync::oneshot::Sender<()>),
+  Shutdown(tokio::sync::oneshot::Sender<()>),
 }
 
 impl ChatHistoryWriter {
@@ -58,13 +60,24 @@ impl ChatHistoryWriter {
     receiver.await.map_err(|_| ChatHistoryQueueError::Closed)
   }
 
+  /// Gracefully flush pending operations and wait for the background worker to terminate.
+  pub async fn shutdown(&self) {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    if self.sender.send(ChatHistoryOperation::Shutdown(sender)).await.is_ok() {
+      let _ = receiver.await;
+    }
+    if let Some(handle) = self.handle.lock().await.take() {
+      let _ = handle.await;
+    }
+  }
+
   /// Queue a write without making the request wait for SQLite I/O.
-  pub fn save(&self, user_id: u64, role: impl Into<String>, content: impl Into<String>) -> Result<(), ChatHistoryQueueError> {
+  pub fn save(&self, user_id: u64, role: crate::models::ChatRole, content: impl Into<String>) -> Result<(), ChatHistoryQueueError> {
     let content = content.into();
     if content.len() > 65_536 {
       return Err(ChatHistoryQueueError::TooLarge);
     }
-    self.enqueue(ChatHistoryOperation::Save { user_id, role: role.into(), content })
+    self.enqueue(ChatHistoryOperation::Save { user_id, role, content })
   }
 
   /// Queue removal of a user's history before starting a standalone reading.
@@ -112,7 +125,8 @@ pub async fn init_chat_history_cache(db_url: &str, max_messages_per_user: usize)
 /// Start a write-behind worker. Writes are committed in small transactions.
 pub fn start_chat_history_writer(pool: SqlitePool, max_messages_per_user: usize) -> ChatHistoryWriter {
   let (sender, mut receiver) = mpsc::channel(WRITE_QUEUE_CAPACITY);
-  tokio::spawn(async move {
+  let handle = tokio::spawn(async move {
+    let mut should_exit = false;
     while let Some(first) = receiver.recv().await {
       let mut operations = vec![first];
       while operations.len() < MAX_WRITE_BATCH_SIZE {
@@ -124,13 +138,35 @@ pub fn start_chat_history_writer(pool: SqlitePool, max_messages_per_user: usize)
         }
       }
 
-      if let Err(e) = write_batch(&pool, operations, max_messages_per_user).await {
+      let mut write_ops = Vec::with_capacity(operations.len());
+      let mut shutdown_senders = Vec::new();
+      for op in operations {
+        match op {
+          ChatHistoryOperation::Shutdown(tx) => {
+            should_exit = true;
+            shutdown_senders.push(tx);
+          }
+          other => write_ops.push(other),
+        }
+      }
+
+      if !write_ops.is_empty()
+        && let Err(e) = write_batch(&pool, write_ops, max_messages_per_user).await
+      {
         error!("Failed to write chat history cache batch: {}", e);
+      }
+
+      for tx in shutdown_senders {
+        let _ = tx.send(());
+      }
+
+      if should_exit {
+        break;
       }
     }
   });
 
-  ChatHistoryWriter { sender }
+  ChatHistoryWriter { sender, handle: Arc::new(tokio::sync::Mutex::new(Some(handle))) }
 }
 
 async fn write_batch(pool: &SqlitePool, operations: Vec<ChatHistoryOperation>, max_messages_per_user: usize) -> Result<(), sqlx::Error> {
@@ -142,10 +178,16 @@ async fn write_batch(pool: &SqlitePool, operations: Vec<ChatHistoryOperation>, m
     match operation {
       ChatHistoryOperation::Save { user_id, role, content } => {
         let msg_id = crate::repos::generate_time_id();
-        sqlx::query("INSERT INTO chat_history (id, user_id, role, content) VALUES (?1, ?2, ?3, ?4)").bind(msg_id).bind(user_id as i64).bind(role).bind(content).execute(&mut *transaction).await?;
+        sqlx::query("INSERT INTO chat_history (id, user_id, role, content) VALUES (?1, ?2, ?3, ?4)")
+          .bind(msg_id)
+          .bind(user_id as i64)
+          .bind(role.as_str())
+          .bind(content)
+          .execute(&mut *transaction)
+          .await?;
         touched_users.insert(user_id);
       }
-      ChatHistoryOperation::Flush(sender) => barriers.push(sender),
+      ChatHistoryOperation::Flush(sender) | ChatHistoryOperation::Shutdown(sender) => barriers.push(sender),
       ChatHistoryOperation::Clear { user_id } => {
         sqlx::query("DELETE FROM chat_history WHERE user_id = ?1").bind(user_id as i64).execute(&mut *transaction).await?;
         touched_users.insert(user_id);
@@ -218,37 +260,31 @@ pub async fn recent_chat_messages(pool: &SqlitePool, user_id: u64, limit: usize)
   )
 }
 
-impl From<ChatHistoryQueueError> for crate::repos::traits::ChatCacheQueueError {
-  fn from(e: ChatHistoryQueueError) -> Self {
-    match e {
-      ChatHistoryQueueError::Full => Self::Full,
-      ChatHistoryQueueError::TooLarge => Self::TooLarge,
-      ChatHistoryQueueError::Closed => Self::Closed,
-    }
-  }
-}
-
 impl std::fmt::Debug for ChatHistoryCache {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("ChatHistoryCache").field("pool", &"SqlitePool").field("writer", &self.writer).finish()
   }
 }
 
-impl crate::repos::traits::ChatCacheRepository for ChatHistoryCache {
-  fn save(&self, user_id: u64, role: crate::repos::traits::CacheRole, content: &str) -> Result<(), crate::repos::traits::ChatCacheQueueError> {
-    self.writer.save(user_id, role.as_str(), content).map_err(Into::into)
+impl ChatHistoryCache {
+  pub fn save(&self, user_id: u64, role: crate::models::ChatRole, content: &str) -> Result<(), ChatHistoryQueueError> {
+    self.writer.save(user_id, role, content)
   }
 
-  fn clear<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, Result<(), crate::repos::traits::ChatCacheQueueError>> {
-    Box::pin(async move { self.writer.clear(user_id).await.map_err(Into::into) })
+  pub async fn clear(&self, user_id: u64) -> Result<(), ChatHistoryQueueError> {
+    self.writer.clear(user_id).await
   }
 
-  fn flush<'a>(&'a self) -> futures::future::BoxFuture<'a, Result<(), crate::repos::traits::ChatCacheQueueError>> {
-    Box::pin(async move { self.writer.flush().await.map_err(Into::into) })
+  pub async fn flush(&self) -> Result<(), ChatHistoryQueueError> {
+    self.writer.flush().await
   }
 
-  fn recent_turns<'a>(&'a self, user_id: u64, limit: usize) -> futures::future::BoxFuture<'a, crate::models::AppResult<Vec<crate::repos::traits::ChatTurnRecord>>> {
-    Box::pin(async move { recent_chat_turns(&self.pool, user_id, limit).await.map_err(Into::into) })
+  pub async fn shutdown(&self) {
+    self.writer.shutdown().await;
+  }
+
+  pub async fn recent_turns(&self, user_id: u64, limit: usize) -> crate::models::AppResult<Vec<crate::repos::traits::ChatTurnRecord>> {
+    recent_chat_turns(&self.pool, user_id, limit).await.map_err(Into::into)
   }
 }
 
@@ -274,7 +310,7 @@ pub async fn recent_chat_turns(pool: &SqlitePool, user_id: u64, limit: usize) ->
   .fetch_all(pool)
   .await?;
 
-  Ok(rows.into_iter().map(|(role, content)| crate::repos::traits::ChatTurnRecord { role: role.parse().unwrap_or(crate::repos::traits::CacheRole::User), content }).collect())
+  Ok(rows.into_iter().map(|(role, content)| crate::repos::traits::ChatTurnRecord { role: role.parse().unwrap_or(crate::models::ChatRole::User), content }).collect())
 }
 
 #[cfg(test)]
@@ -286,11 +322,11 @@ mod tests {
     let path = std::env::temp_dir().join(format!("baziflow-chat-cache-{}.db", uuid::Uuid::now_v7()));
     let db_url = format!("sqlite://{}", path.display());
     let cache = init_chat_history_cache(&db_url, 2).await.unwrap();
-    let pool = cache.pool;
+    let pool = cache.pool.clone();
 
-    cache.writer.save(42, "user", "First question").unwrap();
-    cache.writer.save(42, "assistant", "First answer").unwrap();
-    cache.writer.save(42, "user", "Second question").unwrap();
+    cache.writer.save(42, crate::models::ChatRole::User, "First question").unwrap();
+    cache.writer.save(42, crate::models::ChatRole::Assistant, "First answer").unwrap();
+    cache.writer.save(42, crate::models::ChatRole::User, "Second question").unwrap();
 
     tokio::time::timeout(std::time::Duration::from_secs(1), async {
       loop {
@@ -317,6 +353,28 @@ mod tests {
     .await
     .unwrap();
     assert!(recent_chat_messages(&pool, 42, 10).await.unwrap().is_empty());
+
+    cache.shutdown().await;
+    pool.close().await;
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+  }
+
+  #[tokio::test]
+  async fn shutdown_flushes_pending_writes_and_stops_worker() {
+    let path = std::env::temp_dir().join(format!("baziflow-chat-cache-shutdown-{}.db", uuid::Uuid::now_v7()));
+    let db_url = format!("sqlite://{}", path.display());
+    let cache = init_chat_history_cache(&db_url, 10).await.unwrap();
+    let pool = cache.pool.clone();
+
+    cache.writer.save(99, crate::models::ChatRole::User, "Shutting down soon").unwrap();
+    // Immediate shutdown must flush and terminate
+    cache.shutdown().await;
+
+    let turns = recent_chat_turns(&pool, 99, 10).await.unwrap();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].content, "Shutting down soon");
 
     pool.close().await;
     let _ = std::fs::remove_file(&path);

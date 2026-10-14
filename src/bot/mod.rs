@@ -15,8 +15,7 @@ pub use commands::Command;
 pub type Bot = teloxide::adaptors::Throttle<teloxide::Bot>;
 
 /// Bound handler lifetimes and cancel transport work during shutdown.
-pub async fn run(future: impl std::future::Future<Output = teloxide::prelude::ResponseResult<()>>) -> teloxide::prelude::ResponseResult<()> {
-  let state = crate::models::get_state();
+pub async fn run(state: std::sync::Arc<crate::models::AppState>, future: impl std::future::Future<Output = teloxide::prelude::ResponseResult<()>>) -> teloxide::prelude::ResponseResult<()> {
   tokio::select! {
     _ = state.runtime.shutdown.cancelled() => Ok(()),
     result = tokio::time::timeout(std::time::Duration::from_secs(state.config.runtime.work_seconds), future) => {

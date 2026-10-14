@@ -20,8 +20,24 @@ impl FormatTime for LocalTimer {
 /// It uses the `RUST_LOG` environment variable if present.
 /// It also outputs logs to the `logs/app.log` file with daily rotation.
 ///
+/// Holds worker guards and cleanup thread handle for the duration of the program.
+pub struct LoggerGuard {
+  _file_guard: tracing_appender::non_blocking::WorkerGuard,
+  _stdout_guard: tracing_appender::non_blocking::WorkerGuard,
+  cleanup_handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for LoggerGuard {
+  fn drop(&mut self) {
+    if let Some(handle) = self.cleanup_handle.take() {
+      let _ = handle.join();
+    }
+  }
+}
+
 /// Returns the `WorkerGuard` which MUST be held alive for the duration of the program.
-pub fn init(config: &crate::config::AppConfig) -> anyhow::Result<(tracing_appender::non_blocking::WorkerGuard, tracing_appender::non_blocking::WorkerGuard)> {
+/// The returned `LoggerGuard` manages both non-blocking worker guards and log cleanup.
+pub fn init(config: &crate::config::AppConfig) -> anyhow::Result<LoggerGuard> {
   let timer = LocalTimer { tz: config.app_timezone };
 
   // 1. Prepare the file appender (daily rotation, format: YYYY-MM-DD.log)
@@ -44,11 +60,14 @@ pub fn init(config: &crate::config::AppConfig) -> anyhow::Result<(tracing_append
 
   // 6. Post-initialization: Clean up logs older than configured days in a background thread
   let log_retention_days = config.log_retention_days;
-  std::thread::spawn(move || {
-    cleanup_old_logs(log_retention_days);
-  });
+  let cleanup_handle = std::thread::Builder::new()
+    .name("log-cleanup".to_string())
+    .spawn(move || {
+      cleanup_old_logs(log_retention_days);
+    })
+    .ok();
 
-  Ok((file_guard, stdout_guard))
+  Ok(LoggerGuard { _file_guard: file_guard, _stdout_guard: stdout_guard, cleanup_handle })
 }
 
 /// Automatically removes log files in the "logs" directory that are older than the specified number of days.

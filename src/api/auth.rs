@@ -1,6 +1,6 @@
 use axum::{
   Json,
-  extract::FromRequestParts,
+  extract::{FromRef, FromRequestParts},
   http::{StatusCode, request::Parts},
   response::{IntoResponse, Response},
 };
@@ -20,6 +20,7 @@ pub struct AuthUser {
 pub enum AuthError {
   MissingToken,
   InvalidToken,
+  InternalError,
 }
 
 impl IntoResponse for AuthError {
@@ -27,15 +28,20 @@ impl IntoResponse for AuthError {
     let (status, message) = match self {
       AuthError::MissingToken => (StatusCode::UNAUTHORIZED, "Missing Authorization header. Expected: Bearer <api_key>"),
       AuthError::InvalidToken => (StatusCode::UNAUTHORIZED, "Invalid or revoked API key"),
+      AuthError::InternalError => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
     };
     (status, Json(super::models::ApiError::new(message))).into_response()
   }
 }
 
-impl<S: Send + Sync> FromRequestParts<S> for AuthUser {
+impl<S> FromRequestParts<S> for AuthUser
+where
+  std::sync::Arc<crate::models::AppState>: axum::extract::FromRef<S>,
+  S: Send + Sync,
+{
   type Rejection = AuthError;
 
-  async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+  async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
     if let Some(auth) = parts.extensions.get::<AuthUser>() {
       return Ok(auth.clone());
     }
@@ -47,8 +53,14 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthUser {
       return Err(AuthError::MissingToken);
     }
 
-    let state = crate::models::get_state();
-    let (user_id, user_limit) = repos::get_auth_user_by_api_key(&state.db_pool, token).await.ok_or(AuthError::InvalidToken)?;
+    let state = std::sync::Arc::<crate::models::AppState>::from_ref(state);
+    let (user_id, user_limit) = repos::get_auth_user_by_api_key(&state.db_pool, token)
+      .await
+      .map_err(|e| {
+        tracing::error!("Database error during auth: {}", e);
+        AuthError::InternalError
+      })?
+      .ok_or(AuthError::InvalidToken)?;
     let rate_limit = user_limit.unwrap_or(state.config.runtime.rate_limit);
     state.runtime.set_cached_limit(user_id, rate_limit);
 

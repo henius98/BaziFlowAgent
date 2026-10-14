@@ -2,64 +2,6 @@ use crate::models::common::{DAY_HEADERS, MONTH_NAME};
 use chrono::{Datelike, NaiveDate};
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
-pub trait ParseCallback: Sized {
-  fn encode(&self) -> String;
-  fn decode(data: &str) -> Option<Self>;
-}
-
-pub enum AppCallback {
-  Calendar(CalendarAction),
-  BirthdateCal(BirthdateCalAction),
-  Gender(GenderAction),
-  NewBaziWarning(NewBaziWarningAction),
-  Location(LocationAction),
-  Time(TimeAction),
-  Model(ModelAction),
-  PickCalendar(PickCalendarAction),
-  PickActivity(PickActivityAction),
-  Schedule(ScheduleAction),
-  ApiKeyRegenerate,
-}
-
-impl AppCallback {
-  pub fn decode(data: &str) -> Option<Self> {
-    if let Some(a) = CalendarAction::decode(data) {
-      return Some(Self::Calendar(a));
-    }
-    if let Some(a) = BirthdateCalAction::decode(data) {
-      return Some(Self::BirthdateCal(a));
-    }
-    if let Some(a) = GenderAction::decode(data) {
-      return Some(Self::Gender(a));
-    }
-    if let Some(a) = NewBaziWarningAction::decode(data) {
-      return Some(Self::NewBaziWarning(a));
-    }
-    if let Some(a) = LocationAction::decode(data) {
-      return Some(Self::Location(a));
-    }
-    if let Some(a) = TimeAction::decode(data) {
-      return Some(Self::Time(a));
-    }
-    if let Some(a) = ModelAction::decode(data) {
-      return Some(Self::Model(a));
-    }
-    if let Some(a) = PickCalendarAction::decode(data) {
-      return Some(Self::PickCalendar(a));
-    }
-    if let Some(a) = PickActivityAction::decode(data) {
-      return Some(Self::PickActivity(a));
-    }
-    if let Some(a) = ScheduleAction::decode(data) {
-      return Some(Self::Schedule(a));
-    }
-    if data == "apikey:regen" {
-      return Some(Self::ApiKeyRegenerate);
-    }
-    None
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Date Fortune calendar (/Date command)
 // ─────────────────────────────────────────────────────────────────────────────

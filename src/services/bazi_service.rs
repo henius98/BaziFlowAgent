@@ -17,15 +17,6 @@ pub struct DestinyProfileResult {
   pub stream: crate::models::LlmStream,
 }
 
-pub struct BaziDataParams<'a> {
-  pub user_id: u64,
-  pub username: &'a str,
-  pub birth_date: &'a str,
-  pub birth_time: Option<NaiveTime>,
-  pub gender: u8,
-  pub location: Option<String>,
-}
-
 const UNKNOWN_BIRTH_TIME_REFERENCE_HOUR: u32 = 12;
 
 fn resolve_birth_datetime(birth_date: NaiveDate, birth_time: Option<NaiveTime>) -> crate::models::AppResult<(NaiveDateTime, bool)> {
@@ -38,28 +29,10 @@ fn resolve_birth_datetime(birth_date: NaiveDate, birth_time: Option<NaiveTime>) 
   Ok((birth_date.and_time(time), birth_time_known))
 }
 
-pub async fn prepare_bazi_data(state: &std::sync::Arc<crate::models::AppState>, params: BaziDataParams<'_>) -> crate::models::AppResult<paipan::StructuredBazi> {
-  let birth_date = match chrono::NaiveDate::parse_from_str(params.birth_date, "%Y-%m-%d") {
-    Ok(date) => date,
-    Err(e) => {
-      error!("Invalid date format {}: {}", params.birth_date, e);
-      return Err(crate::models::error::AppError::Message("Invalid date".to_string()));
-    }
-  };
-  // A noon reference keeps an unknown time away from a date boundary. It is
-  // metadata-marked below so consumers do not treat its hour pillar as certain.
-  let (naive_dt, birth_time_known) = resolve_birth_datetime(birth_date, params.birth_time)?;
-
-  // Calculate True Solar Time only when the location is known.
-  let solar_dt = crate::services::solar_time::to_true_solar_time(naive_dt, params.location.as_deref());
-
-  let birth_year = naive_dt.year();
-  let (structured_data, structured_json) = paipan::fetch_bazi_chart(&state.http_client, &state.config.upstreams, solar_dt, params.gender, birth_year, params.location, birth_time_known).await?;
-
-  state.user_repo.upsert_user_bazi(params.user_id, Some(params.username), &structured_json, params.gender, params.birth_date).await?;
-
-  Ok(structured_data)
-}
+// Note on birth time resolution:
+// A noon reference keeps an unknown time away from a date boundary. It is
+// metadata-marked below so consumers do not treat its hour pillar as certain.
+// Calculate True Solar Time only when the location is known.
 
 pub async fn build_and_save_bazi_html(state: &std::sync::Arc<crate::models::AppState>, user_id: u64, username: &str, structured_data: &paipan::StructuredBazi) {
   state.events.publish(user_id, "profile.updated", "application");
@@ -99,9 +72,9 @@ pub async fn create_destiny_profile(state: &std::sync::Arc<crate::models::AppSta
   let solar_dt = crate::services::solar_time::to_true_solar_time(naive_dt, params.location.as_deref());
 
   let birth_year = naive_dt.year();
-  let (structured_data, structured_json) = paipan::fetch_bazi_chart(&state.http_client, &state.config.upstreams, solar_dt, params.gender, birth_year, params.location, birth_time_known).await?;
+  let (structured_data, structured_json) = state.chart_provider.fetch_chart(solar_dt, params.gender, birth_year, params.location, birth_time_known).await?;
 
-  state.user_repo.upsert_user_bazi(params.user_id, Some(params.username), &structured_json, params.gender, params.birth_date).await?;
+  crate::repos::upsert_user_bazi(&state.db_pool, params.user_id, Some(params.username), &structured_json, params.gender, params.birth_date).await?;
 
   // Invalidate old chat turns derived from the previous profile.
   {
@@ -131,11 +104,11 @@ pub async fn create_destiny_profile(state: &std::sync::Arc<crate::models::AppSta
   let structured_bazi = structured_data.to_string();
   let llm_model = params.llm_model;
 
-  let stream = crate::services::conversation::wrap_persisted_stream(raw_stream, move |text| async move {
-    state_clone.user_repo.save_user_bazi_analysis(user_id, &text).await;
+  let stream = crate::services::conversation::wrap_persisted_stream(&state.runtime.tasks, raw_stream, move |text| async move {
+    crate::repos::save_user_bazi_analysis(&state_clone.db_pool, user_id, &text).await;
     crate::services::conversation::persist_turn_response(&state_clone, user_id, None, &text).await;
     if let Ok(summary) = generate_bazi_summary(&state_clone, user_id, &structured_bazi, &text, llm_model).await {
-      state_clone.user_repo.save_user_bazi_summary(user_id, &summary).await;
+      crate::repos::save_user_bazi_summary(&state_clone.db_pool, user_id, &summary).await;
     } else {
       tracing::error!("Failed to generate bazi summary for user {}", user_id);
     }
@@ -156,7 +129,7 @@ pub async fn core_bazi_analysis(
   let system_message = async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default().content(system_prompt).build()?;
   let user_message = async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default().content(full_user_content).build()?;
 
-  let model = state.user_repo.resolve_llm_model(llm_model).await?;
+  let model = crate::repos::resolve_llm_model(&state.db_pool, llm_model).await?;
   let model_id = Some(model.id() as i64);
   let model_name = model.as_str().to_string();
   let params = crate::services::llm::LlmRequestParams {
@@ -168,7 +141,7 @@ pub async fn core_bazi_analysis(
     ..crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()], crate::models::LlmRequestType::BaziAnalysis)
   };
 
-  match state.llm_service.call(params).await {
+  match state.llm_service.call(&state.db_pool, params, &state.runtime).await {
     Ok(crate::models::LlmResponse::Stream(receiver)) => Ok(receiver),
     Ok(_) => Err(crate::models::error::AppError::Message("Expected stream response from LLM".into())),
     Err(e) => Err(e),
@@ -188,7 +161,7 @@ pub async fn generate_bazi_summary(
   let system_message = async_openai::types::chat::ChatCompletionRequestSystemMessageArgs::default().content(system_prompt).build()?;
   let user_message = async_openai::types::chat::ChatCompletionRequestUserMessageArgs::default().content(full_user_content).build()?;
 
-  let model = state.user_repo.resolve_llm_model(llm_model).await?;
+  let model = crate::repos::resolve_llm_model(&state.db_pool, llm_model).await?;
   let model_id = Some(model.id() as i64);
   let model_name = model.as_str().to_string();
   let params = crate::services::llm::LlmRequestParams {
@@ -200,7 +173,7 @@ pub async fn generate_bazi_summary(
     ..crate::services::llm::LlmRequestParams::new(model_name, vec![system_message.into(), user_message.into()], crate::models::LlmRequestType::GenerateBaziSummary)
   };
 
-  match state.llm_service.call(params).await {
+  match state.llm_service.call(&state.db_pool, params, &state.runtime).await {
     Ok(crate::models::LlmResponse::Full(summary)) => validate_bazi_summary(&summary),
     Ok(_) => Err(crate::models::error::AppError::Message("Expected full response from LLM".into())),
     Err(e) => Err(e),

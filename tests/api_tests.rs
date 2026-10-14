@@ -26,9 +26,7 @@ async fn setup_test_app() -> (axum::Router, ServerGuard, Arc<AppState>, String) 
   let config = Arc::new(test_helpers::test_config(mock_url));
   let state = test_helpers::test_state(config.clone(), pool.clone()).await;
 
-  let _ = baziflow_agent::models::state::GLOBAL_STATE.set(state.clone());
-
-  let app = baziflow_agent::api::api_router(config);
+  let app = baziflow_agent::api::api_router(state.clone());
   (app, server, state, api_key)
 }
 
@@ -366,7 +364,7 @@ async fn test_all_api_endpoints() {
   // ==========================================
   // 11. Chart Capability Links (AES-256-GCM)
   // ==========================================
-  let chart_app = axum::Router::new().route("/charts/{token}", axum::routing::get(baziflow_agent::api::charts::chart));
+  let chart_app = app.clone();
 
   let chart_user_id = 42u64;
   repos::create_api_key(&state.db_pool, chart_user_id).await.unwrap();
@@ -379,6 +377,8 @@ async fn test_all_api_endpoints() {
   let req = Request::builder().method("GET").uri(format!("/charts/{}", token)).body(Body::empty()).unwrap();
   let res = chart_app.clone().oneshot(req).await.unwrap();
   assert_eq!(res.status(), StatusCode::OK);
+  let csp = res.headers().get(header::CONTENT_SECURITY_POLICY).unwrap().to_str().unwrap();
+  assert_eq!(csp, baziflow_core::CHART_CSP);
   let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
   assert_eq!(body_bytes, test_html.as_bytes());
 
@@ -395,6 +395,17 @@ async fn test_all_api_endpoints() {
   let req_invalid = Request::builder().method("GET").uri(format!("/charts/{}", "0".repeat(72))).body(Body::empty()).unwrap();
   let res_invalid = chart_app.clone().oneshot(req_invalid).await.unwrap();
   assert_eq!(res_invalid.status(), StatusCode::NOT_FOUND);
+
+  // 11d. Embedded logo serves image/png statelessly
+  let req_logo = Request::builder().method("GET").uri("/charts/logo_ai_bot.png").body(Body::empty()).unwrap();
+  let res_logo = chart_app.clone().oneshot(req_logo).await.unwrap();
+  assert_eq!(res_logo.status(), StatusCode::OK);
+  assert_eq!(res_logo.headers().get(header::CONTENT_TYPE).unwrap(), "image/png");
+
+  let req_root_logo = Request::builder().method("GET").uri("/logo_ai_bot.png").body(Body::empty()).unwrap();
+  let res_root_logo = chart_app.clone().oneshot(req_root_logo).await.unwrap();
+  assert_eq!(res_root_logo.status(), StatusCode::OK);
+  assert_eq!(res_root_logo.headers().get(header::CONTENT_TYPE).unwrap(), "image/png");
 
   // Clean up test file
   let _ = tokio::fs::remove_file(format!("public/bazi_{chart_user_id}.html")).await;

@@ -35,11 +35,11 @@ pub async fn get_daily_fortune(
   request_type: crate::models::LlmRequestType,
   reasoning_effort: Option<crate::models::ReasoningEffortLevel>,
 ) -> AppResult<DailyFortuneResult> {
-  let user_profile = state.user_repo.get_user_profile(user_id).await;
+  let user_profile = crate::repos::get_user_profile(&state.db_pool, user_id).await?;
   let bazi_four_pillars =
     user_profile.bazi_four_pillars.as_deref().and_then(|raw| crate::services::paipan::models::StructuredBazi::from_json(Some(raw)).ok()).map(|b| b.to_string()).ok_or(AppError::ProfileNotFound)?;
 
-  let almanac_data = fetch_and_format_almanac(&state.http_client, target_date).await?;
+  let almanac_data = state.almanac_provider.fetch_almanac(target_date).await?;
 
   let bazi_summary = user_profile.bazi_summary.as_deref().unwrap_or_else(|| user_profile.bazi_analysis.as_deref().unwrap_or("未提供"));
 
@@ -53,7 +53,7 @@ pub async fn get_daily_fortune(
   debug!("Built fortune prompt");
   let user_message = ChatCompletionRequestUserMessageArgs::default().content(user_content).build()?;
 
-  let model = state.user_repo.resolve_llm_model(user_profile.llm_model).await?;
+  let model = crate::repos::resolve_llm_model(&state.db_pool, user_profile.llm_model).await?;
   let model_id = Some(model.id() as i64);
   let model_name = model.as_str().to_string();
 
@@ -84,14 +84,14 @@ pub async fn get_daily_fortune(
   }
 
   info!("Sending request to LLM (Model: {}, stream: {})...", model_name, stream);
-  let response = state.llm_service.call(params).await?;
+  let response = state.llm_service.call(&state.db_pool, params, &state.runtime).await?;
 
   let managed_response = if is_interactive {
     match response {
       LlmResponse::Stream(raw_stream) => {
         let state_clone = state.clone();
         let tool_msg = almanac_msg.clone();
-        let stream = crate::services::conversation::wrap_persisted_stream(raw_stream, move |reply| async move {
+        let stream = crate::services::conversation::wrap_persisted_stream(&state.runtime.tasks, raw_stream, move |reply| async move {
           crate::services::conversation::persist_turn_response(&state_clone, user_id, Some(&tool_msg), &reply).await;
         });
         LlmResponse::Stream(stream)
@@ -108,10 +108,7 @@ pub async fn get_daily_fortune(
   Ok(DailyFortuneResult { almanac_data, response: managed_response })
 }
 
-pub async fn fetch_and_format_almanac(client: &Client, target_date: &str) -> crate::models::AppResult<String> {
-  let state = crate::models::get_state();
-  let api_url = &state.config.upstreams.almanac;
-
+pub async fn fetch_and_format_almanac(client: &Client, api_url: &str, target_date: &str) -> crate::models::AppResult<String> {
   let response = client.get(api_url).query(&[("date", target_date)]).send().await?.error_for_status()?;
 
   // Fetch bounded bytes first, then fail closed if the upstream schema is invalid.
@@ -123,6 +120,32 @@ pub async fn fetch_and_format_almanac(client: &Client, target_date: &str) -> cra
   })?;
   validate_almanac_data(&data, target_date)?;
   Ok(format_almanac_data(&data))
+}
+
+use futures::future::BoxFuture;
+
+/// Abstract provider for traditional Chinese Almanac (Huangli) data.
+pub trait AlmanacProvider: Send + Sync + std::fmt::Debug {
+  fn fetch_almanac<'a>(&'a self, target_date: &'a str) -> BoxFuture<'a, AppResult<String>>;
+}
+
+/// Default HTTP provider fetching almanac data from configured upstream API.
+#[derive(Debug, Clone)]
+pub struct HttpAlmanacProvider {
+  pub client: Client,
+  pub api_url: String,
+}
+
+impl HttpAlmanacProvider {
+  pub fn new(client: Client, api_url: impl Into<String>) -> Self {
+    Self { client, api_url: api_url.into() }
+  }
+}
+
+impl AlmanacProvider for HttpAlmanacProvider {
+  fn fetch_almanac<'a>(&'a self, target_date: &'a str) -> BoxFuture<'a, AppResult<String>> {
+    Box::pin(fetch_and_format_almanac(&self.client, &self.api_url, target_date))
+  }
 }
 
 use serde::Deserialize;
@@ -485,7 +508,7 @@ pub async fn pick_dates(state: &Arc<AppState>, params: DateSelectionParams<'_>) 
     });
   }
 
-  let user_profile = state.user_repo.get_user_profile(params.user_id).await;
+  let user_profile = crate::repos::get_user_profile(&state.db_pool, params.user_id).await?;
   let bazi_four_pillars =
     user_profile.bazi_four_pillars.as_deref().and_then(|raw| crate::services::paipan::models::StructuredBazi::from_json(Some(raw)).ok()).map(|b| b.to_string()).ok_or(AppError::ProfileNotFound)?;
 
@@ -505,9 +528,9 @@ pub async fn pick_dates(state: &Arc<AppState>, params: DateSelectionParams<'_>) 
 
   let mut fetch_futures = Vec::new();
   for date_str in &dates {
-    let client = &state.http_client;
+    let provider = state.almanac_provider.clone();
     fetch_futures.push(async move {
-      let res = fetch_and_format_almanac(client, date_str).await;
+      let res = provider.fetch_almanac(date_str).await;
       (date_str.clone(), res)
     });
   }
@@ -543,7 +566,7 @@ pub async fn pick_dates(state: &Arc<AppState>, params: DateSelectionParams<'_>) 
   debug!("Built date selection prompt");
   let user_message = ChatCompletionRequestUserMessageArgs::default().content(user_content).build()?;
 
-  let model = state.user_repo.resolve_llm_model(user_profile.llm_model).await?;
+  let model = crate::repos::resolve_llm_model(&state.db_pool, user_profile.llm_model).await?;
   let model_id = Some(model.id() as i64);
   let model_name = model.as_str().to_string();
 
@@ -583,7 +606,7 @@ pub async fn pick_dates(state: &Arc<AppState>, params: DateSelectionParams<'_>) 
   }
 
   info!("Sending request to LLM for Date Selection (Model: {}, stream: {})...", model_name, params.stream);
-  let response = state.llm_service.call(llm_params).await?;
+  let response = state.llm_service.call(&state.db_pool, llm_params, &state.runtime).await?;
 
   let managed_response = if is_interactive {
     let tool_msg = if !pick_msg.is_empty() { Some(pick_msg.as_str()) } else { None };
@@ -592,7 +615,7 @@ pub async fn pick_dates(state: &Arc<AppState>, params: DateSelectionParams<'_>) 
         let state_clone = state.clone();
         let user_id = params.user_id;
         let tool_owned = tool_msg.map(str::to_string);
-        let stream = crate::services::conversation::wrap_persisted_stream(raw_stream, move |reply| async move {
+        let stream = crate::services::conversation::wrap_persisted_stream(&state.runtime.tasks, raw_stream, move |reply| async move {
           crate::services::conversation::persist_turn_response(&state_clone, user_id, tool_owned.as_deref(), &reply).await;
         });
         LlmResponse::Stream(stream)

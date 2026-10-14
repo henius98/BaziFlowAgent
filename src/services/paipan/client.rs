@@ -1,11 +1,36 @@
 use super::bazi_utils::{MapBaziParams, current_luck_index, fetch_liunian, map_bazi_data};
 use super::models::{RawBaziChart, StructuredBazi};
 use crate::models::AppResult;
+use futures::future::BoxFuture;
 use reqwest::Client;
 use serde_json::Value;
 
 const REFERER: &str = "https://pcbz.iwzwh.com/";
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+/// Abstract provider for Bazi astrology calculation and chart retrieval.
+pub trait ChartProvider: Send + Sync + std::fmt::Debug {
+  fn fetch_chart<'a>(&'a self, solar_dt: chrono::NaiveDateTime, gender: u8, birth_year: i32, location: Option<String>, birth_time_known: bool) -> BoxFuture<'a, AppResult<(StructuredBazi, String)>>;
+}
+
+/// Default HTTP chart provider querying upstream Paipan services.
+#[derive(Debug, Clone)]
+pub struct HttpChartProvider {
+  pub client: reqwest::Client,
+  pub upstreams: crate::config::Upstreams,
+}
+
+impl HttpChartProvider {
+  pub fn new(client: reqwest::Client, upstreams: crate::config::Upstreams) -> Self {
+    Self { client, upstreams }
+  }
+}
+
+impl ChartProvider for HttpChartProvider {
+  fn fetch_chart<'a>(&'a self, solar_dt: chrono::NaiveDateTime, gender: u8, birth_year: i32, location: Option<String>, birth_time_known: bool) -> BoxFuture<'a, AppResult<(StructuredBazi, String)>> {
+    Box::pin(fetch_bazi_chart(&self.client, &self.upstreams, solar_dt, gender, birth_year, location, birth_time_known))
+  }
+}
 
 pub async fn fetch_bazi_chart(
   client: &Client,

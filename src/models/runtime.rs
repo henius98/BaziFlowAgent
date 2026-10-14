@@ -1,6 +1,8 @@
 use std::{
-  collections::HashMap,
-  sync::{Arc, Mutex},
+  sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+  },
   time::{Duration, Instant},
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -117,8 +119,9 @@ pub struct Runtime {
   pub shutdown: CancellationToken,
   pub tasks: TaskTracker,
   pub admission: Arc<AdmissionController>,
-  draft_next: Mutex<Instant>,
-  user_limits: Mutex<HashMap<u64, (Instant, usize)>>,
+  draft_epoch: Instant,
+  draft_next_ms: AtomicU64,
+  user_limits: dashmap::DashMap<u64, (Instant, usize)>,
 }
 
 impl Runtime {
@@ -134,8 +137,9 @@ impl Runtime {
       shutdown,
       tasks: TaskTracker::new(),
       admission,
-      draft_next: Mutex::new(Instant::now()),
-      user_limits: Mutex::new(HashMap::new()),
+      draft_epoch: Instant::now(),
+      draft_next_ms: AtomicU64::new(0),
+      user_limits: dashmap::DashMap::new(),
     }
   }
 
@@ -150,49 +154,54 @@ impl Runtime {
 
   pub fn get_cached_limit(&self, user_id: u64) -> Option<usize> {
     let now = Instant::now();
-    let limits = self.user_limits.lock().ok()?;
-    if let Some((cached_at, limit)) = limits.get(&user_id)
-      && now.duration_since(*cached_at) < Duration::from_secs(60)
-    {
-      return Some(*limit);
-    }
-    None
+    let entry = self.user_limits.get(&user_id)?;
+    let (cached_at, limit) = *entry;
+    if now.duration_since(cached_at) < Duration::from_secs(60) { Some(limit) } else { None }
   }
 
   pub fn set_cached_limit(&self, user_id: u64, limit: usize) {
-    if let Ok(mut limits) = self.user_limits.lock() {
-      let now = Instant::now();
-      if limits.len() >= 4096 {
-        limits.retain(|_, (cached_at, _)| now.duration_since(*cached_at) < Duration::from_secs(60));
-        if limits.len() >= 4096 && !limits.contains_key(&user_id) {
-          return;
-        }
+    let now = Instant::now();
+    if self.user_limits.len() >= 4096 {
+      self.user_limits.retain(|_, (cached_at, _)| now.duration_since(*cached_at) < Duration::from_secs(60));
+      if self.user_limits.len() >= 4096 && !self.user_limits.contains_key(&user_id) {
+        return;
       }
-      limits.insert(user_id, (now, limit));
     }
+    self.user_limits.insert(user_id, (now, limit));
   }
 
   pub fn invalidate_cached_limit(&self, user_id: u64) {
-    if let Ok(mut limits) = self.user_limits.lock() {
-      limits.remove(&user_id);
-    }
+    self.user_limits.remove(&user_id);
   }
 
   pub fn allow_draft(&self) -> bool {
-    let Ok(mut next) = self.draft_next.lock() else {
-      return false;
-    };
-    let now = Instant::now();
-    if now < *next {
-      return false;
+    let now_ms = self.draft_epoch.elapsed().as_millis() as u64;
+    let mut current = self.draft_next_ms.load(Ordering::Relaxed);
+    loop {
+      if now_ms < current {
+        return false;
+      }
+      let next = now_ms.saturating_add(100);
+      match self.draft_next_ms.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Relaxed) {
+        Ok(_) => return true,
+        Err(actual) => current = actual,
+      }
     }
-    *next = now + Duration::from_millis(100);
-    true
   }
 
   pub fn pause_drafts(&self, seconds: u64) {
-    if let Ok(mut next) = self.draft_next.lock() {
-      *next = Instant::now() + Duration::from_secs(seconds.min(3600));
+    let now_ms = self.draft_epoch.elapsed().as_millis() as u64;
+    let pause_ms = seconds.min(3600).saturating_mul(1000);
+    let target_ms = now_ms.saturating_add(pause_ms);
+    let mut current = self.draft_next_ms.load(Ordering::Relaxed);
+    loop {
+      if current >= target_ms {
+        break;
+      }
+      match self.draft_next_ms.compare_exchange_weak(current, target_ms, Ordering::AcqRel, Ordering::Relaxed) {
+        Ok(_) => break,
+        Err(actual) => current = actual,
+      }
     }
   }
 

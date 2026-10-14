@@ -90,8 +90,7 @@ BaziFlowAgent/
 │           ├── bazi_utils.rs     # Helper utilities for Bazi calculations
 │           ├── client.rs         # Bazi chart API client
 │           ├── formatter.rs      # Chart → JSON/HTML formatting
-│           ├── models.rs         # Bazi data structures
-│           └── bazi_template.html
+│           └── models.rs         # Bazi data structures
 ├── migrations/                   # SQLx migration SQL files
 ├── tests/                        # Integration and unit tests
 │   ├── api_tests.rs              # Axum HTTP and WebSocket API tests

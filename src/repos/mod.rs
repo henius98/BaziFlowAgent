@@ -38,93 +38,6 @@ impl Database {
   }
 }
 
-impl traits::UserRepository for Database {
-  fn upsert_user_bazi<'a>(
-    &'a self,
-    user_id: u64,
-    username: Option<&'a str>,
-    bazi_four_pillars: &'a str,
-    gender: u8,
-    birth_datetime: &'a str,
-  ) -> futures::future::BoxFuture<'a, crate::models::AppResult<()>> {
-    Box::pin(upsert_user_bazi(self, user_id, username, bazi_four_pillars, gender, birth_datetime))
-  }
-
-  fn save_user_bazi_analysis<'a>(&'a self, user_id: u64, reading: &'a str) -> futures::future::BoxFuture<'a, ()> {
-    Box::pin(save_user_bazi_analysis(self, user_id, reading))
-  }
-
-  fn save_user_bazi_summary<'a>(&'a self, user_id: u64, summary: &'a str) -> futures::future::BoxFuture<'a, ()> {
-    Box::pin(save_user_bazi_summary(self, user_id, summary))
-  }
-
-  fn get_user_profile<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, UserProfileData> {
-    Box::pin(get_user_profile(self, user_id))
-  }
-
-  fn get_user_snapshot<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, crate::models::AppResult<UserSnapshotData>> {
-    Box::pin(get_user_snapshot(self, user_id))
-  }
-
-  fn get_all_scheduled_users<'a>(&'a self) -> futures::future::BoxFuture<'a, Vec<(u64, String)>> {
-    Box::pin(get_all_scheduled_users(self))
-  }
-
-  fn update_user_schedule<'a>(&'a self, user_id: u64, schedule: Option<&'a str>) -> futures::future::BoxFuture<'a, crate::models::AppResult<()>> {
-    Box::pin(update_user_schedule(self, user_id, schedule))
-  }
-
-  fn get_user_rate_limit<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, Option<usize>> {
-    Box::pin(get_user_rate_limit(self, user_id))
-  }
-
-  fn set_user_rate_limit<'a>(&'a self, user_id: u64, rate_limit: Option<usize>) -> futures::future::BoxFuture<'a, crate::models::AppResult<()>> {
-    Box::pin(set_user_rate_limit(self, user_id, rate_limit))
-  }
-
-  fn get_user_last_active<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, crate::models::AppResult<Option<i64>>> {
-    Box::pin(get_user_last_active(self, user_id))
-  }
-
-  fn get_user_last_active_formatted<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, crate::models::AppResult<Option<String>>> {
-    Box::pin(get_user_last_active_formatted(self, user_id))
-  }
-
-  fn touch_user_last_active<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, crate::models::AppResult<()>> {
-    Box::pin(touch_user_last_active(self, user_id))
-  }
-
-  fn get_llm_models<'a>(&'a self) -> futures::future::BoxFuture<'a, crate::models::AppResult<Vec<LlmModel>>> {
-    Box::pin(get_llm_models(self))
-  }
-
-  fn update_user_llm_model<'a>(&'a self, user_id: u64, llm_model: u8) -> futures::future::BoxFuture<'a, crate::models::AppResult<LlmModel>> {
-    Box::pin(update_user_llm_model(self, user_id, llm_model))
-  }
-
-  fn create_api_key<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, crate::models::AppResult<String>> {
-    Box::pin(create_api_key(self, user_id))
-  }
-
-  fn get_auth_user_by_api_key<'a>(&'a self, raw_key: &'a str) -> futures::future::BoxFuture<'a, Option<(u64, Option<usize>)>> {
-    Box::pin(get_auth_user_by_api_key(self, raw_key))
-  }
-
-  fn get_api_key_info<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, Option<(String, String)>> {
-    Box::pin(get_api_key_info(self, user_id))
-  }
-
-  fn get_username_by_user_id<'a>(&'a self, user_id: u64) -> futures::future::BoxFuture<'a, Option<String>> {
-    Box::pin(get_username_by_user_id(self, user_id))
-  }
-}
-
-impl traits::LlmLogRepository for Database {
-  fn save_llm_log<'a>(&'a self, params: LlmLogParams<'a>) -> futures::future::BoxFuture<'a, ()> {
-    Box::pin(save_llm_log(self, params))
-  }
-}
-
 /// Generates a time-based ID: timestamp_millis * 1000 + sequence(0..999)
 /// Guarantees monotonic ordering and collision resistance under bursts.
 #[inline]
@@ -225,6 +138,7 @@ pub async fn save_user_bazi_analysis(database: &Database, user_id: u64, reading:
   }
 }
 
+#[derive(Default, Debug, Clone)]
 pub struct UserProfileData {
   pub bazi_four_pillars: Option<String>,
   pub bazi_analysis: Option<String>,
@@ -236,7 +150,7 @@ pub struct UserProfileData {
 
 type UserProfileRow = (Option<String>, Option<String>, Option<String>, Option<i64>, Option<String>, Option<String>, Option<i64>);
 
-pub async fn get_user_profile(database: &Database, user_id: u64) -> UserProfileData {
+pub async fn get_user_profile(database: &Database, user_id: u64) -> crate::models::AppResult<UserProfileData> {
   const SQL: &str = r#"
         SELECT
             json(users.bazi_four_pillars) AS bazi_four_pillars,
@@ -253,7 +167,7 @@ pub async fn get_user_profile(database: &Database, user_id: u64) -> UserProfileD
         WHERE users.user_id = ?1
         "#;
   let row: Option<UserProfileRow> = match database {
-    Database::Sqlite(pool) => sqlx::query_as(SQL).bind(user_id as i64).fetch_optional(pool).await.map_err(Into::into),
+    Database::Sqlite(pool) => sqlx::query_as(SQL).bind(user_id as i64).fetch_optional(pool).await.map_err(crate::models::AppError::from)?,
     Database::D1(database) => database.fetch_all(SQL, vec![serde_json::json!(user_id)]).await.map(|rows| {
       rows.first().map(|row| {
         (
@@ -266,14 +180,10 @@ pub async fn get_user_profile(database: &Database, user_id: u64) -> UserProfileD
           json_i64(row, "rate_limit"),
         )
       })
-    }),
-  }
-  .unwrap_or_else(|e: crate::models::AppError| {
-    error!("Failed to fetch user profile for {}: {}", user_id, e);
-    None
-  });
+    })?,
+  };
 
-  match row {
+  Ok(match row {
     Some((pillars, analysis, summary, Some(model_id), Some(model_name), sched, limit)) => {
       let model = u8::try_from(model_id).ok().map(|id| LlmModel::new(id, model_name, true));
       UserProfileData { bazi_four_pillars: pillars, bazi_analysis: analysis, bazi_summary: summary, llm_model: model, schedule: sched, rate_limit: limit.and_then(|l| usize::try_from(l).ok()) }
@@ -282,22 +192,21 @@ pub async fn get_user_profile(database: &Database, user_id: u64) -> UserProfileD
       UserProfileData { bazi_four_pillars: pillars, bazi_analysis: analysis, bazi_summary: summary, llm_model: None, schedule: sched, rate_limit: limit.and_then(|l| usize::try_from(l).ok()) }
     }
     None => UserProfileData { bazi_four_pillars: None, bazi_analysis: None, bazi_summary: None, llm_model: None, schedule: None, rate_limit: None },
-  }
+  })
 }
 
 /// Fetch all users who have a non-null schedule for scheduled fortune generation.
-pub async fn get_all_scheduled_users(database: &Database) -> Vec<(u64, String)> {
+pub async fn get_all_scheduled_users(database: &Database) -> crate::models::AppResult<Vec<(u64, String)>> {
   const SQL: &str = r#"SELECT user_id, schedule FROM users WHERE schedule IS NOT NULL AND schedule != '' AND bazi_four_pillars IS NOT NULL AND bazi_four_pillars != ''"#;
-  let rows = match database {
-    Database::Sqlite(pool) => sqlx::query_as::<_, (i64, String)>(SQL).fetch_all(pool).await.map_err(Into::into),
-    Database::D1(database) => database.fetch_all(SQL, Vec::new()).await.map(|rows| rows.into_iter().filter_map(|row| Some((json_i64(&row, "user_id")?, json_string(&row, "schedule")?))).collect()),
-  }
-  .unwrap_or_else(|e: crate::models::AppError| {
-    error!("Failed to fetch scheduled users: {}", e);
-    Vec::new()
-  });
+  let rows: Vec<(i64, String)> = match database {
+    Database::Sqlite(pool) => sqlx::query_as::<_, (i64, String)>(SQL).fetch_all(pool).await.map_err(crate::models::AppError::from)?,
+    Database::D1(database) => {
+      let rows = database.fetch_all(SQL, Vec::new()).await?;
+      rows.into_iter().filter_map(|row| Some((json_i64(&row, "user_id")?, json_string(&row, "schedule")?))).collect()
+    }
+  };
 
-  rows.into_iter().map(|(user_id, schedule)| (user_id as u64, schedule)).collect()
+  Ok(rows.into_iter().map(|(user_id, schedule)| (user_id as u64, schedule)).collect())
 }
 
 pub struct LlmLogParams<'a> {
@@ -388,6 +297,13 @@ pub async fn get_available_model(database: &Database, model_id: u8) -> crate::mo
 
 pub async fn get_default_llm_model(database: &Database) -> crate::models::AppResult<LlmModel> {
   get_llm_models(database).await?.into_iter().next().ok_or_else(|| crate::models::AppError::Message("No enabled LLM models available in database".into()))
+}
+
+pub async fn resolve_llm_model(database: &Database, preferred: Option<LlmModel>) -> crate::models::AppResult<LlmModel> {
+  match preferred {
+    Some(m) => Ok(m),
+    None => get_default_llm_model(database).await,
+  }
 }
 
 pub async fn update_user_llm_model(database: &Database, user_id: u64, llm_model: u8) -> crate::models::AppResult<LlmModel> {
@@ -494,7 +410,7 @@ pub async fn create_api_key(database: &Database, user_id: u64) -> crate::models:
 }
 
 /// Look up an authenticated user from a raw API key by hashing it and querying the DB, including custom rate limit.
-pub async fn get_auth_user_by_api_key(database: &Database, raw_key: &str) -> Option<(u64, Option<usize>)> {
+pub async fn get_auth_user_by_api_key(database: &Database, raw_key: &str) -> crate::models::AppResult<Option<(u64, Option<usize>)>> {
   use sha2::{Digest, Sha256};
 
   let mut hasher = Sha256::new();
@@ -504,10 +420,7 @@ pub async fn get_auth_user_by_api_key(database: &Database, raw_key: &str) -> Opt
   get_auth_user_by_api_key_hash(database, &key_hash).await
 }
 
-/// Look up a user_id from a raw API key by hashing it and querying the DB.
-pub async fn get_user_id_by_api_key(database: &Database, raw_key: &str) -> Option<u64> {
-  get_auth_user_by_api_key(database, raw_key).await.map(|(user_id, _)| user_id)
-}
+// Look up a user_id from a raw API key by hashing it and querying the DB (handled by get_auth_user_by_api_key).
 
 /// Fetch a user's custom rate limit (requests per minute) from the users table.
 pub async fn get_user_rate_limit(database: &Database, user_id: u64) -> Option<usize> {
@@ -592,53 +505,26 @@ pub async fn get_user_snapshot(database: &Database, user_id: u64) -> crate::mode
   }
 }
 
-/// Fetch user's last_active_at unix timestamp (seconds).
-pub async fn get_user_last_active(database: &Database, user_id: u64) -> crate::models::AppResult<Option<i64>> {
-  const SQL: &str = "SELECT last_active_at FROM users WHERE user_id = ?1";
-  match database {
-    Database::Sqlite(pool) => Ok(sqlx::query_as::<_, (i64,)>(SQL).bind(user_id as i64).fetch_optional(pool).await?.map(|(ts,)| ts)),
-    Database::D1(database) => Ok(database.fetch_all(SQL, vec![serde_json::json!(user_id)]).await?.first().and_then(|row| json_i64(row, "last_active_at"))),
-  }
-}
+// User last_active_at reference notes:
+// - Fetch user's last_active_at unix timestamp (seconds).
+// - Fetch user's last_active_at formatted as standard "%Y-%m-%d %H:%M:%S" from v_users.
+// - Update user's last_active_at timestamp to current unix epoch.
 
-/// Fetch user's last_active_at formatted as standard "%Y-%m-%d %H:%M:%S" from v_users.
-pub async fn get_user_last_active_formatted(database: &Database, user_id: u64) -> crate::models::AppResult<Option<String>> {
-  const SQL: &str = "SELECT last_active_at FROM v_users WHERE user_id = ?1";
-  match database {
-    Database::Sqlite(pool) => Ok(sqlx::query_as::<_, (String,)>(SQL).bind(user_id as i64).fetch_optional(pool).await?.map(|(dt,)| dt)),
-    Database::D1(database) => Ok(database.fetch_all(SQL, vec![serde_json::json!(user_id)]).await?.first().and_then(|row| json_string(row, "last_active_at"))),
-  }
-}
-
-/// Update user's last_active_at timestamp to current unix epoch.
-pub async fn touch_user_last_active(database: &Database, user_id: u64) -> crate::models::AppResult<()> {
-  const SQL: &str = "UPDATE users SET last_active_at = unixepoch() WHERE user_id = ?1";
-  match database {
-    Database::Sqlite(pool) => {
-      sqlx::query(SQL).bind(user_id as i64).execute(pool).await?;
-    }
-    Database::D1(database) => {
-      database.execute(SQL, vec![serde_json::json!(user_id)]).await?;
-    }
-  }
-  Ok(())
-}
-
-async fn get_auth_user_by_api_key_hash(database: &Database, key_hash: &str) -> Option<(u64, Option<usize>)> {
+async fn get_auth_user_by_api_key_hash(database: &Database, key_hash: &str) -> crate::models::AppResult<Option<(u64, Option<usize>)>> {
   const SQL: &str = "SELECT api_keys.user_id, users.rate_limit FROM api_keys LEFT JOIN users ON users.user_id = api_keys.user_id WHERE api_keys.key_hash = ?1";
   match database {
-    Database::Sqlite(pool) => sqlx::query_as::<_, (i64, Option<i64>)>(SQL)
-      .bind(key_hash)
-      .fetch_optional(pool)
-      .await
-      .ok()
-      .flatten()
-      .map(|(user_id, rate_limit)| (user_id as u64, rate_limit.and_then(|l| usize::try_from(l).ok()))),
-    Database::D1(database) => database.fetch_all(SQL, vec![serde_json::json!(key_hash)]).await.ok()?.first().and_then(|row| {
-      let user_id = json_i64(row, "user_id")? as u64;
-      let rate_limit = json_i64(row, "rate_limit").and_then(|l| usize::try_from(l).ok());
-      Some((user_id, rate_limit))
-    }),
+    Database::Sqlite(pool) => {
+      let row = sqlx::query_as::<_, (i64, Option<i64>)>(SQL).bind(key_hash).fetch_optional(pool).await.map_err(crate::models::AppError::from)?;
+      Ok(row.map(|(user_id, rate_limit)| (user_id as u64, rate_limit.and_then(|l| usize::try_from(l).ok()))))
+    }
+    Database::D1(database) => {
+      let rows = database.fetch_all(SQL, vec![serde_json::json!(key_hash)]).await?;
+      Ok(rows.first().and_then(|row| {
+        let user_id = json_i64(row, "user_id")? as u64;
+        let rate_limit = json_i64(row, "rate_limit").and_then(|l| usize::try_from(l).ok());
+        Some((user_id, rate_limit))
+      }))
+    }
   }
 }
 
@@ -669,7 +555,7 @@ mod tests {
     assert!(matches!(database, Database::Sqlite(_)));
     let available_model_1 = get_available_model(&database, 1).await.expect("query model 1").expect("model 1 exists");
     update_user_llm_model(&database, 42, 1).await.expect("SQLite fallback should accept writes");
-    let profile = get_user_profile(&database, 42).await;
+    let profile = get_user_profile(&database, 42).await.expect("profile");
     assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some(available_model_1.as_str()));
   }
 
@@ -685,7 +571,7 @@ mod tests {
     assert_eq!(models[2].id(), 2);
 
     update_user_llm_model(&database, 42, 1).await.expect("enabled model should be saved");
-    let profile = get_user_profile(&database, 42).await;
+    let profile = get_user_profile(&database, 42).await.expect("profile");
     assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some(models[1].as_str()));
 
     sqlx::query("UPDATE llm_models SET is_enabled = 0 WHERE model_id = 1").execute(&pool).await.expect("disable model");
@@ -693,7 +579,7 @@ mod tests {
     let updated_models = get_llm_models(&database).await.expect("available models");
     assert!(!updated_models.iter().any(|m| m.id() == 1));
     assert!(update_user_llm_model(&database, 43, 1).await.is_err());
-    assert_eq!(get_user_profile(&database, 42).await.llm_model, None);
+    assert_eq!(get_user_profile(&database, 42).await.expect("profile").llm_model, None);
 
     // Verify AUTOINCREMENT assigns the next ID monotonically when a new model is added
     sqlx::query("INSERT INTO llm_models (model_name, is_enabled) VALUES (?1, 1)").bind("openai/gpt-5.5-pro").execute(&pool).await.expect("insert new model");
@@ -714,13 +600,13 @@ mod tests {
     assert_eq!(get_user_rate_limit(&database, user_id).await, Some(15));
 
     let key = create_api_key(&database, user_id).await.expect("api key");
-    let auth_info = get_auth_user_by_api_key(&database, &key).await.expect("auth user");
+    let auth_info = get_auth_user_by_api_key(&database, &key).await.expect("query auth").expect("auth user");
     assert_eq!(auth_info.0, user_id);
     assert_eq!(auth_info.1, Some(15));
 
     set_user_rate_limit(&database, user_id, None).await.expect("clear rate limit");
     assert_eq!(get_user_rate_limit(&database, user_id).await, None);
-    let auth_info_cleared = get_auth_user_by_api_key(&database, &key).await.expect("auth user");
+    let auth_info_cleared = get_auth_user_by_api_key(&database, &key).await.expect("query auth").expect("auth user");
     assert_eq!(auth_info_cleared.1, None);
   }
 
@@ -749,31 +635,13 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn users_last_active_at_stored_as_timestamp_and_view_formats_as_utc8() {
-    let pool = init_db("sqlite::memory:").await.expect("database");
-    let database = Database::Sqlite(pool.clone());
-    let user_id = 8888;
-
-    let before_epoch = chrono::Utc::now().timestamp();
-    sqlx::query("INSERT INTO users (user_id) VALUES (?1)").bind(user_id as i64).execute(&pool).await.expect("insert user");
-    let after_epoch = chrono::Utc::now().timestamp();
-
-    let ts = get_user_last_active(&database, user_id).await.expect("fetch last active").expect("timestamp exists");
-    assert!(ts >= before_epoch && ts <= after_epoch);
-
-    let formatted = get_user_last_active_formatted(&database, user_id).await.expect("fetch formatted").expect("formatted string exists");
-    assert_eq!(crate::utils::format_timestamp_utc8(ts), Some(formatted.clone()));
-    assert_eq!(crate::utils::parse_timestamp_utc8(&formatted), Some(ts));
-  }
-
-  #[tokio::test]
   async fn unset_user_llm_model_defaults_to_model_0_from_db() {
     let pool = init_db("sqlite::memory:").await.expect("database");
     let database = Database::Sqlite(pool.clone());
     let user_id = 777;
 
     sqlx::query("INSERT INTO users (user_id) VALUES (?1)").bind(user_id as i64).execute(&pool).await.expect("insert user");
-    let profile = get_user_profile(&database, user_id).await;
+    let profile = get_user_profile(&database, user_id).await.expect("profile");
     let default_model = get_default_llm_model(&database).await.expect("default model");
     assert_eq!(profile.llm_model.as_ref().map(|m| m.id()), Some(default_model.id()));
     assert_eq!(profile.llm_model.as_ref().map(|m| m.as_str()), Some(default_model.as_str()));

@@ -4,8 +4,7 @@ use teloxide::prelude::*;
 // ─────────────────────────────────────────────
 // Message handler
 // ─────────────────────────────────────────────
-pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
-  let state = crate::models::get_state();
+pub async fn handle_message(bot: Bot, state: std::sync::Arc<crate::models::AppState>, msg: Message) -> ResponseResult<()> {
   let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0);
   if user_id == 0 {
     return Ok(());
@@ -32,15 +31,17 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
   }
 
   // Intercept pick activity text
-  let is_pick_activity = {
-    let mut ctx = state.user_contexts.entry(user_id).or_default();
-    if ctx.pick_state.waiting_for_text {
-      ctx.pick_state.activity = Some(content.to_string());
-      ctx.pick_state.waiting_for_text = false;
+  let is_pick_activity = if let Some(mut wizard) = state.pick_wizards.get_mut(&user_id) {
+    if wizard.waiting_for_text {
+      wizard.activity = Some(content.to_string());
+      wizard.waiting_for_text = false;
+      wizard.last_active = std::time::Instant::now();
       true
     } else {
       false
     }
+  } else {
+    false
   };
 
   let chat_id = msg.chat.id;
@@ -48,9 +49,10 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
 
   if is_pick_activity {
     let target = Some(super::command_actions::MessageTarget::Reply(msg.id));
+    let state_clone = state.clone();
     state.runtime.tasks.spawn(async move {
       let _guard = _guard;
-      let _ = super::run(super::command_actions::process_pick_selection(bot_clone, chat_id, user_id, target, effort)).await;
+      let _ = super::run(state_clone.clone(), super::command_actions::process_pick_selection(bot_clone, &state_clone, chat_id, user_id, target, effort)).await;
     });
     return Ok(());
   }
@@ -79,7 +81,7 @@ pub async fn handle_message(bot: Bot, msg: Message) -> ResponseResult<()> {
       }
     };
 
-    super::helpers::stream_to_telegram(&bot_clone, chat_id, "📝 Generating...", stream).await;
+    super::helpers::stream_to_telegram(&bot_clone, &state_clone, chat_id, "📝 Generating...", stream).await;
   });
 
   Ok(())

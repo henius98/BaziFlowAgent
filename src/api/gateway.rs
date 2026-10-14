@@ -53,8 +53,7 @@ pub fn origin_allowed(headers: &HeaderMap, configured: &str) -> bool {
   configured != "*" && configured.split(',').any(|allowed| allowed.trim().trim_end_matches('/') == origin)
 }
 
-pub async fn upgrade(auth: AuthUser, headers: HeaderMap, ws: WebSocketUpgrade) -> Response {
-  let state = crate::models::get_state();
+pub async fn upgrade(axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::models::AppState>>, auth: AuthUser, headers: HeaderMap, ws: WebSocketUpgrade) -> Response {
   if !origin_allowed(&headers, &state.config.cors_allowed_origin) {
     return StatusCode::FORBIDDEN.into_response();
   }

@@ -51,7 +51,7 @@ Detailed reference document disclosing codebase layout, component maps, and quic
 - **`mod.rs`**: Re-exports.
 - **`common.rs`**: Common data types (`LlmModel`, `LlmStream` transferring `bytes::Bytes`).
 - **`error.rs`**: `AppError`, `AppResult<T>`, and `LogErrorExt`.
-- **`state.rs`**: `AppState` struct holding decoupled repository traits and `UserContext` (`VecDeque<ChatTurn>`).
+- **`state.rs`**: `AppState` struct holding `Database`, `ChatHistoryCache`, `BlobStore`, and `UserContext` (`VecDeque<ChatTurn>`).
 - **`runtime.rs`**: Unified `AdmissionController`, `AdmissionPermit`, and `RateLimiter`.
 - **`processing_guard.rs`**: RAII `ProcessingGuard` for user single-flight locking.
 - **`events.rs`**: In-memory pub-sub event bus.
@@ -59,7 +59,7 @@ Detailed reference document disclosing codebase layout, component maps, and quic
 ### `repos/` — Storage & Database Layer
 
 - **`mod.rs`**: SQLite initialization and helper queries.
-- **`traits.rs`**: Dyn-compatible contracts (`UserRepository`, `LlmLogRepository`, `ChatCacheRepository`, `BlobStore`).
+- **`traits.rs`**: Dyn-compatible storage contract (`BlobStore`) and cache turn types (`CacheRole`, `ChatTurnRecord`).
 - **`blob_store.rs`**: Concrete blob store implementations (`LocalFsBlobStore`, `R2BlobStore`).
 - **`chat_history_cache.rs`**: Write-behind persistent chat turn cache with WAL sync.
 - **`d1.rs`**: Cloudflare D1 REST client implementation.
@@ -103,17 +103,32 @@ Detailed reference document disclosing codebase layout, component maps, and quic
 
 ---
 
-## 📁 Directory Structure
+## 📁 Directory Structure & Workspace Architecture
+
+The codebase is organized as a Cargo workspace:
+- **`crates/baziflow-core`**: Pure astrological domain crate with minimal dependencies (`chrono`, `serde`, `thiserror`). Zero relational database, network HTTP client, or Telegram dependencies. Encapsulates true solar time (`solar_time`), equation of time, Blindman bazi calculation (`bazi_utils`), pure domain data models (`models`), and HTML template rendering (`formatter`).
+- **`baziflow-agent` (`src/`)**: Primary application binary and integration layer housing Axum HTTP endpoints, Teloxide Telegram bot handlers, storage repositories (`Database`, `ChatHistoryCache`, `BlobStore`), background scheduler, and external service adapters (`AlmanacProvider`, `ChartProvider`, `LlmService`).
 
 ```text
 BaziFlowAgent/
 ├── .env                          # App secrets (never commit)
 ├── .env.example                  # Template for required env vars
-├── Cargo.toml                    # Cargo config and dependency tree
+├── Cargo.toml                    # Root workspace manifest
 ├── GLOSSARY.md                   # Canonical domain glossary
 ├── prompts/                      # Embedded system prompts
+├── crates/
+│   └── baziflow-core/            # Pure astrological domain crate
+│       ├── Cargo.toml
+│       └── src/
+│           ├── lib.rs            # Core library root
+│           ├── common.rs         # WuXing, stems, branches, cities
+│           ├── error.rs          # DomainError
+│           ├── solar_time.rs     # True solar time & EoT
+│           ├── models.rs         # StructuredBazi, RawBaziChart
+│           ├── formatter.rs      # HTML generation & Display
+│           └── bazi_utils.rs     # Blindman bazi math & traits
 ├── docs/
-│   ├── adr/                      # Architectural Decision Records (ADR 0001, 0002, 0003)
+│   ├── adr/                      # Architectural Decision Records (ADR 0001, 0002, 0003, 0004)
 │   ├── agents/                   # Agent guides (issue-tracker.md, triage-labels.md, domain.md)
 │   ├── issues/                   # Offline task/issue tracking directory
 │   ├── project-flow-sequence.md  # Version-controlled Mermaid sequence diagrams
@@ -121,14 +136,14 @@ BaziFlowAgent/
 ├── scripts/
 │   └── check.sh                  # Pre-flight formatting, clippy, and comment check
 ├── src/
-│   ├── lib.rs                    # Library root
+│   ├── lib.rs                    # Library root (re-exports baziflow_core as core)
 │   ├── main.rs                   # Entry point
 │   ├── api/                      # Web API (admission.rs, handlers.rs, auth.rs)
 │   ├── bot/                      # Telegram bot (commands, callbacks, keyboards, messages)
 │   ├── config/                   # Configuration loader
 │   ├── models/                   # Domain types, runtime admission, state
 │   ├── repos/                    # Storage traits, sqlite, d1, blob_store, cache
-│   └── services/                 # Bazi, almanac, conversation, llm, paipan
+│   └── services/                 # Bazi, almanac, conversation, llm, paipan facades
 ├── tests/                        # Integration, unit, and prototype tests
 ├── migrations/                   # SQLx migration files
 ├── logs/                         # Runtime logs (gitignored)

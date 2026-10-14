@@ -30,5 +30,5 @@ pub fn test_config(mock_url: String) -> AppConfig {
 
 pub async fn test_state(config: Arc<AppConfig>, pool: SqlitePool) -> Arc<AppState> {
   let chat_cache = baziflow_agent::repos::chat_history_cache::init_chat_history_cache(&config.chat_cache_database_url, config.chat_cache_max_messages).await.unwrap();
-  Arc::new(AppState::new(reqwest::Client::new(), pool, chat_cache.pool, chat_cache.writer, config).unwrap())
+  Arc::new(AppState::new(reqwest::Client::new(), pool, chat_cache.pool, chat_cache.writer, config, None, None).unwrap())
 }

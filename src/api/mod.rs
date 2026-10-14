@@ -14,7 +14,8 @@ use std::sync::Arc;
 
 /// Build the API router with all v1 endpoints.
 /// Auth middleware is applied per-handler via the `AuthUser` extractor.
-pub fn api_router(config: Arc<crate::config::AppConfig>) -> Router {
+pub fn api_router(state: Arc<crate::models::AppState>) -> Router {
+  let config = &state.config;
   let cors_layer = if config.cors_allowed_origin == "*" {
     CorsLayer::permissive()
   } else {
@@ -30,7 +31,7 @@ pub fn api_router(config: Arc<crate::config::AppConfig>) -> Router {
     CorsLayer::new().allow_origin(origins).allow_methods(tower_http::cors::Any).allow_headers(tower_http::cors::Any)
   };
 
-  Router::new()
+  let api_routes = Router::new()
     .route("/api/v1/ws", get(gateway::upgrade))
     .route("/api/v1/profile", get(handlers::get_profile).post(handlers::create_profile))
     .route("/api/v1/date-fortune", get(handlers::date_fortune))
@@ -40,11 +41,18 @@ pub fn api_router(config: Arc<crate::config::AppConfig>) -> Router {
     .route("/api/v1/schedule", put(handlers::update_schedule))
     .route("/api/v1/chat", post(handlers::chat))
     .layer(axum::extract::DefaultBodyLimit::max(config.runtime.max_message_bytes))
-    .route_layer(axum::middleware::from_fn(admission::admit))
+    .route_layer(axum::middleware::from_fn_with_state(state.clone(), admission::admit));
+
+  Router::new()
+    .route("/charts/{token}", get(charts::chart))
+    .route("/charts/logo_ai_bot.png", get(|| async { charts::logo() }))
+    .route("/logo_ai_bot.png", get(|| async { charts::logo() }))
+    .merge(api_routes)
     .layer(cors_layer)
     .route_layer(
       TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<axum::body::Body>| tracing::info_span!("http_request", method = %request.method(), path = request.uri().path())),
     )
+    .with_state(state)
 }
 
 /// Low-latency sockets for request/response and incremental streaming workloads.

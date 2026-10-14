@@ -1,5 +1,5 @@
 mod test_helpers;
-use baziflow_agent::{api, models::state::GLOBAL_STATE, repos, services::paipan::models::RawBaziChart};
+use baziflow_agent::{api, repos, services::paipan::models::RawBaziChart};
 use futures::{SinkExt, StreamExt};
 use std::{hint::black_box, sync::Arc, time::Instant};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
@@ -33,8 +33,7 @@ async fn websocket_load() {
   config.runtime.max_connections = 1200;
   let config = Arc::new(config);
   let state = test_helpers::test_state(config.clone(), pool.clone()).await;
-  GLOBAL_STATE.set(state.clone()).unwrap();
-  let app = api::api_router(config);
+  let app = api::api_router(state.clone());
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   let url = format!("ws://{}/api/v1/ws", listener.local_addr().unwrap());
   let shutdown = state.runtime.shutdown.clone();

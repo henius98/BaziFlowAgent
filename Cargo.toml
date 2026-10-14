@@ -4,13 +4,28 @@ version = "0.1.0"
 edition = "2024"
 description = "BaziFlowAgent - A high-performance AI Agent for Bazi analysis and traditional Chinese almanac."
 
+[workspace]
+members = [
+  ".",
+  "crates/baziflow-core",
+]
+
+[workspace.dependencies]
+chrono = { version = "0.4.45", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.152"
+thiserror = "2.0.21"
+
 [dependencies]
+baziflow-core = { path = "crates/baziflow-core" }
+
 # Telegram Bot Framework
-teloxide = { version = "0.17.0", features = [
+teloxide = { version = "0.17.0", default-features = false, features = [
   "macros",
   "ctrlc_handler",
   "throttle",
   "webhooks-axum",
+  "rustls",
 ] }
 
 # Async Runtime
@@ -20,14 +35,13 @@ tokio-util = { version = "0.7.20", features = ["rt"] }
 
 # HTTP Client
 reqwest = { version = "0.13.5", features = ["json", "rustls"] }
-openssl = { version = "0.10.81", features = ["vendored"] }
 
 # OpenAI API Client
 async-openai = { version = "0.42.2", features = ["chat-completion"] }
 
 # Error Handling
 anyhow = "1.0.104"
-thiserror = "2.0.21"
+thiserror = { workspace = true }
 
 sqlx = { version = "0.9.0", features = [
   "sqlite",
@@ -42,14 +56,14 @@ sqlx = { version = "0.9.0", features = [
 futures = "0.3.34"
 
 # Serialization
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.152"
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 # Environment Variables
 dotenvy = "0.15.7"
 
 # Date/Time
-chrono = { version = "0.4.45", features = ["serde"] }
+chrono = { workspace = true }
 chrono-tz = "0.10.4"
 
 # Logging
@@ -85,7 +99,6 @@ rand = "0.10.3"
 
 # Async Stream utilities (for SSE streaming)
 async-stream = "0.3.6"
-tower = { version = "0.5.3", features = ["util"] }
 aes-gcm = "0.11.1"
 
 [profile.release]
@@ -99,6 +112,7 @@ panic = "abort"
 [dev-dependencies]
 mockito = "1.7.2"
 tokio-tungstenite = "0.30.0"
+tower = { version = "0.5.3", features = ["util"] }
 
 [patch.crates-io]
 # Fix the private proc_macro re-export until this transitive dependency is replaced upstream.

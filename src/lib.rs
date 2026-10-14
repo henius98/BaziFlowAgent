@@ -7,3 +7,5 @@ pub mod repos;
 pub mod scheduler;
 pub mod services;
 pub mod utils;
+
+pub use baziflow_core as core;

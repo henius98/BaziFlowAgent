@@ -30,8 +30,7 @@ pub enum Command {
 // ─────────────────────────────────────────────
 // Command handler
 // ─────────────────────────────────────────────
-pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
-  let state = crate::models::get_state();
+pub async fn handle_command(bot: Bot, state: std::sync::Arc<crate::models::AppState>, msg: Message, cmd: Command) -> ResponseResult<()> {
   let user_id = msg.from.as_ref().map_or(0, |user| user.id.0);
   let _guard = match crate::models::ProcessingGuard::try_acquire(state.clone(), user_id) {
     Ok(guard) => guard,
@@ -42,10 +41,9 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
   };
   match cmd {
     Command::New => {
-      let state = crate::models::get_state();
       if let Some(user) = msg.from.as_ref() {
         let user_id = user.id.0;
-        let profile = crate::repos::get_user_profile(&state.db_pool, user_id).await;
+        let profile = crate::repos::get_user_profile(&state.db_pool, user_id).await.unwrap_or_default();
 
         if profile.bazi_four_pillars.is_some() {
           let markup = keyboards::build_new_bazi_warning();
@@ -62,21 +60,15 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
     }
 
     Command::Date => {
-      let state = crate::models::get_state();
       let now = chrono::Utc::now().with_timezone(&state.config.app_timezone);
       let markup = keyboards::build_calendar(now.year(), now.month());
       bot.send_message(msg.chat.id, "Please select a date:").reply_markup(markup).await?;
     }
 
     Command::Pick => {
-      let state = crate::models::get_state();
       if let Some(user) = msg.from.as_ref() {
         let user_id = user.id.0;
-        let mut ctx = state.user_contexts.entry(user_id).or_default();
-        ctx.pick_state.start_date = None;
-        ctx.pick_state.end_date = None;
-        ctx.pick_state.activity = None;
-        ctx.pick_state.waiting_for_text = false;
+        state.pick_wizards.insert(user_id, crate::models::state::PickState::default());
       }
 
       let now = chrono::Utc::now().with_timezone(&state.config.app_timezone);
@@ -93,7 +85,7 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
         }
       };
 
-      command_actions::display_user_profile(bot, msg.chat.id, user_id).await?;
+      command_actions::display_user_profile(bot, &state, msg.chat.id, user_id).await?;
     }
 
     Command::Model => {
@@ -116,7 +108,6 @@ pub async fn handle_command(bot: Bot, msg: Message, cmd: Command) -> ResponseRes
         bot.send_message(msg.chat.id, "Manage API keys in your private chat with the bot.").await?;
         return Ok(());
       }
-      let state = crate::models::get_state();
       if let Some(user) = msg.from.as_ref() {
         let user_id = user.id.0;
         let existing = crate::repos::get_api_key_info(&state.db_pool, user_id).await;

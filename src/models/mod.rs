@@ -5,10 +5,10 @@ pub mod state;
 
 pub use common::LlmResponse;
 pub use common::*;
+pub use error::AppResult;
 pub use error::*;
-pub use error::{AppResult, LogErrorExt};
 pub use processing_guard::*;
 pub use state::*;
-pub use state::{AppState, UserContext, get_state};
+pub use state::{AppState, UserContext};
 pub mod events;
 pub mod runtime;
